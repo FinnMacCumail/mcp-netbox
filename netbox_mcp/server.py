@@ -16,7 +16,10 @@ from .exceptions import (
     NetBoxConnectionError,
     NetBoxAuthError,
     NetBoxNotFoundError,
-    NetBoxValidationError
+    NetBoxValidationError,
+    NetBoxWriteError,
+    NetBoxConfirmationError,
+    NetBoxDryRunError
 )
 import os
 import logging
@@ -437,6 +440,448 @@ def netbox_get_manufacturers(limit: Optional[int] = None) -> Dict[str, Any]:
         return {
             "count": 0,
             "manufacturers": [],
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError"
+        }
+
+
+# === WRITE OPERATIONS MCP TOOLS ===
+# All write operations require confirm=True for safety and respect dry-run mode
+
+
+@mcp.tool()
+def netbox_create_manufacturer(
+    name: str,
+    slug: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create a new manufacturer in NetBox.
+
+    SAFETY: This is a write operation that requires confirm=True for safety.
+    All operations respect the global dry-run mode setting.
+
+    Args:
+        name: Manufacturer name (required)
+        slug: URL slug (auto-generated from name if not provided)
+        description: Optional description
+        confirm: Must be True to execute the operation (safety mechanism)
+
+    Returns:
+        Created manufacturer information or error details
+
+    Example:
+        netbox_create_manufacturer("Cisco Systems", confirm=True)
+        netbox_create_manufacturer("Dell Technologies", slug="dell", description="Server manufacturer", confirm=True)
+    """
+    try:
+        # Input validation
+        if not name or not name.strip():
+            raise NetBoxValidationError("Manufacturer name cannot be empty")
+        
+        # Build manufacturer data
+        data = {"name": name.strip()}
+        if slug:
+            data["slug"] = slug
+        if description:
+            data["description"] = description
+        
+        # Execute create operation (includes safety checks)
+        result = netbox_client.create_object("manufacturers", data, confirm=confirm)
+        
+        return {
+            "success": True,
+            "action": "created",
+            "object_type": "manufacturer",
+            "manufacturer": result,
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except NetBoxConfirmationError as e:
+        logger.warning(f"Create manufacturer failed - confirmation required: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ConfirmationRequired",
+            "help": "Add confirm=True parameter to execute this write operation"
+        }
+    except NetBoxValidationError as e:
+        logger.error(f"Create manufacturer validation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ValidationError"
+        }
+    except NetBoxWriteError as e:
+        logger.error(f"Create manufacturer write failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "WriteError"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error creating manufacturer: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError"
+        }
+
+
+@mcp.tool()
+def netbox_create_site(
+    name: str,
+    slug: Optional[str] = None,
+    status: str = "active",
+    region: Optional[str] = None,
+    description: Optional[str] = None,
+    physical_address: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create a new site in NetBox.
+
+    SAFETY: This is a write operation that requires confirm=True for safety.
+    All operations respect the global dry-run mode setting.
+
+    Args:
+        name: Site name (required)
+        slug: URL slug (auto-generated from name if not provided)
+        status: Site status (default: "active")
+        region: Optional region name
+        description: Optional description
+        physical_address: Optional physical address
+        confirm: Must be True to execute the operation (safety mechanism)
+
+    Returns:
+        Created site information or error details
+
+    Example:
+        netbox_create_site("Datacenter Amsterdam", confirm=True)
+        netbox_create_site("Branch Office NYC", slug="branch-nyc", status="active", confirm=True)
+    """
+    try:
+        # Input validation
+        if not name or not name.strip():
+            raise NetBoxValidationError("Site name cannot be empty")
+        
+        # Build site data
+        data = {
+            "name": name.strip(),
+            "status": status
+        }
+        if slug:
+            data["slug"] = slug
+        if region:
+            data["region"] = region
+        if description:
+            data["description"] = description
+        if physical_address:
+            data["physical_address"] = physical_address
+        
+        # Execute create operation (includes safety checks)
+        result = netbox_client.create_object("sites", data, confirm=confirm)
+        
+        return {
+            "success": True,
+            "action": "created",
+            "object_type": "site",
+            "site": result,
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except NetBoxConfirmationError as e:
+        logger.warning(f"Create site failed - confirmation required: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ConfirmationRequired",
+            "help": "Add confirm=True parameter to execute this write operation"
+        }
+    except NetBoxValidationError as e:
+        logger.error(f"Create site validation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ValidationError"
+        }
+    except NetBoxWriteError as e:
+        logger.error(f"Create site write failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "WriteError"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error creating site: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError"
+        }
+
+
+@mcp.tool()
+def netbox_create_device_role(
+    name: str,
+    slug: Optional[str] = None,
+    color: str = "9e9e9e",
+    vm_role: bool = False,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create a new device role in NetBox.
+
+    SAFETY: This is a write operation that requires confirm=True for safety.
+    All operations respect the global dry-run mode setting.
+
+    Args:
+        name: Device role name (required)
+        slug: URL slug (auto-generated from name if not provided)
+        color: Hex color code (default: gray)
+        vm_role: Whether this role applies to virtual machines
+        description: Optional description
+        confirm: Must be True to execute the operation (safety mechanism)
+
+    Returns:
+        Created device role information or error details
+
+    Example:
+        netbox_create_device_role("Core Switch", confirm=True)
+        netbox_create_device_role("Hypervisor", color="2196f3", vm_role=True, confirm=True)
+    """
+    try:
+        # Input validation
+        if not name or not name.strip():
+            raise NetBoxValidationError("Device role name cannot be empty")
+        
+        # Build device role data
+        data = {
+            "name": name.strip(),
+            "color": color,
+            "vm_role": vm_role
+        }
+        if slug:
+            data["slug"] = slug
+        if description:
+            data["description"] = description
+        
+        # Execute create operation (includes safety checks)
+        result = netbox_client.create_object("device_roles", data, confirm=confirm)
+        
+        return {
+            "success": True,
+            "action": "created",
+            "object_type": "device_role",
+            "device_role": result,
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except NetBoxConfirmationError as e:
+        logger.warning(f"Create device role failed - confirmation required: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ConfirmationRequired",
+            "help": "Add confirm=True parameter to execute this write operation"
+        }
+    except NetBoxValidationError as e:
+        logger.error(f"Create device role validation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ValidationError"
+        }
+    except NetBoxWriteError as e:
+        logger.error(f"Create device role write failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "WriteError"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error creating device role: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError"
+        }
+
+
+@mcp.tool()
+def netbox_update_device_status(
+    device_name: str,
+    status: str,
+    site: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Update the status of a device in NetBox.
+
+    SAFETY: This is a write operation that requires confirm=True for safety.
+    All operations respect the global dry-run mode setting.
+
+    Args:
+        device_name: Name of the device to update
+        status: New status (e.g., "active", "offline", "decommissioning")
+        site: Optional site name to help identify the device
+        confirm: Must be True to execute the operation (safety mechanism)
+
+    Returns:
+        Updated device information or error details
+
+    Example:
+        netbox_update_device_status("switch-01", "offline", confirm=True)
+        netbox_update_device_status("router-01", "active", site="datacenter-1", confirm=True)
+    """
+    try:
+        # Safety check first - this ensures confirm=True is required regardless of device existence
+        if not confirm:
+            raise NetBoxConfirmationError("Write operation 'update_device_status' requires confirm=True parameter")
+        
+        # Then find the device
+        device = netbox_client.get_device(device_name, site)
+        if not device:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found" + (f" at site '{site}'" if site else ""),
+                "error_type": "DeviceNotFound"
+            }
+        
+        # Execute update operation (includes safety checks)
+        result = netbox_client.update_object("devices", device["id"], {"status": status}, confirm=confirm)
+        
+        return {
+            "success": True,
+            "action": "updated",
+            "object_type": "device",
+            "device": result,
+            "old_status": device.get("status"),
+            "new_status": status,
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except NetBoxConfirmationError as e:
+        logger.warning(f"Update device status failed - confirmation required: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ConfirmationRequired",
+            "help": "Add confirm=True parameter to execute this write operation"
+        }
+    except NetBoxNotFoundError as e:
+        logger.error(f"Update device status failed - device not found: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "DeviceNotFound"
+        }
+    except NetBoxValidationError as e:
+        logger.error(f"Update device status validation failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ValidationError"
+        }
+    except NetBoxWriteError as e:
+        logger.error(f"Update device status write failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "WriteError"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error updating device status: {e}")
+        return {
+            "success": False,
+            "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError"
+        }
+
+
+@mcp.tool()
+def netbox_delete_manufacturer(
+    manufacturer_name: str,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Delete a manufacturer from NetBox.
+
+    SAFETY: This is a destructive write operation that requires confirm=True for safety.
+    All operations respect the global dry-run mode setting.
+
+    WARNING: This will fail if the manufacturer is referenced by device types or other objects.
+
+    Args:
+        manufacturer_name: Name of the manufacturer to delete
+        confirm: Must be True to execute the operation (safety mechanism)
+
+    Returns:
+        Deletion result or error details
+
+    Example:
+        netbox_delete_manufacturer("Obsolete Vendor", confirm=True)
+    """
+    try:
+        # Safety check first - this ensures confirm=True is required regardless of manufacturer existence
+        if not confirm:
+            raise NetBoxConfirmationError("Write operation 'delete_manufacturer' requires confirm=True parameter")
+        
+        # Then find the manufacturer
+        manufacturers = netbox_client.get_manufacturers()
+        manufacturer = None
+        for mfg in manufacturers:
+            if mfg["name"].lower() == manufacturer_name.lower():
+                manufacturer = mfg
+                break
+        
+        if not manufacturer:
+            return {
+                "success": False,
+                "error": f"Manufacturer '{manufacturer_name}' not found",
+                "error_type": "ManufacturerNotFound"
+            }
+        
+        # Execute delete operation (includes safety checks)
+        result = netbox_client.delete_object("manufacturers", manufacturer["id"], confirm=confirm)
+        
+        return {
+            "success": True,
+            "action": "deleted",
+            "object_type": "manufacturer",
+            "deleted_manufacturer": result.get("original_data", manufacturer),
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except NetBoxConfirmationError as e:
+        logger.warning(f"Delete manufacturer failed - confirmation required: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ConfirmationRequired",
+            "help": "Add confirm=True parameter to execute this write operation"
+        }
+    except NetBoxNotFoundError as e:
+        logger.error(f"Delete manufacturer failed - not found: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "ManufacturerNotFound"
+        }
+    except NetBoxWriteError as e:
+        logger.error(f"Delete manufacturer write failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": "WriteError",
+            "help": "Manufacturer may be referenced by device types or other objects"
+        }
+    except Exception as e:
+        logger.error(f"Unexpected error deleting manufacturer: {e}")
+        return {
+            "success": False,
             "error": f"Unexpected error: {str(e)}",
             "error_type": "UnexpectedError"
         }
