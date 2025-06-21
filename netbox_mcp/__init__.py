@@ -22,6 +22,7 @@ VERSION_STRING = ".".join(map(str, VERSION))
 # Package exports
 from .exceptions import NetBoxError, NetBoxConnectionError, NetBoxAuthError
 from .config import NetBoxConfig, SafetyConfig, CacheConfig, load_config
+from .client import NetBoxClient, ConnectionStatus
 
 __all__ = [
     "__version__",
@@ -34,4 +35,6 @@ __all__ = [
     "SafetyConfig", 
     "CacheConfig",
     "load_config",
+    "NetBoxClient",
+    "ConnectionStatus",
 ]
