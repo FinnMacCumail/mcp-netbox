@@ -2162,184 +2162,498 @@ class NetBoxBulkOrchestrator:
     """
     Stateless orchestrator for two-pass NetBox bulk operations.
     
-    Based on Gemini's architectural guidance, this class provides:
-    - Stateless design: Created fresh for each operation, no persistent state
-    - Two-pass strategy: Core objects first, then relationships
-    - Rollback capability via batch_id tracking
-    - Comprehensive error handling and safety mechanisms
+    Architecture based on Gemini's guidance:
+    - Absolutely stateless per operation - no persistent state between operations
+    - Strict DAG dependency structure: Manufacturer → DeviceType → Device  
+    - Object cache contains full pynetbox objects (not just IDs) for optimization
+    - batch_id tracking for robust rollback capability
+    - Pre-flight report generation with detailed diff analysis
     """
+    
+    # Strict dependency graph - defines processing order for Pass 1
+    DEPENDENCY_ORDER = [
+        'manufacturers',    # No dependencies
+        'sites',           # No dependencies  
+        'device_roles',    # No dependencies
+        'device_types',    # Depends on manufacturers
+        'devices'          # Depends on device_types, sites, device_roles
+    ]
     
     def __init__(self, netbox_client: 'NetBoxClient'):
         """
-        Initialize stateless orchestrator.
+        Initialize stateless orchestrator for single bulk operation.
         
         Args:
             netbox_client: NetBox client instance for API operations
         """
         self.client = netbox_client
-        self.operation_cache = {}  # Temporary cache for current operation only
-        self.batch_id = None
-        self.results = {
-            "pass_1": {"created": [], "updated": [], "unchanged": [], "errors": []},
-            "pass_2": {"created": [], "updated": [], "unchanged": [], "errors": []}
+        
+        # Object cache: {object_type: {name: full_pynetbox_object}}
+        # Contains full objects for optimization (avoid extra API calls)
+        self.object_cache = {
+            'manufacturers': {},
+            'sites': {},
+            'device_roles': {},
+            'device_types': {},
+            'devices': {},
+            'interfaces': {},
+            'ip_addresses': {}
         }
         
-        logger.info("NetBoxBulkOrchestrator initialized in stateless mode")
+        # Operation tracking
+        self.batch_id = self._generate_batch_id()
+        self.normalized_data = {}
+        self.pre_flight_report = {}
+        
+        # Results tracking
+        self.results = {
+            "pass_1": {"created": [], "updated": [], "unchanged": [], "errors": []},
+            "pass_2": {"created": [], "updated": [], "unchanged": [], "errors": []},
+            "summary": {}
+        }
+        
+        logger.info(f"NetBoxBulkOrchestrator initialized (stateless) with batch_id: {self.batch_id}")
     
-    def generate_batch_id(self) -> str:
+    def _generate_batch_id(self) -> str:
         """Generate unique batch ID for rollback tracking."""
         import uuid
         from datetime import datetime
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         batch_uuid = str(uuid.uuid4())[:8]
-        self.batch_id = f"batch_{timestamp}_{batch_uuid}"
+        batch_id = f"batch_{timestamp}_{batch_uuid}"
         
-        logger.info(f"Generated batch ID: {self.batch_id}")
-        return self.batch_id
+        logger.info(f"Generated batch ID: {batch_id}")
+        return batch_id
     
-    def normalize_device_data(self, device_data: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_bulk_data(self, devices_data: List[Dict[str, Any]]) -> Dict[str, List]:
         """
-        Normalize complex device data for two-pass processing.
+        Parse & Normalize: Convert nested JSON to flat lists for DAG processing.
+        
+        Following Gemini's guidance: normalize complex nested structures into 
+        separate lists that can be processed in dependency order.
         
         Args:
-            device_data: Raw device data with nested relationships
+            devices_data: List of raw device data with nested relationships
             
         Returns:
-            Normalized data structure optimized for two-pass strategy
+            Normalized flat lists by object type for DAG processing
         """
+        logger.info(f"Normalizing {len(devices_data)} devices for two-pass processing")
+        
         normalized = {
-            "core_objects": {
-                "manufacturer": device_data.get("manufacturer"),
-                "site": device_data.get("site"), 
-                "device_role": device_data.get("role"),
-                "device_type": {
-                    "name": device_data.get("device_type"),
-                    "manufacturer": device_data.get("manufacturer"),
-                    "model": device_data.get("model"),
-                    "description": device_data.get("device_type_description")
-                }
-            },
-            "relationship_objects": {
-                "device": {
-                    "name": device_data.get("name"),
-                    "device_type": device_data.get("device_type"),
-                    "site": device_data.get("site"),
-                    "role": device_data.get("role"),
-                    "platform": device_data.get("platform"),
-                    "status": device_data.get("status", "active"),
-                    "description": device_data.get("description")
-                },
-                "interfaces": device_data.get("interfaces", []),
-                "ip_addresses": device_data.get("ip_addresses", [])
-            },
-            "metadata": {
-                "batch_id": self.batch_id,
-                "source_system": device_data.get("source_system", "enterprise"),
-                "sync_timestamp": device_data.get("sync_timestamp")
-            }
+            'manufacturers': [],
+            'sites': [],
+            'device_roles': [],
+            'device_types': [],
+            'devices': [],
+            'interfaces': [],
+            'ip_addresses': []
         }
         
+        # Track seen objects to avoid duplicates
+        seen = {obj_type: set() for obj_type in normalized.keys()}
+        
+        for device_data in devices_data:
+            # Extract manufacturers
+            if device_data.get("manufacturer"):
+                manufacturer_name = device_data["manufacturer"]
+                if manufacturer_name not in seen['manufacturers']:
+                    normalized['manufacturers'].append({
+                        "name": manufacturer_name,
+                        "slug": manufacturer_name.lower().replace(" ", "-"),
+                        "batch_id": self.batch_id
+                    })
+                    seen['manufacturers'].add(manufacturer_name)
+            
+            # Extract sites
+            if device_data.get("site"):
+                site_name = device_data["site"]
+                if site_name not in seen['sites']:
+                    normalized['sites'].append({
+                        "name": site_name,
+                        "slug": site_name.lower().replace(" ", "-"),
+                        "status": "active",
+                        "batch_id": self.batch_id
+                    })
+                    seen['sites'].add(site_name)
+            
+            # Extract device roles
+            if device_data.get("role"):
+                role_name = device_data["role"]
+                if role_name not in seen['device_roles']:
+                    normalized['device_roles'].append({
+                        "name": role_name,
+                        "slug": role_name.lower().replace(" ", "-"),
+                        "color": "9e9e9e",  # Default gray
+                        "vm_role": False,
+                        "batch_id": self.batch_id
+                    })
+                    seen['device_roles'].add(role_name)
+            
+            # Extract device types
+            if device_data.get("device_type") and device_data.get("manufacturer"):
+                device_type_key = f"{device_data['manufacturer']}::{device_data['device_type']}"
+                if device_type_key not in seen['device_types']:
+                    normalized['device_types'].append({
+                        "name": device_data["device_type"],
+                        "manufacturer": device_data["manufacturer"],
+                        "model": device_data.get("model", device_data["device_type"]),
+                        "slug": device_data["device_type"].lower().replace(" ", "-"),
+                        "description": device_data.get("device_type_description", ""),
+                        "batch_id": self.batch_id
+                    })
+                    seen['device_types'].add(device_type_key)
+            
+            # Add devices (these have dependencies)
+            normalized['devices'].append({
+                "name": device_data["name"],
+                "device_type": device_data.get("device_type"),
+                "manufacturer": device_data.get("manufacturer"), 
+                "site": device_data.get("site"),
+                "role": device_data.get("role"),
+                "platform": device_data.get("platform"),
+                "status": device_data.get("status", "active"),
+                "description": device_data.get("description", ""),
+                "batch_id": self.batch_id
+            })
+            
+            # Extract interfaces (Pass 2 objects)
+            for interface_data in device_data.get("interfaces", []):
+                normalized['interfaces'].append({
+                    **interface_data,
+                    "device_name": device_data["name"],
+                    "batch_id": self.batch_id
+                })
+            
+            # Extract IP addresses (Pass 2 objects)
+            for ip_data in device_data.get("ip_addresses", []):
+                normalized['ip_addresses'].append({
+                    **ip_data,
+                    "device_name": device_data["name"],
+                    "batch_id": self.batch_id
+                })
+        
+        # Log normalization results
+        for obj_type, objects in normalized.items():
+            logger.info(f"Normalized {len(objects)} {obj_type}")
+            
+        self.normalized_data = normalized
         return normalized
     
-    def execute_pass_1(self, normalized_data: Dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
+    def generate_pre_flight_report(self, dry_run: bool = True) -> Dict[str, Any]:
         """
-        Execute Pass 1: Create/ensure core objects without relationships.
+        Generate detailed pre-flight report of all operations that would be performed.
+        
+        Critical safety mechanism per Gemini's guidance: Always generate a diff 
+        before any real operations to enable analysis and confirmation.
+        
+        Returns:
+            Detailed report of CREATE/UPDATE/DELETE operations planned
+        """
+        logger.info("Generating pre-flight report for bulk operation")
+        
+        if not self.normalized_data:
+            raise NetBoxValidationError("No normalized data available. Call normalize_bulk_data() first.")
+        
+        report = {
+            "batch_id": self.batch_id,
+            "summary": {"CREATE": 0, "UPDATE": 0, "UNCHANGED": 0, "TOTAL": 0},
+            "operations": [],
+            "warnings": [],
+            "validation_errors": []
+        }
+        
+        # Simulate operations for each object type in dependency order
+        for obj_type in self.DEPENDENCY_ORDER:
+            if obj_type in self.normalized_data and self.normalized_data[obj_type]:
+                type_operations = self._analyze_object_type(obj_type, self.normalized_data[obj_type])
+                report["operations"].extend(type_operations)
+                
+                # Update summary counts
+                for op in type_operations:
+                    action = op.get("planned_action", "UNKNOWN")
+                    if action in report["summary"]:
+                        report["summary"][action] += 1
+                    report["summary"]["TOTAL"] += 1
+        
+        self.pre_flight_report = report
+        logger.info(f"Pre-flight report generated: {report['summary']}")
+        return report
+    
+    def _analyze_object_type(self, obj_type: str, objects: List[Dict]) -> List[Dict]:
+        """Analyze what operations would be performed for objects of a specific type."""
+        operations = []
+        
+        for obj_data in objects:
+            try:
+                # Check if object exists
+                existing_obj = self._find_existing_object(obj_type, obj_data)
+                
+                if existing_obj:
+                    # Object exists - analyze if update needed
+                    needs_update, changes = self._analyze_changes(obj_type, existing_obj, obj_data)
+                    operations.append({
+                        "object_type": obj_type,
+                        "name": obj_data.get("name", "unknown"),
+                        "planned_action": "UPDATE" if needs_update else "UNCHANGED",
+                        "existing_id": existing_obj.id,
+                        "changes": changes if needs_update else {},
+                        "batch_id": obj_data.get("batch_id")
+                    })
+                    
+                    # Cache the existing object with full pynetbox object
+                    self.object_cache[obj_type][obj_data["name"]] = existing_obj
+                    
+                else:
+                    # Object doesn't exist - will be created
+                    operations.append({
+                        "object_type": obj_type,
+                        "name": obj_data.get("name", "unknown"),
+                        "planned_action": "CREATE",
+                        "new_data": obj_data,
+                        "batch_id": obj_data.get("batch_id")
+                    })
+                    
+            except Exception as e:
+                operations.append({
+                    "object_type": obj_type,
+                    "name": obj_data.get("name", "unknown"),
+                    "planned_action": "ERROR",
+                    "error": str(e)
+                })
+        
+        return operations
+    
+    def _find_existing_object(self, obj_type: str, obj_data: Dict) -> Optional[Any]:
+        """Find existing NetBox object by name/key, return full pynetbox object."""
+        name = obj_data.get("name")
+        if not name:
+            return None
+        
+        try:
+            if obj_type == "manufacturers":
+                results = self.client._api.dcim.manufacturers.filter(name=name)
+            elif obj_type == "sites":
+                results = self.client._api.dcim.sites.filter(name=name)
+            elif obj_type == "device_roles":
+                results = self.client._api.dcim.device_roles.filter(name=name)
+            elif obj_type == "device_types":
+                # Device types are unique by name + manufacturer
+                manufacturer_name = obj_data.get("manufacturer")
+                if manufacturer_name:
+                    manufacturer = self.client._api.dcim.manufacturers.filter(name=manufacturer_name)
+                    if manufacturer:
+                        results = self.client._api.dcim.device_types.filter(
+                            model=name, 
+                            manufacturer_id=manufacturer[0].id
+                        )
+                    else:
+                        return None
+                else:
+                    return None
+            elif obj_type == "devices":
+                results = self.client._api.dcim.devices.filter(name=name)
+            else:
+                return None
+            
+            return results[0] if results else None
+            
+        except Exception as e:
+            logger.warning(f"Error finding existing {obj_type} '{name}': {e}")
+            return None
+    
+    def _analyze_changes(self, obj_type: str, existing_obj: Any, new_data: Dict) -> tuple[bool, Dict]:
+        """Analyze what changes would be made to existing object."""
+        changes = {}
+        
+        # Compare managed fields only (following selective field comparison pattern)
+        managed_fields = self.client.MANAGED_FIELDS.get(obj_type, {})
+        
+        for field_name, field_config in managed_fields.items():
+            new_value = new_data.get(field_name)
+            existing_value = getattr(existing_obj, field_name, None)
+            
+            # Handle different field types
+            if field_config.get("type") == "reference":
+                # For reference fields, resolve to ID for comparison
+                if new_value and existing_value:
+                    if hasattr(existing_value, 'id'):
+                        existing_value = existing_value.id
+                    # TODO: Resolve new_value to ID based on reference type
+            
+            if new_value is not None and new_value != existing_value:
+                changes[field_name] = {
+                    "from": existing_value,
+                    "to": new_value
+                }
+        
+        return len(changes) > 0, changes
+    
+    def execute_pass_1(self, confirm: bool = False) -> Dict[str, Any]:
+        """
+        Execute Pass 1: Process core objects in strict DAG dependency order.
+        
+        Following Gemini's guidance: Process manufacturers → sites → device_roles → 
+        device_types → devices in that exact order to avoid dependency issues.
         
         Args:
-            normalized_data: Normalized device data
             confirm: Whether to execute changes (safety mechanism)
             
         Returns:
-            Pass 1 results with object IDs for Pass 2
+            Pass 1 results with processing statistics
         """
-        logger.info("Starting Pass 1: Core objects creation")
-        core_objects = normalized_data["core_objects"]
-        pass_1_results = {}
+        logger.info("Starting Pass 1: DAG-ordered core objects processing")
         
-        # 1. Ensure Manufacturer (if provided)
-        if core_objects.get("manufacturer"):
-            try:
-                manufacturer_result = self.client.ensure_manufacturer(
-                    name=core_objects["manufacturer"],
-                    batch_id=self.batch_id,
-                    confirm=confirm
-                )
-                pass_1_results["manufacturer_id"] = manufacturer_result["manufacturer"]["id"]
-                self._record_result("pass_1", manufacturer_result)
-                self.operation_cache[f"manufacturer:{core_objects['manufacturer']}"] = manufacturer_result["manufacturer"]["id"]
-                
-            except Exception as e:
-                error_result = {"object_type": "manufacturer", "name": core_objects["manufacturer"], "error": str(e)}
-                self.results["pass_1"]["errors"].append(error_result)
-                logger.error(f"Pass 1 manufacturer error: {e}")
-                raise NetBoxError(f"Pass 1 failed creating manufacturer: {e}")
+        if not self.normalized_data:
+            raise NetBoxValidationError("No normalized data available. Call normalize_bulk_data() first.")
         
-        # 2. Ensure Site (if provided)
-        if core_objects.get("site"):
-            try:
-                site_result = self.client.ensure_site(
-                    name=core_objects["site"],
-                    batch_id=self.batch_id,
-                    confirm=confirm
-                )
-                pass_1_results["site_id"] = site_result["site"]["id"]
-                self._record_result("pass_1", site_result)
-                self.operation_cache[f"site:{core_objects['site']}"] = site_result["site"]["id"]
+        # Process each object type in strict dependency order
+        for obj_type in self.DEPENDENCY_ORDER:
+            if obj_type in self.normalized_data and self.normalized_data[obj_type]:
+                objects = self.normalized_data[obj_type]
+                logger.info(f"Processing {len(objects)} {obj_type}")
                 
-            except Exception as e:
-                error_result = {"object_type": "site", "name": core_objects["site"], "error": str(e)}
-                self.results["pass_1"]["errors"].append(error_result)
-                logger.error(f"Pass 1 site error: {e}")
-                raise NetBoxError(f"Pass 1 failed creating site: {e}")
+                for obj_data in objects:
+                    try:
+                        result = self._process_object(obj_type, obj_data, confirm)
+                        self._record_result("pass_1", result)
+                        
+                        # Cache full pynetbox object for optimization
+                        obj_name = obj_data["name"]
+                        if result.get("action") in ["created", "updated", "unchanged"]:
+                            obj_key = f"{obj_type}:{obj_name}"
+                            netbox_obj = result.get(obj_type.rstrip('s'))  # Remove 's' from plural
+                            if netbox_obj:
+                                self.object_cache[obj_type][obj_name] = netbox_obj
+                        
+                    except Exception as e:
+                        error_result = {
+                            "object_type": obj_type,
+                            "name": obj_data.get("name", "unknown"),
+                            "error": str(e)
+                        }
+                        self.results["pass_1"]["errors"].append(error_result)
+                        logger.error(f"Pass 1 {obj_type} error: {e}")
+                        
+                        # Continue processing other objects rather than failing entirely
+                        continue
         
-        # 3. Ensure Device Role (if provided)
-        if core_objects.get("device_role"):
-            try:
-                role_result = self.client.ensure_device_role(
-                    name=core_objects["device_role"],
-                    batch_id=self.batch_id,
-                    confirm=confirm
-                )
-                pass_1_results["device_role_id"] = role_result["device_role"]["id"]
-                self._record_result("pass_1", role_result)
-                self.operation_cache[f"device_role:{core_objects['device_role']}"] = role_result["device_role"]["id"]
-                
-            except Exception as e:
-                error_result = {"object_type": "device_role", "name": core_objects["device_role"], "error": str(e)}
-                self.results["pass_1"]["errors"].append(error_result)
-                logger.error(f"Pass 1 device role error: {e}")
-                raise NetBoxError(f"Pass 1 failed creating device role: {e}")
+        # Generate summary
+        total_processed = sum(len(self.results["pass_1"][action]) for action in ["created", "updated", "unchanged"])
+        total_errors = len(self.results["pass_1"]["errors"])
         
-        # 4. Ensure Device Type (requires manufacturer_id)
-        device_type_data = core_objects.get("device_type", {})
-        if device_type_data and device_type_data.get("name"):
-            try:
-                manufacturer_id = pass_1_results.get("manufacturer_id") or self._resolve_manufacturer_id(device_type_data.get("manufacturer"))
-                
-                if not manufacturer_id:
-                    raise NetBoxValidationError("Device type requires a valid manufacturer_id")
-                
-                device_type_result = self.client.ensure_device_type(
-                    name=device_type_data["name"],
-                    manufacturer_id=manufacturer_id,
-                    model=device_type_data.get("model"),
-                    description=device_type_data.get("description"),
-                    batch_id=self.batch_id,
-                    confirm=confirm
-                )
-                pass_1_results["device_type_id"] = device_type_result["device_type"]["id"]
-                self._record_result("pass_1", device_type_result)
-                self.operation_cache[f"device_type:{device_type_data['name']}"] = device_type_result["device_type"]["id"]
-                
-            except Exception as e:
-                error_result = {"object_type": "device_type", "name": device_type_data.get("name"), "error": str(e)}
-                self.results["pass_1"]["errors"].append(error_result)
-                logger.error(f"Pass 1 device type error: {e}")
-                raise NetBoxError(f"Pass 1 failed creating device type: {e}")
+        logger.info(f"Pass 1 completed: {total_processed} objects processed, {total_errors} errors")
         
-        logger.info(f"Pass 1 completed successfully. Created {len(pass_1_results)} object references")
-        return pass_1_results
+        return {
+            "objects_processed": total_processed,
+            "errors": total_errors,
+            "cache_size": sum(len(cache) for cache in self.object_cache.values()),
+            "results": self.results["pass_1"]
+        }
+    
+    def _process_object(self, obj_type: str, obj_data: Dict, confirm: bool) -> Dict[str, Any]:
+        """Process individual object using appropriate ensure method."""
+        obj_name = obj_data["name"]
+        
+        # Use cached object if available (from pre-flight analysis)
+        if obj_name in self.object_cache[obj_type]:
+            existing_obj = self.object_cache[obj_type][obj_name]
+            
+            # Check if update needed using selective field comparison
+            needs_update, changes = self._analyze_changes(obj_type, existing_obj, obj_data)
+            
+            if not needs_update:
+                return {
+                    "action": "unchanged",
+                    obj_type.rstrip('s'): existing_obj,
+                    "message": f"{obj_type.rstrip('s').title()} '{obj_name}' is up to date"
+                }
+        
+        # Process based on object type using existing ensure methods
+        if obj_type == "manufacturers":
+            return self.client.ensure_manufacturer(
+                name=obj_name,
+                slug=obj_data.get("slug"),
+                description=obj_data.get("description", ""),
+                batch_id=obj_data.get("batch_id"),
+                confirm=confirm
+            )
+            
+        elif obj_type == "sites":
+            return self.client.ensure_site(
+                name=obj_name,
+                slug=obj_data.get("slug"),
+                status=obj_data.get("status", "active"),
+                description=obj_data.get("description", ""),
+                batch_id=obj_data.get("batch_id"),
+                confirm=confirm
+            )
+            
+        elif obj_type == "device_roles":
+            return self.client.ensure_device_role(
+                name=obj_name,
+                slug=obj_data.get("slug"),
+                color=obj_data.get("color", "9e9e9e"),
+                vm_role=obj_data.get("vm_role", False),
+                description=obj_data.get("description", ""),
+                batch_id=obj_data.get("batch_id"),
+                confirm=confirm
+            )
+            
+        elif obj_type == "device_types":
+            # Device types need manufacturer_id resolved
+            manufacturer_name = obj_data.get("manufacturer")
+            manufacturer_obj = self.object_cache["manufacturers"].get(manufacturer_name)
+            
+            if not manufacturer_obj:
+                raise NetBoxValidationError(f"Device type '{obj_name}' requires manufacturer '{manufacturer_name}' to be processed first")
+            
+            return self.client.ensure_device_type(
+                name=obj_name,
+                manufacturer_id=manufacturer_obj.id,
+                model=obj_data.get("model"),
+                slug=obj_data.get("slug"),
+                description=obj_data.get("description", ""),
+                batch_id=obj_data.get("batch_id"),
+                confirm=confirm
+            )
+            
+        elif obj_type == "devices":
+            # Devices need multiple dependencies resolved
+            device_type_name = obj_data.get("device_type")
+            site_name = obj_data.get("site")
+            role_name = obj_data.get("role")
+            
+            device_type_obj = self.object_cache["device_types"].get(device_type_name)
+            site_obj = self.object_cache["sites"].get(site_name)
+            role_obj = self.object_cache["device_roles"].get(role_name)
+            
+            missing_deps = []
+            if not device_type_obj and device_type_name:
+                missing_deps.append(f"device_type '{device_type_name}'")
+            if not site_obj and site_name:
+                missing_deps.append(f"site '{site_name}'")
+            if not role_obj and role_name:
+                missing_deps.append(f"device_role '{role_name}'")
+                
+            if missing_deps:
+                raise NetBoxValidationError(f"Device '{obj_name}' missing dependencies: {', '.join(missing_deps)}")
+            
+            return self.client.ensure_device(
+                name=obj_name,
+                device_type_id=device_type_obj.id if device_type_obj else None,
+                site_id=site_obj.id if site_obj else None,
+                role_id=role_obj.id if role_obj else None,
+                platform=obj_data.get("platform"),
+                status=obj_data.get("status", "active"),
+                description=obj_data.get("description", ""),
+                batch_id=obj_data.get("batch_id"),
+                confirm=confirm
+            )
+            
+        else:
+            raise NetBoxValidationError(f"Unknown object type: {obj_type}")
     
     def execute_pass_2(self, normalized_data: Dict[str, Any], pass_1_results: Dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
         """
