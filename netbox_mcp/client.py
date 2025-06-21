@@ -1013,3 +1013,522 @@ class NetBoxClient:
             return result
         else:
             return {'object': str(obj)}
+
+
+    # === HYBRID ENSURE METHODS ===
+    # Gemini-recommended architecture combining hierarchical convenience with direct ID injection
+    
+    def ensure_manufacturer(
+        self,
+        name: Optional[str] = None,
+        slug: Optional[str] = None,
+        description: Optional[str] = None,
+        manufacturer_id: Optional[int] = None,
+        confirm: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Ensure a manufacturer exists with idempotent behavior using hybrid pattern.
+        
+        Supports both hierarchical convenience and direct ID injection for performance:
+        - Hierarchical: ensure_manufacturer(name="Cisco Systems", confirm=True)
+        - Direct ID: ensure_manufacturer(manufacturer_id=5, confirm=True)
+        
+        Args:
+            name: Manufacturer name (required if manufacturer_id not provided)
+            slug: URL slug (auto-generated from name if not provided)
+            description: Optional description
+            manufacturer_id: Direct manufacturer ID (skips lookup if provided)
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Dict containing manufacturer data and operation details
+            
+        Raises:
+            NetBoxValidationError: Invalid input parameters
+            NetBoxConfirmationError: Missing confirm=True
+            NetBoxNotFoundError: manufacturer_id provided but doesn't exist
+            NetBoxWriteError: API operation failed
+        """
+        operation = "ENSURE_MANUFACTURER"
+        
+        try:
+            # Safety check - ensure confirmation
+            self._check_write_safety(operation, confirm)
+            
+            # Input validation - either name or manufacturer_id must be provided
+            if not name and not manufacturer_id:
+                raise NetBoxValidationError("Either 'name' or 'manufacturer_id' parameter is required")
+            
+            if manufacturer_id and name:
+                logger.warning(f"Both manufacturer_id ({manufacturer_id}) and name ('{name}') provided. Using manufacturer_id.")
+            
+            # Pattern B: Direct ID injection (performance path)
+            if manufacturer_id:
+                try:
+                    existing_obj = self.api.dcim.manufacturers.get(manufacturer_id)
+                    if not existing_obj:
+                        raise NetBoxNotFoundError(f"Manufacturer with ID {manufacturer_id} not found")
+                    
+                    result_dict = self._object_to_dict(existing_obj)
+                    return {
+                        "success": True,
+                        "action": "unchanged",
+                        "object_type": "manufacturer", 
+                        "manufacturer": result_dict,
+                        "changes": {
+                            "created_fields": [],
+                            "updated_fields": [],
+                            "unchanged_fields": list(result_dict.keys())
+                        },
+                        "dry_run": False
+                    }
+                except Exception as e:
+                    if "not found" in str(e).lower():
+                        raise NetBoxNotFoundError(f"Manufacturer with ID {manufacturer_id} not found")
+                    else:
+                        raise NetBoxWriteError(f"Failed to retrieve manufacturer {manufacturer_id}: {e}")
+            
+            # Pattern A: Hierarchical lookup and create (convenience path)
+            if not name or not name.strip():
+                raise NetBoxValidationError("Manufacturer name cannot be empty")
+            
+            name = name.strip()
+            
+            # Check if manufacturer already exists by name
+            try:
+                existing_manufacturers = list(self.api.dcim.manufacturers.filter(name=name))
+                
+                if existing_manufacturers:
+                    existing_obj = existing_manufacturers[0]
+                    existing_dict = self._object_to_dict(existing_obj)
+                    
+                    # Build desired state for comparison
+                    desired_state = {"name": name}
+                    if slug:
+                        desired_state["slug"] = slug
+                    if description:
+                        desired_state["description"] = description
+                    
+                    # Simple field comparison for now (Issue #12 will enhance this)
+                    needs_update = False
+                    updated_fields = []
+                    
+                    for field, desired_value in desired_state.items():
+                        current_value = existing_dict.get(field)
+                        if current_value != desired_value:
+                            needs_update = True
+                            updated_fields.append(field)
+                    
+                    if needs_update:
+                        # Update existing manufacturer
+                        logger.info(f"Updating manufacturer '{name}' - fields: {updated_fields}")
+                        result = self.update_object("manufacturers", existing_obj.id, desired_state, confirm=True)
+                        
+                        return {
+                            "success": True,
+                            "action": "updated",
+                            "object_type": "manufacturer",
+                            "manufacturer": result,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": updated_fields,
+                                "unchanged_fields": [f for f in existing_dict.keys() if f not in updated_fields]
+                            },
+                            "dry_run": result.get("dry_run", False)
+                        }
+                    else:
+                        # No changes needed
+                        logger.info(f"Manufacturer '{name}' already exists with desired state")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "manufacturer",
+                            "manufacturer": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": list(existing_dict.keys())
+                            },
+                            "dry_run": False
+                        }
+                
+                else:
+                    # Create new manufacturer
+                    logger.info(f"Creating new manufacturer '{name}'")
+                    create_data = {"name": name}
+                    if slug:
+                        create_data["slug"] = slug
+                    if description:
+                        create_data["description"] = description
+                    
+                    result = self.create_object("manufacturers", create_data, confirm=True)
+                    
+                    return {
+                        "success": True,
+                        "action": "created",
+                        "object_type": "manufacturer",
+                        "manufacturer": result,
+                        "changes": {
+                            "created_fields": list(create_data.keys()),
+                            "updated_fields": [],
+                            "unchanged_fields": []
+                        },
+                        "dry_run": result.get("dry_run", False)
+                    }
+                    
+            except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError):
+                raise
+            except Exception as e:
+                raise NetBoxWriteError(f"Failed to ensure manufacturer '{name}': {e}")
+                
+        except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError, NetBoxWriteError):
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in ensure_manufacturer: {e}")
+            raise NetBoxError(f"Unexpected error ensuring manufacturer: {e}")
+
+
+    def ensure_site(
+        self,
+        name: Optional[str] = None,
+        slug: Optional[str] = None,
+        status: str = "active",
+        region: Optional[str] = None,
+        description: Optional[str] = None,
+        physical_address: Optional[str] = None,
+        site_id: Optional[int] = None,
+        confirm: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Ensure a site exists with idempotent behavior using hybrid pattern.
+        
+        Supports both hierarchical convenience and direct ID injection for performance:
+        - Hierarchical: ensure_site(name="Datacenter Amsterdam", confirm=True)
+        - Direct ID: ensure_site(site_id=10, confirm=True)
+        
+        Args:
+            name: Site name (required if site_id not provided)
+            slug: URL slug (auto-generated from name if not provided)
+            status: Site status (default: "active")
+            region: Optional region name
+            description: Optional description
+            physical_address: Optional physical address
+            site_id: Direct site ID (skips lookup if provided)
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Dict containing site data and operation details
+        """
+        operation = "ENSURE_SITE"
+        
+        try:
+            # Safety check - ensure confirmation
+            self._check_write_safety(operation, confirm)
+            
+            # Input validation
+            if not name and not site_id:
+                raise NetBoxValidationError("Either 'name' or 'site_id' parameter is required")
+            
+            if site_id and name:
+                logger.warning(f"Both site_id ({site_id}) and name ('{name}') provided. Using site_id.")
+            
+            # Pattern B: Direct ID injection (performance path)
+            if site_id:
+                try:
+                    existing_obj = self.api.dcim.sites.get(site_id)
+                    if not existing_obj:
+                        raise NetBoxNotFoundError(f"Site with ID {site_id} not found")
+                    
+                    result_dict = self._object_to_dict(existing_obj)
+                    return {
+                        "success": True,
+                        "action": "unchanged",
+                        "object_type": "site",
+                        "site": result_dict,
+                        "changes": {
+                            "created_fields": [],
+                            "updated_fields": [],
+                            "unchanged_fields": list(result_dict.keys())
+                        },
+                        "dry_run": False
+                    }
+                except Exception as e:
+                    if "not found" in str(e).lower():
+                        raise NetBoxNotFoundError(f"Site with ID {site_id} not found")
+                    else:
+                        raise NetBoxWriteError(f"Failed to retrieve site {site_id}: {e}")
+            
+            # Pattern A: Hierarchical lookup and create (convenience path)
+            if not name or not name.strip():
+                raise NetBoxValidationError("Site name cannot be empty")
+            
+            name = name.strip()
+            
+            # Check if site already exists by name
+            try:
+                existing_sites = list(self.api.dcim.sites.filter(name=name))
+                
+                if existing_sites:
+                    existing_obj = existing_sites[0]
+                    existing_dict = self._object_to_dict(existing_obj)
+                    
+                    # Build desired state for comparison
+                    desired_state = {"name": name, "status": status}
+                    if slug:
+                        desired_state["slug"] = slug
+                    if region:
+                        desired_state["region"] = region
+                    if description:
+                        desired_state["description"] = description
+                    if physical_address:
+                        desired_state["physical_address"] = physical_address
+                    
+                    # Simple field comparison
+                    needs_update = False
+                    updated_fields = []
+                    
+                    for field, desired_value in desired_state.items():
+                        current_value = existing_dict.get(field)
+                        if current_value != desired_value:
+                            needs_update = True
+                            updated_fields.append(field)
+                    
+                    if needs_update:
+                        # Update existing site
+                        logger.info(f"Updating site '{name}' - fields: {updated_fields}")
+                        result = self.update_object("sites", existing_obj.id, desired_state, confirm=True)
+                        
+                        return {
+                            "success": True,
+                            "action": "updated",
+                            "object_type": "site",
+                            "site": result,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": updated_fields,
+                                "unchanged_fields": [f for f in existing_dict.keys() if f not in updated_fields]
+                            },
+                            "dry_run": result.get("dry_run", False)
+                        }
+                    else:
+                        # No changes needed
+                        logger.info(f"Site '{name}' already exists with desired state")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "site",
+                            "site": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": list(existing_dict.keys())
+                            },
+                            "dry_run": False
+                        }
+                
+                else:
+                    # Create new site
+                    logger.info(f"Creating new site '{name}'")
+                    create_data = {"name": name, "status": status}
+                    if slug:
+                        create_data["slug"] = slug
+                    if region:
+                        create_data["region"] = region
+                    if description:
+                        create_data["description"] = description
+                    if physical_address:
+                        create_data["physical_address"] = physical_address
+                    
+                    result = self.create_object("sites", create_data, confirm=True)
+                    
+                    return {
+                        "success": True,
+                        "action": "created",
+                        "object_type": "site",
+                        "site": result,
+                        "changes": {
+                            "created_fields": list(create_data.keys()),
+                            "updated_fields": [],
+                            "unchanged_fields": []
+                        },
+                        "dry_run": result.get("dry_run", False)
+                    }
+                    
+            except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError):
+                raise
+            except Exception as e:
+                raise NetBoxWriteError(f"Failed to ensure site '{name}': {e}")
+                
+        except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError, NetBoxWriteError):
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in ensure_site: {e}")
+            raise NetBoxError(f"Unexpected error ensuring site: {e}")
+
+
+    def ensure_device_role(
+        self,
+        name: Optional[str] = None,
+        slug: Optional[str] = None,
+        color: str = "9e9e9e",
+        vm_role: bool = False,
+        description: Optional[str] = None,
+        role_id: Optional[int] = None,
+        confirm: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Ensure a device role exists with idempotent behavior using hybrid pattern.
+        
+        Supports both hierarchical convenience and direct ID injection for performance:
+        - Hierarchical: ensure_device_role(name="Access Switch", confirm=True)
+        - Direct ID: ensure_device_role(role_id=3, confirm=True)
+        
+        Args:
+            name: Device role name (required if role_id not provided)
+            slug: URL slug (auto-generated from name if not provided)
+            color: Hex color code (default: gray)
+            vm_role: Whether this role applies to virtual machines
+            description: Optional description
+            role_id: Direct device role ID (skips lookup if provided)
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Dict containing device role data and operation details
+        """
+        operation = "ENSURE_DEVICE_ROLE"
+        
+        try:
+            # Safety check - ensure confirmation
+            self._check_write_safety(operation, confirm)
+            
+            # Input validation
+            if not name and not role_id:
+                raise NetBoxValidationError("Either 'name' or 'role_id' parameter is required")
+            
+            if role_id and name:
+                logger.warning(f"Both role_id ({role_id}) and name ('{name}') provided. Using role_id.")
+            
+            # Pattern B: Direct ID injection (performance path)
+            if role_id:
+                try:
+                    existing_obj = self.api.dcim.device_roles.get(role_id)
+                    if not existing_obj:
+                        raise NetBoxNotFoundError(f"Device role with ID {role_id} not found")
+                    
+                    result_dict = self._object_to_dict(existing_obj)
+                    return {
+                        "success": True,
+                        "action": "unchanged",
+                        "object_type": "device_role",
+                        "device_role": result_dict,
+                        "changes": {
+                            "created_fields": [],
+                            "updated_fields": [],
+                            "unchanged_fields": list(result_dict.keys())
+                        },
+                        "dry_run": False
+                    }
+                except Exception as e:
+                    if "not found" in str(e).lower():
+                        raise NetBoxNotFoundError(f"Device role with ID {role_id} not found")
+                    else:
+                        raise NetBoxWriteError(f"Failed to retrieve device role {role_id}: {e}")
+            
+            # Pattern A: Hierarchical lookup and create (convenience path)
+            if not name or not name.strip():
+                raise NetBoxValidationError("Device role name cannot be empty")
+            
+            name = name.strip()
+            
+            # Check if device role already exists by name
+            try:
+                existing_roles = list(self.api.dcim.device_roles.filter(name=name))
+                
+                if existing_roles:
+                    existing_obj = existing_roles[0]
+                    existing_dict = self._object_to_dict(existing_obj)
+                    
+                    # Build desired state for comparison
+                    desired_state = {"name": name, "color": color, "vm_role": vm_role}
+                    if slug:
+                        desired_state["slug"] = slug
+                    if description:
+                        desired_state["description"] = description
+                    
+                    # Simple field comparison
+                    needs_update = False
+                    updated_fields = []
+                    
+                    for field, desired_value in desired_state.items():
+                        current_value = existing_dict.get(field)
+                        if current_value != desired_value:
+                            needs_update = True
+                            updated_fields.append(field)
+                    
+                    if needs_update:
+                        # Update existing device role
+                        logger.info(f"Updating device role '{name}' - fields: {updated_fields}")
+                        result = self.update_object("device_roles", existing_obj.id, desired_state, confirm=True)
+                        
+                        return {
+                            "success": True,
+                            "action": "updated",
+                            "object_type": "device_role",
+                            "device_role": result,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": updated_fields,
+                                "unchanged_fields": [f for f in existing_dict.keys() if f not in updated_fields]
+                            },
+                            "dry_run": result.get("dry_run", False)
+                        }
+                    else:
+                        # No changes needed
+                        logger.info(f"Device role '{name}' already exists with desired state")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "device_role",
+                            "device_role": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": list(existing_dict.keys())
+                            },
+                            "dry_run": False
+                        }
+                
+                else:
+                    # Create new device role
+                    logger.info(f"Creating new device role '{name}'")
+                    create_data = {"name": name, "color": color, "vm_role": vm_role}
+                    if slug:
+                        create_data["slug"] = slug
+                    if description:
+                        create_data["description"] = description
+                    
+                    result = self.create_object("device_roles", create_data, confirm=True)
+                    
+                    return {
+                        "success": True,
+                        "action": "created",
+                        "object_type": "device_role",
+                        "device_role": result,
+                        "changes": {
+                            "created_fields": list(create_data.keys()),
+                            "updated_fields": [],
+                            "unchanged_fields": []
+                        },
+                        "dry_run": result.get("dry_run", False)
+                    }
+                    
+            except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError):
+                raise
+            except Exception as e:
+                raise NetBoxWriteError(f"Failed to ensure device role '{name}': {e}")
+                
+        except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError, NetBoxWriteError):
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in ensure_device_role: {e}")
+            raise NetBoxError(f"Unexpected error ensuring device role: {e}")
