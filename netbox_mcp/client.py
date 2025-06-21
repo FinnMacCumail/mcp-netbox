@@ -1015,6 +1015,157 @@ class NetBoxClient:
             return {'object': str(obj)}
 
 
+    # === SELECTIVE FIELD COMPARISON AND HASH DIFFING ===
+    # Advanced state comparison for efficient ensure operations
+    
+    # Managed fields configuration - only these fields are compared and updated
+    MANAGED_FIELDS = {
+        "manufacturers": ["name", "slug", "description"],
+        "sites": ["name", "slug", "status", "description", "physical_address", "region"],
+        "device_roles": ["name", "slug", "color", "vm_role", "description"]
+    }
+    
+    # Custom fields for metadata tracking
+    METADATA_CUSTOM_FIELDS = {
+        "managed_hash": "unimus_managed_hash",
+        "last_sync": "last_unimus_sync", 
+        "source": "management_source"
+    }
+    
+    def _generate_managed_hash(self, data: Dict[str, Any], object_type: str) -> str:
+        """
+        Generate SHA256 hash from managed field values for efficient comparison.
+        
+        Args:
+            data: Object data dictionary
+            object_type: Type of object (manufacturers, sites, device_roles)
+            
+        Returns:
+            SHA256 hash string of managed field values
+        """
+        import hashlib
+        import json
+        
+        if object_type not in self.MANAGED_FIELDS:
+            raise NetBoxValidationError(f"Unknown object type for managed fields: {object_type}")
+        
+        managed_fields = self.MANAGED_FIELDS[object_type]
+        managed_data = {}
+        
+        # Extract only managed fields, handling None values consistently
+        for field in managed_fields:
+            value = data.get(field)
+            if value is not None:
+                managed_data[field] = value
+        
+        # Sort keys for consistent hashing
+        sorted_data = json.dumps(managed_data, sort_keys=True, default=str)
+        return hashlib.sha256(sorted_data.encode('utf-8')).hexdigest()
+    
+    def _compare_managed_fields(self, existing_obj: Dict[str, Any], desired_state: Dict[str, Any], object_type: str) -> Dict[str, Any]:
+        """
+        Compare existing object with desired state using selective field comparison.
+        
+        Args:
+            existing_obj: Current object from NetBox
+            desired_state: Desired object state
+            object_type: Type of object for field selection
+            
+        Returns:
+            Dict with comparison results: needs_update, updated_fields, unchanged_fields
+        """
+        if object_type not in self.MANAGED_FIELDS:
+            raise NetBoxValidationError(f"Unknown object type for managed fields: {object_type}")
+        
+        managed_fields = self.MANAGED_FIELDS[object_type]
+        changes = {
+            "updated_fields": [],
+            "unchanged_fields": [],
+            "needs_update": False
+        }
+        
+        for field in managed_fields:
+            current_value = existing_obj.get(field)
+            desired_value = desired_state.get(field)
+            
+            # Handle None values and string comparisons consistently
+            if current_value != desired_value:
+                changes["updated_fields"].append({
+                    "field": field,
+                    "current": current_value,
+                    "desired": desired_value
+                })
+                changes["needs_update"] = True
+            else:
+                changes["unchanged_fields"].append(field)
+        
+        return changes
+    
+    def _hash_comparison_check(self, existing_obj: Dict[str, Any], desired_state: Dict[str, Any], object_type: str) -> bool:
+        """
+        Quick hash comparison to determine if update is needed without detailed field comparison.
+        
+        Args:
+            existing_obj: Current object from NetBox (with custom_fields)
+            desired_state: Desired object state
+            object_type: Type of object for hash generation
+            
+        Returns:
+            True if hashes match (no update needed), False if update required
+        """
+        # Get existing hash from custom fields
+        existing_custom_fields = existing_obj.get("custom_fields", {})
+        existing_hash = existing_custom_fields.get(self.METADATA_CUSTOM_FIELDS["managed_hash"])
+        
+        # Generate hash for desired state
+        desired_hash = self._generate_managed_hash(desired_state, object_type)
+        
+        # If no existing hash, assume update needed
+        if not existing_hash:
+            logger.debug(f"No existing hash found for {object_type}, update required")
+            return False
+        
+        # Compare hashes
+        hash_match = existing_hash == desired_hash
+        logger.debug(f"Hash comparison for {object_type}: existing={existing_hash[:8]}..., desired={desired_hash[:8]}..., match={hash_match}")
+        
+        return hash_match
+    
+    def _prepare_metadata_update(self, desired_state: Dict[str, Any], object_type: str, operation: str = "update") -> Dict[str, Any]:
+        """
+        Prepare custom fields metadata for state tracking.
+        
+        Args:
+            desired_state: Desired object state
+            object_type: Type of object for hash generation
+            operation: Operation type (create, update)
+            
+        Returns:
+            Dict with custom_fields added for metadata tracking
+        """
+        from datetime import datetime
+        
+        # Generate new hash for desired state
+        new_hash = self._generate_managed_hash(desired_state, object_type)
+        
+        # Prepare metadata
+        metadata = {
+            self.METADATA_CUSTOM_FIELDS["managed_hash"]: new_hash,
+            self.METADATA_CUSTOM_FIELDS["last_sync"]: datetime.utcnow().isoformat(),
+            self.METADATA_CUSTOM_FIELDS["source"]: "unimus"
+        }
+        
+        # Add metadata to desired state
+        updated_state = desired_state.copy()
+        updated_state["custom_fields"] = {
+            **desired_state.get("custom_fields", {}),
+            **metadata
+        }
+        
+        logger.debug(f"Prepared metadata for {object_type} {operation}: hash={new_hash[:8]}...")
+        
+        return updated_state
+
     # === HYBRID ENSURE METHODS ===
     # Gemini-recommended architecture combining hierarchical convenience with direct ID injection
     
@@ -1109,20 +1260,33 @@ class NetBoxClient:
                     if description:
                         desired_state["description"] = description
                     
-                    # Simple field comparison for now (Issue #12 will enhance this)
-                    needs_update = False
-                    updated_fields = []
+                    # Issue #12: Enhanced selective field comparison with hash diffing
+                    # First try quick hash comparison
+                    if self._hash_comparison_check(existing_dict, desired_state, "manufacturers"):
+                        # Hash matches - no update needed, return unchanged
+                        logger.debug(f"Hash match for manufacturer '{name}' - no update needed")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "manufacturer",
+                            "manufacturer": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": list(self.MANAGED_FIELDS["manufacturers"])
+                            },
+                            "dry_run": False
+                        }
                     
-                    for field, desired_value in desired_state.items():
-                        current_value = existing_dict.get(field)
-                        if current_value != desired_value:
-                            needs_update = True
-                            updated_fields.append(field)
+                    # Hash differs - perform detailed selective field comparison
+                    comparison = self._compare_managed_fields(existing_dict, desired_state, "manufacturers")
                     
-                    if needs_update:
-                        # Update existing manufacturer
-                        logger.info(f"Updating manufacturer '{name}' - fields: {updated_fields}")
-                        result = self.update_object("manufacturers", existing_obj.id, desired_state, confirm=True)
+                    if comparison["needs_update"]:
+                        # Prepare update with metadata tracking
+                        update_data = self._prepare_metadata_update(desired_state, "manufacturers", "update")
+                        
+                        logger.info(f"Updating manufacturer '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
+                        result = self.update_object("manufacturers", existing_obj.id, update_data, confirm=True)
                         
                         return {
                             "success": True,
@@ -1131,13 +1295,13 @@ class NetBoxClient:
                             "manufacturer": result,
                             "changes": {
                                 "created_fields": [],
-                                "updated_fields": updated_fields,
-                                "unchanged_fields": [f for f in existing_dict.keys() if f not in updated_fields]
+                                "updated_fields": [f["field"] for f in comparison["updated_fields"]],
+                                "unchanged_fields": comparison["unchanged_fields"]
                             },
                             "dry_run": result.get("dry_run", False)
                         }
                     else:
-                        # No changes needed
+                        # No changes needed - hash mismatch but field comparison shows no changes
                         logger.info(f"Manufacturer '{name}' already exists with desired state")
                         return {
                             "success": True,
@@ -1147,19 +1311,22 @@ class NetBoxClient:
                             "changes": {
                                 "created_fields": [],
                                 "updated_fields": [],
-                                "unchanged_fields": list(existing_dict.keys())
+                                "unchanged_fields": comparison["unchanged_fields"]
                             },
                             "dry_run": False
                         }
                 
                 else:
-                    # Create new manufacturer
+                    # Create new manufacturer with metadata tracking
                     logger.info(f"Creating new manufacturer '{name}'")
                     create_data = {"name": name}
                     if slug:
                         create_data["slug"] = slug
                     if description:
                         create_data["description"] = description
+                    
+                    # Add metadata for new objects
+                    create_data = self._prepare_metadata_update(create_data, "manufacturers", "create")
                     
                     result = self.create_object("manufacturers", create_data, confirm=True)
                     
@@ -1283,20 +1450,33 @@ class NetBoxClient:
                     if physical_address:
                         desired_state["physical_address"] = physical_address
                     
-                    # Simple field comparison
-                    needs_update = False
-                    updated_fields = []
+                    # Issue #12: Enhanced selective field comparison with hash diffing
+                    # First try quick hash comparison
+                    if self._hash_comparison_check(existing_dict, desired_state, "sites"):
+                        # Hash matches - no update needed, return unchanged
+                        logger.debug(f"Hash match for site '{name}' - no update needed")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "site",
+                            "site": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": list(self.MANAGED_FIELDS["sites"])
+                            },
+                            "dry_run": False
+                        }
                     
-                    for field, desired_value in desired_state.items():
-                        current_value = existing_dict.get(field)
-                        if current_value != desired_value:
-                            needs_update = True
-                            updated_fields.append(field)
+                    # Hash differs - perform detailed selective field comparison
+                    comparison = self._compare_managed_fields(existing_dict, desired_state, "sites")
                     
-                    if needs_update:
-                        # Update existing site
-                        logger.info(f"Updating site '{name}' - fields: {updated_fields}")
-                        result = self.update_object("sites", existing_obj.id, desired_state, confirm=True)
+                    if comparison["needs_update"]:
+                        # Prepare update with metadata tracking
+                        update_data = self._prepare_metadata_update(desired_state, "sites", "update")
+                        
+                        logger.info(f"Updating site '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
+                        result = self.update_object("sites", existing_obj.id, update_data, confirm=True)
                         
                         return {
                             "success": True,
@@ -1305,13 +1485,13 @@ class NetBoxClient:
                             "site": result,
                             "changes": {
                                 "created_fields": [],
-                                "updated_fields": updated_fields,
-                                "unchanged_fields": [f for f in existing_dict.keys() if f not in updated_fields]
+                                "updated_fields": [f["field"] for f in comparison["updated_fields"]],
+                                "unchanged_fields": comparison["unchanged_fields"]
                             },
                             "dry_run": result.get("dry_run", False)
                         }
                     else:
-                        # No changes needed
+                        # No changes needed - hash mismatch but field comparison shows no changes
                         logger.info(f"Site '{name}' already exists with desired state")
                         return {
                             "success": True,
@@ -1321,13 +1501,13 @@ class NetBoxClient:
                             "changes": {
                                 "created_fields": [],
                                 "updated_fields": [],
-                                "unchanged_fields": list(existing_dict.keys())
+                                "unchanged_fields": comparison["unchanged_fields"]
                             },
                             "dry_run": False
                         }
                 
                 else:
-                    # Create new site
+                    # Create new site with metadata tracking
                     logger.info(f"Creating new site '{name}'")
                     create_data = {"name": name, "status": status}
                     if slug:
@@ -1338,6 +1518,9 @@ class NetBoxClient:
                         create_data["description"] = description
                     if physical_address:
                         create_data["physical_address"] = physical_address
+                    
+                    # Add metadata for new objects
+                    create_data = self._prepare_metadata_update(create_data, "sites", "create")
                     
                     result = self.create_object("sites", create_data, confirm=True)
                     
@@ -1455,20 +1638,33 @@ class NetBoxClient:
                     if description:
                         desired_state["description"] = description
                     
-                    # Simple field comparison
-                    needs_update = False
-                    updated_fields = []
+                    # Issue #12: Enhanced selective field comparison with hash diffing
+                    # First try quick hash comparison
+                    if self._hash_comparison_check(existing_dict, desired_state, "device_roles"):
+                        # Hash matches - no update needed, return unchanged
+                        logger.debug(f"Hash match for device role '{name}' - no update needed")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "device_role",
+                            "device_role": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": list(self.MANAGED_FIELDS["device_roles"])
+                            },
+                            "dry_run": False
+                        }
                     
-                    for field, desired_value in desired_state.items():
-                        current_value = existing_dict.get(field)
-                        if current_value != desired_value:
-                            needs_update = True
-                            updated_fields.append(field)
+                    # Hash differs - perform detailed selective field comparison
+                    comparison = self._compare_managed_fields(existing_dict, desired_state, "device_roles")
                     
-                    if needs_update:
-                        # Update existing device role
-                        logger.info(f"Updating device role '{name}' - fields: {updated_fields}")
-                        result = self.update_object("device_roles", existing_obj.id, desired_state, confirm=True)
+                    if comparison["needs_update"]:
+                        # Prepare update with metadata tracking
+                        update_data = self._prepare_metadata_update(desired_state, "device_roles", "update")
+                        
+                        logger.info(f"Updating device role '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
+                        result = self.update_object("device_roles", existing_obj.id, update_data, confirm=True)
                         
                         return {
                             "success": True,
@@ -1477,13 +1673,13 @@ class NetBoxClient:
                             "device_role": result,
                             "changes": {
                                 "created_fields": [],
-                                "updated_fields": updated_fields,
-                                "unchanged_fields": [f for f in existing_dict.keys() if f not in updated_fields]
+                                "updated_fields": [f["field"] for f in comparison["updated_fields"]],
+                                "unchanged_fields": comparison["unchanged_fields"]
                             },
                             "dry_run": result.get("dry_run", False)
                         }
                     else:
-                        # No changes needed
+                        # No changes needed - hash mismatch but field comparison shows no changes
                         logger.info(f"Device role '{name}' already exists with desired state")
                         return {
                             "success": True,
@@ -1493,19 +1689,22 @@ class NetBoxClient:
                             "changes": {
                                 "created_fields": [],
                                 "updated_fields": [],
-                                "unchanged_fields": list(existing_dict.keys())
+                                "unchanged_fields": comparison["unchanged_fields"]
                             },
                             "dry_run": False
                         }
                 
                 else:
-                    # Create new device role
+                    # Create new device role with metadata tracking
                     logger.info(f"Creating new device role '{name}'")
                     create_data = {"name": name, "color": color, "vm_role": vm_role}
                     if slug:
                         create_data["slug"] = slug
                     if description:
                         create_data["description"] = description
+                    
+                    # Add metadata for new objects
+                    create_data = self._prepare_metadata_update(create_data, "device_roles", "create")
                     
                     result = self.create_object("device_roles", create_data, confirm=True)
                     
