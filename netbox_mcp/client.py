@@ -190,7 +190,7 @@ class NetBoxClient:
     
     # READ-ONLY OPERATIONS
     
-    def get_device(self, name: str, site: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_device(self, name: str, site: Optional[str] = None) -> Optional[Any]:
         """
         Get device by name and optionally site.
         
@@ -199,7 +199,7 @@ class NetBoxClient:
             site: Site name (optional for additional filtering)
             
         Returns:
-            Device data dictionary or None if not found
+            Raw pynetbox device object or None if not found
         """
         try:
             logger.debug(f"Getting device: {name}" + (f" at site {site}" if site else ""))
@@ -219,56 +219,8 @@ class NetBoxClient:
                 logger.warning(f"Multiple devices found with name {name}, returning first")
             
             device = devices[0]
-            
-            # Convert to dictionary with comprehensive data
-            device_data = {
-                'id': device.id,
-                'name': device.name,
-                'device_type': {
-                    'id': device.device_type.id,
-                    'name': device.device_type.display,
-                    'manufacturer': device.device_type.manufacturer.name if device.device_type.manufacturer else None,
-                    'model': device.device_type.model,
-                    'slug': device.device_type.slug
-                },
-                'site': {
-                    'id': device.site.id,
-                    'name': device.site.name,
-                    'slug': device.site.slug
-                } if device.site else None,
-                'role': {
-                    'id': device.role.id,
-                    'name': device.role.name,
-                    'slug': device.role.slug
-                } if device.role else None,
-                'status': {
-                    'value': device.status.value if device.status else None,
-                    'label': device.status.label if device.status else None
-                },
-                'serial': device.serial,
-                'asset_tag': device.asset_tag,
-                'primary_ip4': str(device.primary_ip4) if device.primary_ip4 else None,
-                'primary_ip6': str(device.primary_ip6) if device.primary_ip6 else None,
-                'location': {
-                    'id': device.location.id,
-                    'name': device.location.name
-                } if device.location else None,
-                'rack': {
-                    'id': device.rack.id,
-                    'name': device.rack.name
-                } if device.rack else None,
-                'position': device.position,
-                'description': device.description,
-                'comments': device.comments,
-                'tags': [tag.name for tag in device.tags] if device.tags else [],
-                'custom_fields': device.custom_fields,
-                'created': str(device.created) if device.created else None,
-                'last_updated': str(device.last_updated) if device.last_updated else None,
-                'url': str(device.url) if hasattr(device, 'url') else None
-            }
-            
             logger.debug(f"Device found: {device.name} (ID: {device.id})")
-            return device_data
+            return device
             
         except Exception as e:
             error_msg = f"Failed to get device {name}: {e}"
@@ -328,7 +280,7 @@ class NetBoxClient:
             logger.error(error_msg)
             raise NetBoxError(error_msg, {"filters": filters, "limit": limit})
     
-    def get_site_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_site_by_name(self, name: str) -> Optional[Any]:
         """
         Get site by name.
         
@@ -336,7 +288,7 @@ class NetBoxClient:
             name: Site name
             
         Returns:
-            Site data dictionary or None if not found
+            Raw pynetbox site object or None if not found
         """
         try:
             logger.debug(f"Getting site: {name}")
@@ -351,53 +303,15 @@ class NetBoxClient:
                 logger.warning(f"Multiple sites found with name {name}, returning first")
             
             site = sites[0]
-            
-            site_data = {
-                'id': site.id,
-                'name': site.name,
-                'slug': site.slug,
-                'status': {
-                    'value': site.status.value if site.status else None,
-                    'label': site.status.label if site.status else None
-                },
-                'region': {
-                    'id': site.region.id,
-                    'name': site.region.name
-                } if site.region else None,
-                'group': {
-                    'id': site.group.id,
-                    'name': site.group.name
-                } if site.group else None,
-                'tenant': {
-                    'id': site.tenant.id,
-                    'name': site.tenant.name
-                } if site.tenant else None,
-                'facility': site.facility,
-                'time_zone': str(site.time_zone) if site.time_zone else None,
-                'description': site.description,
-                'physical_address': site.physical_address,
-                'shipping_address': site.shipping_address,
-                'latitude': float(site.latitude) if site.latitude else None,
-                'longitude': float(site.longitude) if site.longitude else None,
-                'comments': site.comments,
-                'tags': [tag.name for tag in site.tags] if site.tags else [],
-                'custom_fields': site.custom_fields,
-                'created': str(site.created) if site.created else None,
-                'last_updated': str(site.last_updated) if site.last_updated else None,
-                'device_count': getattr(site, 'device_count', None),
-                'rack_count': getattr(site, 'rack_count', None),
-                'url': str(site.url) if hasattr(site, 'url') else None
-            }
-            
             logger.debug(f"Site found: {site.name} (ID: {site.id})")
-            return site_data
+            return site
             
         except Exception as e:
             error_msg = f"Failed to get site {name}: {e}"
             logger.error(error_msg)
             raise NetBoxError(error_msg, {"site_name": name})
     
-    def get_ip_address(self, address: str) -> Optional[Dict[str, Any]]:
+    def get_ip_address(self, address: str) -> Optional[Any]:
         """
         Get IP address object by address.
         
@@ -1027,12 +941,12 @@ class NetBoxClient:
         "devices": ["name", "device_type", "site", "role", "platform", "status", "description"]
     }
     
-    # Custom fields for metadata tracking
-    METADATA_CUSTOM_FIELDS = {
-        "managed_hash": "enterprise_managed_hash",
-        "last_sync": "last_enterprise_sync", 
-        "source": "management_source",
-        "batch_id": "batch_id"  # Gemini: Essential for rollback capability
+    # Custom field mappings for internal operations
+    # Note: These are used internally for hash comparison and batch tracking
+    # Actual custom_fields should be provided by the orchestrator
+    INTERNAL_METADATA_FIELDS = {
+        "managed_hash": "netbox_mcp_hash",
+        "batch_id": "netbox_mcp_batch_id"
     }
     
     def _generate_managed_hash(self, data: Dict[str, Any], object_type: str) -> str:
@@ -1152,16 +1066,14 @@ class NetBoxClient:
         # Generate new hash for desired state
         new_hash = self._generate_managed_hash(desired_state, object_type)
         
-        # Prepare metadata
-        metadata = {
-            self.METADATA_CUSTOM_FIELDS["managed_hash"]: new_hash,
-            self.METADATA_CUSTOM_FIELDS["last_sync"]: datetime.utcnow().isoformat(),
-            self.METADATA_CUSTOM_FIELDS["source"]: "enterprise"
+        # Prepare internal metadata (for hash comparison only)
+        internal_metadata = {
+            self.INTERNAL_METADATA_FIELDS["managed_hash"]: new_hash
         }
         
         # Add batch_id if provided (essential for two-pass rollback)
         if batch_id:
-            metadata[self.METADATA_CUSTOM_FIELDS["batch_id"]] = batch_id
+            internal_metadata[self.INTERNAL_METADATA_FIELDS["batch_id"]] = batch_id
         
         # Add metadata to desired state
         updated_state = desired_state.copy()

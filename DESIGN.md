@@ -2,7 +2,7 @@ Design Document: NetBox Read/Write MCP Server
 1. Visie en Doelstelling
 Dit document beschrijft het ontwerp voor een Read/Write Model Context Protocol (MCP) Server voor NetBox. Het doel is om een robuuste, veilige en conversationele interface te bieden voor het lezen én muteren van data in een NetBox (Cloud) instance.
 
-De primaire doelstelling is om een geautomatiseerde workflow te creëren waarbij netwerkdata, ontdekt door enterprise tools, wordt gebruikt om een NetBox instance op te bouwen en te onderhouden. Deze server zal vanaf de start ontworpen worden met zowel lees- als schrijfmogelijkheden in het achterhoofd.
+De primaire doelstelling is om als een robuuste bouwsteen te dienen in een breder automation-ecosysteem, aangestuurd door een orchestrator. Deze server biedt een pure, agnostische interface voor NetBox operaties zonder kennis van de databron. De server zal vanaf de start ontworpen worden met zowel lees- als schrijfmogelijkheden in het achterhoofd.
 
 2. Kernprincipes
 Idempotentie is Cruciaal: Elke schrijfactie (tool) moet idempotent zijn. Een tool die tweemaal met dezelfde parameters wordt aangeroepen, moet hetzelfde eindresultaat opleveren als wanneer deze eenmaal wordt aangeroepen, zonder fouten of ongewenste duplicaten te creëren. Tools zoals netbox_ensure_device_exists zijn hier een perfect voorbeeld van.
@@ -45,7 +45,7 @@ netbox_create_device(name: str, device_type: str, role: str, site: str, confirm:
 netbox_update_device_status(device_name: str, status: str, confirm: bool = False)
 netbox_assign_ip_to_interface(device_name: str, interface_name: str, ip_address: str, confirm: bool = False)
 netbox_delete_device(device_name: str, confirm: bool = False)
-Cruciale Integratie Tools: enterprise device management tools die device-objecten van externe systemen accepteren en vertalen naar de juiste state in NetBox. Deze mappen velden, creëren fabrikanten, device types en rollen indien nodig.
+Agnostische Data Processing: Tools die generieke device-objecten accepteren en deze naar de juiste state in NetBox brengen. Deze tools maken geen aannames over de databron en verwachten dat data preprocessing door de orchestrator is uitgevoerd.
 3.3. Write Operation Strategy
 Dit is het meest kritieke onderdeel van het ontwerp.
 

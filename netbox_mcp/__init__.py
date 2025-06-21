@@ -8,7 +8,7 @@ Features:
 - Read-only MCP tools for NetBox data exploration
 - Write operations with mandatory confirmation and dry-run mode
 - Idempotent ensure operations for robust automation
-- Integration-ready for enterprise network discovery workflows
+- Integration-ready as an agnostic NetBox specialist for automation platforms
 """
 
 __version__ = "0.1.0"
