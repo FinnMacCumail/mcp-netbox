@@ -661,3 +661,355 @@ class NetBoxClient:
             error_msg = f"Failed to get manufacturers: {e}"
             logger.error(error_msg)
             raise NetBoxError(error_msg, {"limit": limit})
+    
+    # =====================================================================
+    # WRITE OPERATIONS - SAFETY CRITICAL SECTION
+    # =====================================================================
+    
+    def _check_write_safety(self, operation: str, confirm: bool = False) -> None:
+        """
+        Verify write operation safety requirements.
+        
+        Args:
+            operation: Name of the write operation
+            confirm: Confirmation parameter from caller
+            
+        Raises:
+            NetBoxConfirmationError: If confirm=False
+            NetBoxDryRunError: If in dry-run mode (for logging)
+        """
+        if not confirm:
+            error_msg = f"Write operation '{operation}' requires confirm=True for safety"
+            logger.error(f"🚨 SAFETY VIOLATION: {error_msg}")
+            raise NetBoxConfirmationError(error_msg)
+        
+        if self.config.safety.dry_run_mode:
+            logger.warning(f"🔍 DRY-RUN MODE: Would execute {operation} (no actual changes)")
+            # Don't raise error, just log - we'll simulate the operation
+    
+    def _log_write_operation(self, operation: str, object_type: str, data: Dict[str, Any], 
+                           result: Any = None, error: Exception = None) -> None:
+        """
+        Log write operations for audit trail.
+        
+        Args:
+            operation: Type of operation (create, update, delete)
+            object_type: NetBox object type being modified
+            data: Data being written or object being modified
+            result: Result of the operation (if successful)
+            error: Exception if operation failed
+        """
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        
+        if error:
+            logger.error(f"📝 WRITE FAILED [{timestamp}] {operation.upper()} {object_type}: {error}")
+            logger.error(f"📝 Data: {data}")
+        else:
+            logger.info(f"📝 WRITE SUCCESS [{timestamp}] {operation.upper()} {object_type}")
+            logger.info(f"📝 Data: {data}")
+            if result and hasattr(result, 'id'):
+                logger.info(f"📝 Result ID: {result.id}")
+    
+    def create_object(self, object_type: str, data: Dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
+        """
+        Create a new object in NetBox with safety mechanisms.
+        
+        Args:
+            object_type: Type of object to create (e.g., 'devices', 'sites', 'manufacturers')
+            data: Object data dictionary
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Created object data dictionary
+            
+        Raises:
+            NetBoxConfirmationError: If confirm=False
+            NetBoxValidationError: If data validation fails
+            NetBoxWriteError: If creation fails
+            
+        Example:
+            device_data = {
+                'name': 'switch-01',
+                'device_type': 1,
+                'site': 1,
+                'status': 'active'
+            }
+            result = client.create_object('devices', device_data, confirm=True)
+        """
+        operation = f"create_{object_type}"
+        
+        try:
+            # Safety checks
+            self._check_write_safety(operation, confirm)
+            
+            # Validate data
+            if not isinstance(data, dict) or len(data) == 0:
+                raise NetBoxValidationError("Object data must be a non-empty dictionary")
+            
+            # Validate endpoint (must be done before dry-run to catch invalid types)
+            endpoint = self._get_write_endpoint(object_type)
+            
+            # Dry-run mode simulation
+            if self.config.safety.dry_run_mode:
+                logger.info(f"🔍 DRY-RUN: Would create {object_type} with data: {data}")
+                simulated_result = {
+                    'id': 999999,  # Fake ID for dry-run
+                    'dry_run': True,
+                    **data
+                }
+                self._log_write_operation(operation, object_type, data, simulated_result)
+                return simulated_result
+            
+            # Create the object
+            logger.info(f"Creating {object_type} object with data: {data}")
+            result = endpoint.create(data)
+            
+            # Convert to dict for consistent return type
+            result_dict = self._object_to_dict(result)
+            
+            # Log successful operation
+            self._log_write_operation(operation, object_type, data, result)
+            
+            logger.info(f"✅ Successfully created {object_type} with ID: {result.id}")
+            return result_dict
+            
+        except (NetBoxConfirmationError, NetBoxValidationError):
+            raise
+        except Exception as e:
+            self._log_write_operation(operation, object_type, data, error=e)
+            if "validation" in str(e).lower():
+                raise NetBoxValidationError(f"Validation failed for {object_type}: {e}")
+            else:
+                raise NetBoxWriteError(f"Failed to create {object_type}: {e}")
+    
+    def update_object(self, object_type: str, object_id: int, data: Dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
+        """
+        Update an existing object in NetBox with safety mechanisms.
+        
+        Args:
+            object_type: Type of object to update
+            object_id: ID of object to update
+            data: Updated data dictionary
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Updated object data dictionary
+            
+        Raises:
+            NetBoxConfirmationError: If confirm=False
+            NetBoxNotFoundError: If object not found
+            NetBoxValidationError: If data validation fails
+            NetBoxWriteError: If update fails
+        """
+        operation = f"update_{object_type}"
+        
+        try:
+            # Safety checks
+            self._check_write_safety(operation, confirm)
+            
+            # Validate data
+            if not isinstance(data, dict) or len(data) == 0:
+                raise NetBoxValidationError("Update data must be a non-empty dictionary")
+            
+            # Validate endpoint (must be done before dry-run to catch invalid types)
+            endpoint = self._get_write_endpoint(object_type)
+            
+            # Get the object first to verify it exists
+            try:
+                existing_obj = endpoint.get(object_id)
+                if not existing_obj:
+                    raise NetBoxNotFoundError(f"{object_type} with ID {object_id} not found")
+            except Exception as e:
+                raise NetBoxNotFoundError(f"{object_type} with ID {object_id} not found: {e}")
+            
+            # Store original data for logging
+            original_data = self._object_to_dict(existing_obj)
+            
+            # Dry-run mode simulation
+            if self.config.safety.dry_run_mode:
+                logger.info(f"🔍 DRY-RUN: Would update {object_type} ID {object_id} with data: {data}")
+                simulated_result = {
+                    **original_data,
+                    **data,
+                    'dry_run': True
+                }
+                self._log_write_operation(operation, object_type, data, simulated_result)
+                return simulated_result
+            
+            # Update the object
+            logger.info(f"Updating {object_type} ID {object_id} with data: {data}")
+            
+            # Update fields on the object
+            for key, value in data.items():
+                setattr(existing_obj, key, value)
+            
+            # Save the changes
+            result = existing_obj.save()
+            
+            # Convert to dict for consistent return type
+            result_dict = self._object_to_dict(existing_obj)
+            
+            # Log successful operation  
+            self._log_write_operation(operation, object_type, data, existing_obj)
+            
+            logger.info(f"✅ Successfully updated {object_type} ID {object_id}")
+            return result_dict
+            
+        except (NetBoxConfirmationError, NetBoxNotFoundError, NetBoxValidationError):
+            raise
+        except Exception as e:
+            self._log_write_operation(operation, object_type, data, error=e)
+            if "validation" in str(e).lower():
+                raise NetBoxValidationError(f"Validation failed for {object_type}: {e}")
+            else:
+                raise NetBoxWriteError(f"Failed to update {object_type}: {e}")
+    
+    def delete_object(self, object_type: str, object_id: int, confirm: bool = False) -> Dict[str, Any]:
+        """
+        Delete an object from NetBox with safety mechanisms.
+        
+        Args:
+            object_type: Type of object to delete
+            object_id: ID of object to delete
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Deletion confirmation dictionary
+            
+        Raises:
+            NetBoxConfirmationError: If confirm=False
+            NetBoxNotFoundError: If object not found
+            NetBoxWriteError: If deletion fails
+        """
+        operation = f"delete_{object_type}"
+        
+        try:
+            # Safety checks
+            self._check_write_safety(operation, confirm)
+            
+            # Validate endpoint (must be done before dry-run to catch invalid types)
+            endpoint = self._get_write_endpoint(object_type)
+            
+            # Get the object first to verify it exists and get its data
+            try:
+                existing_obj = endpoint.get(object_id)
+                if not existing_obj:
+                    raise NetBoxNotFoundError(f"{object_type} with ID {object_id} not found")
+            except Exception as e:
+                raise NetBoxNotFoundError(f"{object_type} with ID {object_id} not found: {e}")
+            
+            # Store object data for logging
+            object_data = self._object_to_dict(existing_obj)
+            
+            # Dry-run mode simulation
+            if self.config.safety.dry_run_mode:
+                logger.info(f"🔍 DRY-RUN: Would delete {object_type} ID {object_id}")
+                simulated_result = {
+                    'deleted': True,
+                    'dry_run': True,
+                    'object_id': object_id,
+                    'object_type': object_type,
+                    'original_data': object_data
+                }
+                self._log_write_operation(operation, object_type, object_data, simulated_result)
+                return simulated_result
+            
+            # Delete the object
+            logger.info(f"Deleting {object_type} ID {object_id}")
+            existing_obj.delete()
+            
+            result = {
+                'deleted': True,
+                'object_id': object_id,
+                'object_type': object_type,
+                'original_data': object_data
+            }
+            
+            # Log successful operation
+            self._log_write_operation(operation, object_type, object_data, result)
+            
+            logger.info(f"✅ Successfully deleted {object_type} ID {object_id}")
+            return result
+            
+        except (NetBoxConfirmationError, NetBoxNotFoundError):
+            raise
+        except Exception as e:
+            self._log_write_operation(operation, object_type, {'object_id': object_id}, error=e)
+            raise NetBoxWriteError(f"Failed to delete {object_type}: {e}")
+    
+    def _get_write_endpoint(self, object_type: str):
+        """
+        Get the appropriate pynetbox endpoint for write operations.
+        
+        Args:
+            object_type: Type of object (e.g., 'devices', 'sites', 'manufacturers')
+            
+        Returns:
+            pynetbox endpoint object
+            
+        Raises:
+            NetBoxValidationError: If object_type is not supported
+        """
+        endpoint_mapping = {
+            # DCIM endpoints
+            'devices': self.api.dcim.devices,
+            'sites': self.api.dcim.sites,
+            'manufacturers': self.api.dcim.manufacturers,
+            'device_types': self.api.dcim.device_types,
+            'device_roles': self.api.dcim.device_roles,
+            'interfaces': self.api.dcim.interfaces,
+            'cables': self.api.dcim.cables,
+            'racks': self.api.dcim.racks,
+            'locations': self.api.dcim.locations,
+            
+            # IPAM endpoints
+            'ip_addresses': self.api.ipam.ip_addresses,
+            'prefixes': self.api.ipam.prefixes,
+            'vlans': self.api.ipam.vlans,
+            'vlan_groups': self.api.ipam.vlan_groups,
+            'vrfs': self.api.ipam.vrfs,
+            
+            # Extras endpoints
+            'tags': self.api.extras.tags,
+            'custom_fields': self.api.extras.custom_fields,
+        }
+        
+        if object_type not in endpoint_mapping:
+            supported_types = ', '.join(sorted(endpoint_mapping.keys()))
+            raise NetBoxValidationError(
+                f"Unsupported object type '{object_type}'. "
+                f"Supported types: {supported_types}"
+            )
+        
+        return endpoint_mapping[object_type]
+    
+    def _object_to_dict(self, obj) -> Dict[str, Any]:
+        """
+        Convert a pynetbox object to a dictionary for consistent return types.
+        
+        Args:
+            obj: pynetbox object
+            
+        Returns:
+            Dictionary representation of the object
+        """
+        if hasattr(obj, 'serialize'):
+            return obj.serialize()
+        elif hasattr(obj, '__dict__'):
+            # Fallback for objects without serialize method
+            result = {}
+            for key, value in obj.__dict__.items():
+                if not key.startswith('_'):
+                    try:
+                        # Convert to JSON-serializable types
+                        if hasattr(value, 'id'):
+                            result[key] = value.id
+                        elif hasattr(value, '__dict__'):
+                            result[key] = str(value)
+                        else:
+                            result[key] = value
+                    except Exception:
+                        result[key] = str(value)
+            return result
+        else:
+            return {'object': str(obj)}
