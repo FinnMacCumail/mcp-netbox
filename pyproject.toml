@@ -43,6 +43,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+async = [
+    "redis>=5.0.0",
+    "rq>=1.15.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -51,6 +55,8 @@ dev = [
     "flake8>=6.0.0",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
+    "redis>=5.0.0",
+    "rq>=1.15.0",
 ]
 test = [
     "pytest>=7.0.0",
@@ -58,6 +64,8 @@ test = [
     "pytest-asyncio>=0.21.0",
     "responses>=0.23.0",
     "httpx>=0.24.0",
+    "redis>=5.0.0",
+    "rq>=1.15.0",
 ]
 
 [project.urls]

@@ -1080,6 +1080,320 @@ def netbox_bulk_ensure_devices(
         }
 
 
+@mcp.tool()
+def netbox_start_bulk_async(
+    devices_data: List[Dict[str, Any]],
+    confirm: bool = False,
+    max_devices: int = 1000
+) -> Dict[str, Any]:
+    """
+    Start asynchronous bulk device operation for large device lists.
+    
+    For large device collections, this operation runs in the background to prevent
+    MCP client timeouts. Use netbox_get_task_status() to monitor progress.
+    
+    SAFETY: This is a complex async write operation that requires confirm=True.
+    All operations respect the global dry-run mode setting.
+    
+    Args:
+        devices_data: List of device data dictionaries with nested relationships
+        confirm: Must be True to execute operations (safety mechanism)
+        max_devices: Maximum devices allowed in single operation (safety limit)
+        
+    Returns:
+        Task information with task_id for progress tracking
+        
+    Example:
+        # Start async operation
+        result = netbox_start_bulk_async([device1, device2, ...], confirm=True)
+        task_id = result["task_id"]
+        
+        # Monitor progress
+        status = netbox_get_task_status(task_id)
+    """
+    try:
+        # Import task manager
+        from .tasks import get_task_manager
+        
+        task_manager = get_task_manager()
+        if task_manager is None:
+            return {
+                "success": False,
+                "error": "Async task queue not available - Redis/RQ not configured",
+                "error_type": "TaskQueueUnavailable",
+                "help": "Use netbox_bulk_ensure_devices() for synchronous operation"
+            }
+        
+        # Input validation
+        if not devices_data or not isinstance(devices_data, list):
+            return {
+                "success": False,
+                "error": "devices_data must be a non-empty list of device dictionaries",
+                "error_type": "ValidationError"
+            }
+        
+        if len(devices_data) > max_devices:
+            return {
+                "success": False,
+                "error": f"Device count ({len(devices_data)}) exceeds maximum ({max_devices})",
+                "error_type": "ValidationError",
+                "help": f"Split into smaller batches or increase max_devices limit"
+            }
+        
+        # Validate each device has required fields
+        required_fields = ["name", "manufacturer", "device_type", "site", "role"]
+        for i, device in enumerate(devices_data):
+            missing_fields = [field for field in required_fields if not device.get(field)]
+            if missing_fields:
+                return {
+                    "success": False,
+                    "error": f"Device {i} missing required fields: {', '.join(missing_fields)}",
+                    "error_type": "ValidationError"
+                }
+        
+        # Safety check for actual execution
+        if not confirm:
+            return {
+                "success": False,
+                "error": "Async bulk operation requires confirm=True parameter for safety",
+                "error_type": "ConfirmationRequired",
+                "help": "Use netbox_get_task_status() to monitor progress after starting"
+            }
+        
+        # Prepare task configuration
+        task_config = {
+            "confirm": confirm,
+            "netbox_url": netbox_client.config.url,
+            "netbox_token": netbox_client.config.token,
+            "timeout": netbox_client.config.timeout,
+            "verify_ssl": netbox_client.config.verify_ssl,
+            "dry_run_mode": netbox_client.config.safety.dry_run_mode
+        }
+        
+        # Queue the async operation
+        task_id = task_manager.queue_bulk_device_operation(
+            devices_data, 
+            task_config,
+            timeout=3600  # 1 hour timeout
+        )
+        
+        # Calculate estimated duration (rough estimate: 2 seconds per device)
+        estimated_minutes = max(1, len(devices_data) * 2 // 60)
+        
+        logger.info(f"Started async bulk operation: {task_id} ({len(devices_data)} devices)")
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": "queued", 
+            "device_count": len(devices_data),
+            "estimated_duration_minutes": estimated_minutes,
+            "monitor_with": "netbox_get_task_status",
+            "queue_info": task_manager.get_queue_info()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to start async bulk operation: {e}")
+        return {
+            "success": False,
+            "error": f"Failed to queue async operation: {str(e)}",
+            "error_type": "TaskQueueError"
+        }
+
+
+@mcp.tool()
+def netbox_get_task_status(task_id: str) -> Dict[str, Any]:
+    """
+    Get status and progress of asynchronous task.
+    
+    Args:
+        task_id: Task identifier returned by netbox_start_bulk_async
+        
+    Returns:
+        Current task status, progress, and results (if completed)
+        
+    Example:
+        status = netbox_get_task_status("bulk_devices_100dev_1234567890_a1b2c3d4")
+        
+        if status["task_status"]["status"] == "completed":
+            results = status["task_status"]["results"]
+        elif status["task_status"]["status"] == "running":
+            progress = status["task_status"]["progress"]
+    """
+    try:
+        from .tasks import get_task_manager
+        
+        task_manager = get_task_manager()
+        if task_manager is None:
+            return {
+                "success": False,
+                "error": "Async task queue not available - Redis/RQ not configured",
+                "error_type": "TaskQueueUnavailable"
+            }
+        
+        # Get task status from tracker
+        task_status = task_manager.tracker.get_task_status(task_id)
+        
+        if task_status["status"] == "not_found":
+            return {
+                "success": False,
+                "error": "Task not found or expired",
+                "error_type": "TaskNotFound",
+                "help": "Task data expires after 1 hour"
+            }
+        
+        # Enhance status with human-readable information
+        if task_status["status"] == "running":
+            stage = task_status.get("stage", "unknown")
+            progress = task_status.get("progress", 0)
+            
+            stage_descriptions = {
+                "initialization": "Preparing bulk operation and NetBox connection",
+                "processing": "Processing devices using two-pass strategy",
+                "validation": "Validating results and generating reports"
+            }
+            
+            task_status["stage_description"] = stage_descriptions.get(stage, stage)
+            task_status["progress_percentage"] = f"{progress:.1f}%"
+            
+            # Add current processing info if available
+            if "current_device" in task_status:
+                task_status["current_status"] = f"Processing: {task_status['current_device']}"
+        
+        elif task_status["status"] == "completed":
+            # Add summary information for completed tasks
+            results = task_status.get("results", {})
+            summary = results.get("summary", {})
+            
+            task_status["completion_summary"] = {
+                "total_devices": summary.get("total_devices", 0),
+                "successful_devices": summary.get("successful_devices", 0),
+                "failed_devices": summary.get("failed_devices", 0),
+                "success_rate": f"{summary.get('success_rate', 0):.1f}%"
+            }
+        
+        return {
+            "success": True,
+            "task_status": task_status
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get task status: {e}")
+        return {
+            "success": False,
+            "error": f"Failed to retrieve task status: {str(e)}",
+            "error_type": "StatusQueryError"
+        }
+
+
+@mcp.tool()
+def netbox_list_active_tasks() -> Dict[str, Any]:
+    """
+    List all currently active asynchronous tasks.
+    
+    Returns:
+        List of active tasks with their current status and progress
+        
+    Example:
+        active_tasks = netbox_list_active_tasks()
+        for task in active_tasks["tasks"]:
+            print(f"Task {task['task_id']}: {task['status']} ({task['progress']}%)")
+    """
+    try:
+        from .tasks import get_task_manager
+        
+        task_manager = get_task_manager()
+        if task_manager is None:
+            return {
+                "success": False,
+                "error": "Async task queue not available - Redis/RQ not configured",
+                "error_type": "TaskQueueUnavailable"
+            }
+        
+        # Get all active tasks
+        active_tasks = task_manager.tracker.list_active_tasks()
+        
+        # Add summary statistics
+        status_counts = {}
+        for task in active_tasks:
+            status = task.get("status", "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        queue_info = task_manager.get_queue_info()
+        
+        return {
+            "success": True,
+            "task_count": len(active_tasks),
+            "tasks": active_tasks,
+            "status_summary": status_counts,
+            "queue_info": queue_info
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list active tasks: {e}")
+        return {
+            "success": False,
+            "error": f"Failed to list tasks: {str(e)}",
+            "error_type": "TaskListError"
+        }
+
+
+@mcp.tool()
+def netbox_get_queue_info() -> Dict[str, Any]:
+    """
+    Get information about the async task queue status.
+    
+    Returns:
+        Queue statistics, worker information, and system status
+        
+    Example:
+        queue_info = netbox_get_queue_info()
+        print(f"Jobs in queue: {queue_info['queue_info']['job_count']}")
+        print(f"Workers active: {queue_info['queue_info']['worker_count']}")
+    """
+    try:
+        from .tasks import get_task_manager
+        
+        task_manager = get_task_manager()
+        if task_manager is None:
+            return {
+                "success": False,
+                "error": "Async task queue not available - Redis/RQ not configured",
+                "error_type": "TaskQueueUnavailable",
+                "help": "Install Redis and RQ: pip install rq redis"
+            }
+        
+        queue_info = task_manager.get_queue_info()
+        
+        # Add task tracker statistics
+        active_tasks = task_manager.tracker.list_active_tasks()
+        task_status_counts = {}
+        for task in active_tasks:
+            status = task.get("status", "unknown")
+            task_status_counts[status] = task_status_counts.get(status, 0) + 1
+        
+        return {
+            "success": True,
+            "queue_info": queue_info,
+            "task_tracker": {
+                "active_tasks": len(active_tasks),
+                "status_breakdown": task_status_counts
+            },
+            "system_status": {
+                "redis_available": queue_info["redis_info"]["connected"],
+                "rq_available": True
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get queue info: {e}")
+        return {
+            "success": False,
+            "error": f"Failed to get queue information: {str(e)}",
+            "error_type": "QueueInfoError"
+        }
+
+
 # HTTP Health Check Server (similar to unimus-mcp)
 class HealthCheckHandler(BaseHTTPRequestHandler):
     """HTTP handler for health check endpoints."""
@@ -1206,6 +1520,21 @@ def initialize_server():
             logger.info(f"✅ Connected to NetBox {status.version} (response time: {status.response_time_ms:.1f}ms)")
         else:
             logger.error(f"❌ Failed to connect to NetBox: {status.error}")
+        
+        # Initialize async task manager (optional)
+        try:
+            from .tasks import initialize_task_manager
+            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+            task_manager = initialize_task_manager(redis_url)
+            
+            if task_manager:
+                logger.info("✅ Async task queue initialized - Redis/RQ available")
+                logger.info("Async tools: netbox_start_bulk_async, netbox_get_task_status")
+            else:
+                logger.info("⚠️  Async task queue not available - using synchronous operations only")
+        except Exception as e:
+            logger.warning(f"Async task queue initialization failed: {e}")
+            logger.info("Falling back to synchronous operations only")
         
         # Start health check server if enabled
         if config.enable_health_server:
