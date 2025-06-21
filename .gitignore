@@ -92,3 +92,7 @@ config/secrets.py
 .cache/
 tmp/
 temp/
+
+# Gemini consultation files (temporary)
+ask-gemini.md
+answer-from-gemini.md
