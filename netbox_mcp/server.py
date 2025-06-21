@@ -586,12 +586,29 @@ def main():
         # Initialize server
         initialize_server()
         
-        # Run the MCP server
-        logger.info("Starting NetBox MCP server...")
-        mcp.run()
+        # Define the MCP server task to run in a thread
+        def run_mcp_server():
+            try:
+                logger.info("Starting NetBox MCP server on a dedicated thread...")
+                mcp.run(transport="stdio")
+            except Exception as e:
+                logger.error(f"MCP server thread encountered an error: {e}", exc_info=True)
+
+        # Start the MCP server in a daemon thread
+        mcp_thread = threading.Thread(target=run_mcp_server)
+        mcp_thread.daemon = True
+        mcp_thread.start()
         
-    except KeyboardInterrupt:
-        logger.info("NetBox MCP server shutting down...")
+        # Keep the main thread alive to allow daemon threads to run
+        logger.info("NetBox MCP server is ready and listening")
+        logger.info("Health endpoints: /health, /healthz (liveness), /readyz (readiness)")
+        
+        try:
+            while True:
+                time.sleep(3600)  # Sleep for a long time
+        except KeyboardInterrupt:
+            logger.info("Shutting down NetBox MCP server...")
+        
     except Exception as e:
         logger.error(f"NetBox MCP server error: {e}")
         raise
