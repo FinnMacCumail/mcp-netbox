@@ -311,3 +311,292 @@ class TestManagedFieldsExtension:
         
         expected_batch_field = "batch_id"
         assert client.METADATA_CUSTOM_FIELDS["batch_id"] == expected_batch_field
+
+
+class TestNetBoxBulkOrchestrator:
+    """Test NetBoxBulkOrchestrator class - Two-pass stateless orchestration."""
+    
+    @patch('netbox_mcp.client.pynetbox.api')
+    def test_orchestrator_initialization(self, mock_pynetbox_api, test_config, mock_api):
+        """Test orchestrator initialization."""
+        mock_pynetbox_api.return_value = mock_api
+        client = NetBoxClient(test_config)
+        
+        from netbox_mcp.client import NetBoxBulkOrchestrator
+        orchestrator = NetBoxBulkOrchestrator(client)
+        
+        assert orchestrator.client == client
+        assert orchestrator.operation_cache == {}
+        assert orchestrator.batch_id is None
+        assert "pass_1" in orchestrator.results
+        assert "pass_2" in orchestrator.results
+        assert "created" in orchestrator.results["pass_1"]
+        assert "updated" in orchestrator.results["pass_1"]
+        assert "unchanged" in orchestrator.results["pass_1"]
+        assert "errors" in orchestrator.results["pass_1"]
+    
+    @patch('netbox_mcp.client.pynetbox.api')
+    def test_generate_batch_id(self, mock_pynetbox_api, test_config, mock_api):
+        """Test batch ID generation."""
+        mock_pynetbox_api.return_value = mock_api
+        client = NetBoxClient(test_config)
+        
+        from netbox_mcp.client import NetBoxBulkOrchestrator
+        orchestrator = NetBoxBulkOrchestrator(client)
+        
+        batch_id = orchestrator.generate_batch_id()
+        
+        assert batch_id.startswith("batch_")
+        assert orchestrator.batch_id == batch_id
+        assert len(batch_id.split("_")) == 4  # batch_{timestamp}_{uuid}
+    
+    @patch('netbox_mcp.client.pynetbox.api')
+    def test_normalize_device_data(self, mock_pynetbox_api, test_config, mock_api):
+        """Test device data normalization for two-pass processing."""
+        mock_pynetbox_api.return_value = mock_api
+        client = NetBoxClient(test_config)
+        
+        from netbox_mcp.client import NetBoxBulkOrchestrator
+        orchestrator = NetBoxBulkOrchestrator(client)
+        orchestrator.generate_batch_id()
+        
+        # Input device data
+        device_data = {
+            "name": "switch-01",
+            "manufacturer": "Cisco",
+            "device_type": "Catalyst 9300",
+            "site": "Amsterdam DC",
+            "role": "Access Switch",
+            "model": "C9300-24U",
+            "status": "active",
+            "description": "Core switch for floor 3",
+            "platform": "ios",
+            "interfaces": [
+                {"name": "GigabitEthernet1/0/1", "type": "1000base-t"}
+            ],
+            "ip_addresses": [
+                {"address": "192.168.1.10/24", "interface": "Management1"}
+            ]
+        }
+        
+        normalized = orchestrator.normalize_device_data(device_data)
+        
+        # Verify structure
+        assert "core_objects" in normalized
+        assert "relationship_objects" in normalized
+        assert "metadata" in normalized
+        
+        # Verify core objects
+        core = normalized["core_objects"]
+        assert core["manufacturer"] == "Cisco"
+        assert core["site"] == "Amsterdam DC"
+        assert core["device_role"] == "Access Switch"
+        assert core["device_type"]["name"] == "Catalyst 9300"
+        assert core["device_type"]["manufacturer"] == "Cisco"
+        assert core["device_type"]["model"] == "C9300-24U"
+        
+        # Verify relationship objects
+        rel = normalized["relationship_objects"]
+        assert rel["device"]["name"] == "switch-01"
+        assert rel["device"]["device_type"] == "Catalyst 9300"
+        assert rel["device"]["site"] == "Amsterdam DC"
+        assert rel["device"]["role"] == "Access Switch"
+        assert rel["device"]["platform"] == "ios"
+        assert len(rel["interfaces"]) == 1
+        assert len(rel["ip_addresses"]) == 1
+        
+        # Verify metadata
+        meta = normalized["metadata"]
+        assert meta["batch_id"] == orchestrator.batch_id
+        assert meta["source_system"] == "unimus"
+    
+    @patch('netbox_mcp.client.pynetbox.api')
+    def test_execute_pass_1_successful(self, mock_pynetbox_api, test_config, mock_api):
+        """Test successful Pass 1 execution."""
+        mock_pynetbox_api.return_value = mock_api
+        client = NetBoxClient(test_config)
+        
+        from netbox_mcp.client import NetBoxBulkOrchestrator
+        orchestrator = NetBoxBulkOrchestrator(client)
+        orchestrator.generate_batch_id()
+        
+        # Mock ensure methods
+        manufacturer_result = {
+            "success": True,
+            "action": "created",
+            "manufacturer": {"id": 1, "name": "Cisco"}
+        }
+        site_result = {
+            "success": True, 
+            "action": "unchanged",
+            "site": {"id": 2, "name": "Amsterdam DC"}
+        }
+        role_result = {
+            "success": True,
+            "action": "created", 
+            "device_role": {"id": 3, "name": "Access Switch"}
+        }
+        device_type_result = {
+            "success": True,
+            "action": "created",
+            "device_type": {"id": 4, "name": "Catalyst 9300"}
+        }
+        
+        with patch.object(client, 'ensure_manufacturer', return_value=manufacturer_result) as mock_manufacturer:
+            with patch.object(client, 'ensure_site', return_value=site_result) as mock_site:
+                with patch.object(client, 'ensure_device_role', return_value=role_result) as mock_role:
+                    with patch.object(client, 'ensure_device_type', return_value=device_type_result) as mock_device_type:
+                        
+                        normalized_data = {
+                            "core_objects": {
+                                "manufacturer": "Cisco",
+                                "site": "Amsterdam DC",
+                                "device_role": "Access Switch",
+                                "device_type": {
+                                    "name": "Catalyst 9300",
+                                    "manufacturer": "Cisco",
+                                    "model": "C9300-24U"
+                                }
+                            }
+                        }
+                        
+                        pass_1_results = orchestrator.execute_pass_1(normalized_data, confirm=True)
+        
+        # Verify all ensure methods were called
+        mock_manufacturer.assert_called_once_with(name="Cisco", batch_id=orchestrator.batch_id, confirm=True)
+        mock_site.assert_called_once_with(name="Amsterdam DC", batch_id=orchestrator.batch_id, confirm=True)
+        mock_role.assert_called_once_with(name="Access Switch", batch_id=orchestrator.batch_id, confirm=True)
+        mock_device_type.assert_called_once_with(
+            name="Catalyst 9300",
+            manufacturer_id=1,
+            model="C9300-24U",
+            description=None,
+            batch_id=orchestrator.batch_id,
+            confirm=True
+        )
+        
+        # Verify pass 1 results
+        assert pass_1_results["manufacturer_id"] == 1
+        assert pass_1_results["site_id"] == 2
+        assert pass_1_results["device_role_id"] == 3
+        assert pass_1_results["device_type_id"] == 4
+        
+        # Verify operation cache
+        assert orchestrator.operation_cache["manufacturer:Cisco"] == 1
+        assert orchestrator.operation_cache["site:Amsterdam DC"] == 2
+        assert orchestrator.operation_cache["device_role:Access Switch"] == 3
+        assert orchestrator.operation_cache["device_type:Catalyst 9300"] == 4
+        
+        # Verify results tracking
+        assert len(orchestrator.results["pass_1"]["created"]) == 3  # manufacturer, role, device_type
+        assert len(orchestrator.results["pass_1"]["unchanged"]) == 1  # site
+        assert len(orchestrator.results["pass_1"]["errors"]) == 0
+    
+    @patch('netbox_mcp.client.pynetbox.api')
+    def test_execute_pass_2_successful(self, mock_pynetbox_api, test_config, mock_api):
+        """Test successful Pass 2 execution."""
+        mock_pynetbox_api.return_value = mock_api
+        client = NetBoxClient(test_config)
+        
+        from netbox_mcp.client import NetBoxBulkOrchestrator
+        orchestrator = NetBoxBulkOrchestrator(client)
+        orchestrator.generate_batch_id()
+        
+        # Mock ensure_device
+        device_result = {
+            "success": True,
+            "action": "created",
+            "device": {"id": 10, "name": "switch-01"}
+        }
+        
+        with patch.object(client, 'ensure_device', return_value=device_result) as mock_device:
+            normalized_data = {
+                "relationship_objects": {
+                    "device": {
+                        "name": "switch-01",
+                        "device_type": "Catalyst 9300",
+                        "site": "Amsterdam DC",
+                        "role": "Access Switch",
+                        "platform": "ios",
+                        "status": "active",
+                        "description": "Core switch"
+                    }
+                }
+            }
+            
+            pass_1_results = {
+                "manufacturer_id": 1,
+                "site_id": 2,
+                "device_role_id": 3,
+                "device_type_id": 4
+            }
+            
+            pass_2_results = orchestrator.execute_pass_2(normalized_data, pass_1_results, confirm=True)
+        
+        # Verify ensure_device was called with Pass 1 IDs
+        mock_device.assert_called_once_with(
+            name="switch-01",
+            device_type_id=4,
+            site_id=2,
+            role_id=3,
+            platform="ios",
+            status="active",
+            description="Core switch",
+            batch_id=orchestrator.batch_id,
+            confirm=True
+        )
+        
+        # Verify pass 2 results
+        assert pass_2_results["device_id"] == 10
+        
+        # Verify operation cache
+        assert orchestrator.operation_cache["device:switch-01"] == 10
+        
+        # Verify results tracking
+        assert len(orchestrator.results["pass_2"]["created"]) == 1
+        assert len(orchestrator.results["pass_2"]["errors"]) == 0
+    
+    @patch('netbox_mcp.client.pynetbox.api')
+    def test_generate_operation_report(self, mock_pynetbox_api, test_config, mock_api):
+        """Test operation report generation."""
+        mock_pynetbox_api.return_value = mock_api
+        client = NetBoxClient(test_config)
+        
+        from netbox_mcp.client import NetBoxBulkOrchestrator
+        orchestrator = NetBoxBulkOrchestrator(client)
+        orchestrator.generate_batch_id()
+        
+        # Simulate some results
+        orchestrator.results["pass_1"]["created"] = [{"object": "manufacturer"}, {"object": "site"}]
+        orchestrator.results["pass_1"]["unchanged"] = [{"object": "device_role"}]
+        orchestrator.results["pass_2"]["created"] = [{"object": "device"}]
+        orchestrator.operation_cache = {"manufacturer:Cisco": 1, "site:Amsterdam": 2}
+        
+        report = orchestrator.generate_operation_report()
+        
+        # Verify report structure
+        assert "batch_id" in report
+        assert "operation_summary" in report
+        assert "pass_1_summary" in report
+        assert "pass_2_summary" in report
+        assert "detailed_results" in report
+        assert "cache_statistics" in report
+        
+        # Verify operation summary
+        summary = report["operation_summary"]
+        assert summary["total_objects_processed"] == 4  # 3 pass_1 + 1 pass_2
+        assert summary["total_errors"] == 0
+        assert summary["success_rate"] == 100.0
+        
+        # Verify pass summaries
+        assert report["pass_1_summary"]["core_objects_processed"] == 3
+        assert report["pass_1_summary"]["created"] == 2
+        assert report["pass_1_summary"]["unchanged"] == 1
+        
+        assert report["pass_2_summary"]["relationship_objects_processed"] == 1
+        assert report["pass_2_summary"]["created"] == 1
+        
+        # Verify cache statistics
+        cache_stats = report["cache_statistics"]
+        assert cache_stats["cached_objects"] == 2
+        assert "manufacturer:Cisco" in cache_stats["cache_keys"]

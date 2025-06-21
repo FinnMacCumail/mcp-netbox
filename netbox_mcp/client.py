@@ -1938,3 +1938,597 @@ class NetBoxClient:
         except Exception as e:
             logger.error(f"Unexpected error in ensure_device_type: {e}")
             raise NetBoxError(f"Unexpected error ensuring device type: {e}")
+    
+    def ensure_device(
+        self,
+        name: Optional[str] = None,
+        device_type_id: Optional[int] = None,
+        site_id: Optional[int] = None,
+        role_id: Optional[int] = None,
+        platform: Optional[str] = None,
+        status: str = "active",
+        description: Optional[str] = None,
+        device_id: Optional[int] = None,
+        batch_id: Optional[str] = None,
+        confirm: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Ensure a device exists with idempotent behavior using hybrid pattern.
+        
+        Part of Issue #13 Two-Pass Strategy - Pass 2 relationship object creation.
+        Requires device_type_id, site_id, and role_id from Pass 1 results.
+        
+        Args:
+            name: Device name (required if device_id not provided)
+            device_type_id: Device type ID (required, from ensure_device_type)
+            site_id: Site ID (required, from ensure_site)
+            role_id: Device role ID (required, from ensure_device_role)
+            platform: Platform/OS name (optional)
+            status: Device status (default: active)
+            description: Optional description
+            device_id: Direct device ID (skips lookup if provided)
+            batch_id: Batch ID for rollback capability (two-pass operations)
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Dict containing device data and operation details
+            
+        Raises:
+            NetBoxValidationError: Invalid input parameters
+            NetBoxConfirmationError: Missing confirm=True
+            NetBoxNotFoundError: device_id provided but doesn't exist
+            NetBoxWriteError: API operation failed
+        """
+        operation = "ENSURE_DEVICE"
+        
+        try:
+            # Safety check - ensure confirmation
+            self._check_write_safety(operation, confirm)
+            
+            # Input validation
+            if not name and not device_id:
+                raise NetBoxValidationError("Either 'name' or 'device_id' parameter is required")
+            
+            if device_id and name:
+                logger.warning(f"Both device_id ({device_id}) and name ('{name}') provided. Using device_id.")
+            
+            # Pattern B: Direct ID injection (performance path)
+            if device_id:
+                try:
+                    existing_obj = self.api.dcim.devices.get(device_id)
+                    if not existing_obj:
+                        raise NetBoxNotFoundError(f"Device with ID {device_id} not found")
+                    
+                    result_dict = self._object_to_dict(existing_obj)
+                    return {
+                        "success": True,
+                        "action": "unchanged",
+                        "object_type": "device",
+                        "device": result_dict,
+                        "changes": {
+                            "created_fields": [],
+                            "updated_fields": [],
+                            "unchanged_fields": list(result_dict.keys())
+                        },
+                        "dry_run": False
+                    }
+                except Exception as e:
+                    if "not found" in str(e).lower():
+                        raise NetBoxNotFoundError(f"Device with ID {device_id} not found")
+                    else:
+                        raise NetBoxWriteError(f"Failed to retrieve device {device_id}: {e}")
+            
+            # Pattern A: Hierarchical lookup and create (convenience path)
+            if not name or not name.strip():
+                raise NetBoxValidationError("Device name cannot be empty")
+            
+            # Validate required dependencies for device creation
+            if not device_type_id:
+                raise NetBoxValidationError("device_type_id is required for device operations")
+            if not site_id:
+                raise NetBoxValidationError("site_id is required for device operations")
+            if not role_id:
+                raise NetBoxValidationError("role_id is required for device operations")
+            
+            name = name.strip()
+            
+            # Check if device already exists by name and site
+            try:
+                existing_devices = list(self.api.dcim.devices.filter(name=name, site_id=site_id))
+                
+                if existing_devices:
+                    existing_obj = existing_devices[0]
+                    existing_dict = self._object_to_dict(existing_obj)
+                    
+                    # Build desired state for comparison
+                    desired_state = {
+                        "name": name,
+                        "device_type": device_type_id,
+                        "site": site_id,
+                        "role": role_id,
+                        "status": status
+                    }
+                    if platform:
+                        desired_state["platform"] = platform
+                    if description:
+                        desired_state["description"] = description
+                    
+                    # Issue #12: Enhanced selective field comparison with hash diffing
+                    comparison_result = self._compare_managed_fields(
+                        existing_dict, desired_state, "devices"
+                    )
+                    
+                    # Generate metadata
+                    metadata = self._generate_metadata(batch_id, "devices")
+                    
+                    if comparison_result["needs_update"]:
+                        # Update required
+                        logger.info(f"Device '{name}' exists but requires updates: {comparison_result['changed_fields']}")
+                        
+                        # Merge desired state with metadata
+                        update_data = {**desired_state, **metadata}
+                        
+                        result = self.update_object(
+                            object_type="devices",
+                            object_id=existing_obj.id,
+                            data=update_data,
+                            confirm=confirm
+                        )
+                        
+                        return {
+                            "success": True,
+                            "action": "updated",
+                            "object_type": "device",
+                            "device": result,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": comparison_result["changed_fields"],
+                                "unchanged_fields": comparison_result["unchanged_fields"]
+                            },
+                            "dry_run": False
+                        }
+                    
+                    else:
+                        # No changes needed
+                        logger.info(f"Device '{name}' already exists with desired state")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "device",
+                            "device": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": comparison_result["unchanged_fields"]
+                            },
+                            "dry_run": False
+                        }
+                
+                # Device doesn't exist, create it
+                logger.info(f"Creating new device '{name}' in site {site_id}")
+                
+                # Prepare creation data
+                create_data = {
+                    "name": name,
+                    "device_type": device_type_id,
+                    "site": site_id,
+                    "role": role_id,
+                    "status": status
+                }
+                
+                # Add optional fields
+                if platform:
+                    create_data["platform"] = platform
+                if description:
+                    create_data["description"] = description
+                
+                # Add metadata
+                metadata = self._generate_metadata(batch_id, "devices")
+                create_data.update(metadata)
+                
+                result = self.create_object(
+                    object_type="devices",
+                    data=create_data,
+                    confirm=confirm
+                )
+                
+                return {
+                    "success": True,
+                    "action": "created",
+                    "object_type": "device",
+                    "device": result,
+                    "changes": {
+                        "created_fields": list(create_data.keys()),
+                        "updated_fields": [],
+                        "unchanged_fields": []
+                    },
+                    "dry_run": False
+                }
+                
+            except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError, NetBoxWriteError):
+                raise
+            except Exception as e:
+                logger.error(f"API error during device lookup: {e}")
+                raise NetBoxWriteError(f"Failed to query devices: {e}")
+        
+        except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError, NetBoxWriteError):
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in ensure_device: {e}")
+            raise NetBoxError(f"Unexpected error ensuring device: {e}")
+
+
+class NetBoxBulkOrchestrator:
+    """
+    Stateless orchestrator for two-pass NetBox bulk operations.
+    
+    Based on Gemini's architectural guidance, this class provides:
+    - Stateless design: Created fresh for each operation, no persistent state
+    - Two-pass strategy: Core objects first, then relationships
+    - Rollback capability via batch_id tracking
+    - Comprehensive error handling and safety mechanisms
+    """
+    
+    def __init__(self, netbox_client: 'NetBoxClient'):
+        """
+        Initialize stateless orchestrator.
+        
+        Args:
+            netbox_client: NetBox client instance for API operations
+        """
+        self.client = netbox_client
+        self.operation_cache = {}  # Temporary cache for current operation only
+        self.batch_id = None
+        self.results = {
+            "pass_1": {"created": [], "updated": [], "unchanged": [], "errors": []},
+            "pass_2": {"created": [], "updated": [], "unchanged": [], "errors": []}
+        }
+        
+        logger.info("NetBoxBulkOrchestrator initialized in stateless mode")
+    
+    def generate_batch_id(self) -> str:
+        """Generate unique batch ID for rollback tracking."""
+        import uuid
+        from datetime import datetime
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        batch_uuid = str(uuid.uuid4())[:8]
+        self.batch_id = f"batch_{timestamp}_{batch_uuid}"
+        
+        logger.info(f"Generated batch ID: {self.batch_id}")
+        return self.batch_id
+    
+    def normalize_device_data(self, device_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize complex device data for two-pass processing.
+        
+        Args:
+            device_data: Raw device data with nested relationships
+            
+        Returns:
+            Normalized data structure optimized for two-pass strategy
+        """
+        normalized = {
+            "core_objects": {
+                "manufacturer": device_data.get("manufacturer"),
+                "site": device_data.get("site"), 
+                "device_role": device_data.get("role"),
+                "device_type": {
+                    "name": device_data.get("device_type"),
+                    "manufacturer": device_data.get("manufacturer"),
+                    "model": device_data.get("model"),
+                    "description": device_data.get("device_type_description")
+                }
+            },
+            "relationship_objects": {
+                "device": {
+                    "name": device_data.get("name"),
+                    "device_type": device_data.get("device_type"),
+                    "site": device_data.get("site"),
+                    "role": device_data.get("role"),
+                    "platform": device_data.get("platform"),
+                    "status": device_data.get("status", "active"),
+                    "description": device_data.get("description")
+                },
+                "interfaces": device_data.get("interfaces", []),
+                "ip_addresses": device_data.get("ip_addresses", [])
+            },
+            "metadata": {
+                "batch_id": self.batch_id,
+                "source_system": device_data.get("source_system", "unimus"),
+                "sync_timestamp": device_data.get("sync_timestamp")
+            }
+        }
+        
+        return normalized
+    
+    def execute_pass_1(self, normalized_data: Dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
+        """
+        Execute Pass 1: Create/ensure core objects without relationships.
+        
+        Args:
+            normalized_data: Normalized device data
+            confirm: Whether to execute changes (safety mechanism)
+            
+        Returns:
+            Pass 1 results with object IDs for Pass 2
+        """
+        logger.info("Starting Pass 1: Core objects creation")
+        core_objects = normalized_data["core_objects"]
+        pass_1_results = {}
+        
+        # 1. Ensure Manufacturer (if provided)
+        if core_objects.get("manufacturer"):
+            try:
+                manufacturer_result = self.client.ensure_manufacturer(
+                    name=core_objects["manufacturer"],
+                    batch_id=self.batch_id,
+                    confirm=confirm
+                )
+                pass_1_results["manufacturer_id"] = manufacturer_result["manufacturer"]["id"]
+                self._record_result("pass_1", manufacturer_result)
+                self.operation_cache[f"manufacturer:{core_objects['manufacturer']}"] = manufacturer_result["manufacturer"]["id"]
+                
+            except Exception as e:
+                error_result = {"object_type": "manufacturer", "name": core_objects["manufacturer"], "error": str(e)}
+                self.results["pass_1"]["errors"].append(error_result)
+                logger.error(f"Pass 1 manufacturer error: {e}")
+                raise NetBoxError(f"Pass 1 failed creating manufacturer: {e}")
+        
+        # 2. Ensure Site (if provided)
+        if core_objects.get("site"):
+            try:
+                site_result = self.client.ensure_site(
+                    name=core_objects["site"],
+                    batch_id=self.batch_id,
+                    confirm=confirm
+                )
+                pass_1_results["site_id"] = site_result["site"]["id"]
+                self._record_result("pass_1", site_result)
+                self.operation_cache[f"site:{core_objects['site']}"] = site_result["site"]["id"]
+                
+            except Exception as e:
+                error_result = {"object_type": "site", "name": core_objects["site"], "error": str(e)}
+                self.results["pass_1"]["errors"].append(error_result)
+                logger.error(f"Pass 1 site error: {e}")
+                raise NetBoxError(f"Pass 1 failed creating site: {e}")
+        
+        # 3. Ensure Device Role (if provided)
+        if core_objects.get("device_role"):
+            try:
+                role_result = self.client.ensure_device_role(
+                    name=core_objects["device_role"],
+                    batch_id=self.batch_id,
+                    confirm=confirm
+                )
+                pass_1_results["device_role_id"] = role_result["device_role"]["id"]
+                self._record_result("pass_1", role_result)
+                self.operation_cache[f"device_role:{core_objects['device_role']}"] = role_result["device_role"]["id"]
+                
+            except Exception as e:
+                error_result = {"object_type": "device_role", "name": core_objects["device_role"], "error": str(e)}
+                self.results["pass_1"]["errors"].append(error_result)
+                logger.error(f"Pass 1 device role error: {e}")
+                raise NetBoxError(f"Pass 1 failed creating device role: {e}")
+        
+        # 4. Ensure Device Type (requires manufacturer_id)
+        device_type_data = core_objects.get("device_type", {})
+        if device_type_data and device_type_data.get("name"):
+            try:
+                manufacturer_id = pass_1_results.get("manufacturer_id") or self._resolve_manufacturer_id(device_type_data.get("manufacturer"))
+                
+                if not manufacturer_id:
+                    raise NetBoxValidationError("Device type requires a valid manufacturer_id")
+                
+                device_type_result = self.client.ensure_device_type(
+                    name=device_type_data["name"],
+                    manufacturer_id=manufacturer_id,
+                    model=device_type_data.get("model"),
+                    description=device_type_data.get("description"),
+                    batch_id=self.batch_id,
+                    confirm=confirm
+                )
+                pass_1_results["device_type_id"] = device_type_result["device_type"]["id"]
+                self._record_result("pass_1", device_type_result)
+                self.operation_cache[f"device_type:{device_type_data['name']}"] = device_type_result["device_type"]["id"]
+                
+            except Exception as e:
+                error_result = {"object_type": "device_type", "name": device_type_data.get("name"), "error": str(e)}
+                self.results["pass_1"]["errors"].append(error_result)
+                logger.error(f"Pass 1 device type error: {e}")
+                raise NetBoxError(f"Pass 1 failed creating device type: {e}")
+        
+        logger.info(f"Pass 1 completed successfully. Created {len(pass_1_results)} object references")
+        return pass_1_results
+    
+    def execute_pass_2(self, normalized_data: Dict[str, Any], pass_1_results: Dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
+        """
+        Execute Pass 2: Create relationship objects using Pass 1 IDs.
+        
+        Args:
+            normalized_data: Normalized device data
+            pass_1_results: Results from Pass 1 with object IDs
+            confirm: Whether to execute changes (safety mechanism)
+            
+        Returns:
+            Pass 2 results
+        """
+        logger.info("Starting Pass 2: Relationship objects creation")
+        relationship_objects = normalized_data["relationship_objects"]
+        pass_2_results = {}
+        
+        # 1. Ensure Device (primary relationship object)
+        device_data = relationship_objects.get("device", {})
+        if device_data and device_data.get("name"):
+            try:
+                # Use Pass 1 results for dependencies
+                device_type_id = pass_1_results.get("device_type_id") or self._resolve_device_type_id(device_data.get("device_type"))
+                site_id = pass_1_results.get("site_id") or self._resolve_site_id(device_data.get("site"))
+                role_id = pass_1_results.get("device_role_id") or self._resolve_device_role_id(device_data.get("role"))
+                
+                if not all([device_type_id, site_id, role_id]):
+                    missing = []
+                    if not device_type_id: missing.append("device_type_id")
+                    if not site_id: missing.append("site_id") 
+                    if not role_id: missing.append("role_id")
+                    raise NetBoxValidationError(f"Device creation requires: {', '.join(missing)}")
+                
+                device_result = self.client.ensure_device(
+                    name=device_data["name"],
+                    device_type_id=device_type_id,
+                    site_id=site_id,
+                    role_id=role_id,
+                    platform=device_data.get("platform"),
+                    status=device_data.get("status", "active"),
+                    description=device_data.get("description"),
+                    batch_id=self.batch_id,
+                    confirm=confirm
+                )
+                pass_2_results["device_id"] = device_result["device"]["id"]
+                self._record_result("pass_2", device_result)
+                self.operation_cache[f"device:{device_data['name']}"] = device_result["device"]["id"]
+                
+            except Exception as e:
+                error_result = {"object_type": "device", "name": device_data.get("name"), "error": str(e)}
+                self.results["pass_2"]["errors"].append(error_result)
+                logger.error(f"Pass 2 device error: {e}")
+                raise NetBoxError(f"Pass 2 failed creating device: {e}")
+        
+        # Note: Interfaces and IP addresses would be implemented here
+        # Skipping for now as we focus on device-level two-pass strategy
+        
+        logger.info(f"Pass 2 completed successfully. Created {len(pass_2_results)} relationship objects")
+        return pass_2_results
+    
+    def _record_result(self, pass_name: str, operation_result: Dict[str, Any]):
+        """Record operation result in appropriate pass category."""
+        action = operation_result.get("action", "unknown")
+        if action in ["created", "updated", "unchanged"]:
+            self.results[pass_name][action].append(operation_result)
+        else:
+            logger.warning(f"Unknown action '{action}' in operation result")
+    
+    def _resolve_manufacturer_id(self, manufacturer_name: str) -> Optional[int]:
+        """Resolve manufacturer name to ID using cache or API lookup."""
+        if not manufacturer_name:
+            return None
+            
+        cache_key = f"manufacturer:{manufacturer_name}"
+        if cache_key in self.operation_cache:
+            return self.operation_cache[cache_key]
+        
+        # Fallback to API lookup
+        try:
+            manufacturers = self.client._api.dcim.manufacturers.filter(name=manufacturer_name)
+            if manufacturers:
+                manufacturer_id = manufacturers[0].id
+                self.operation_cache[cache_key] = manufacturer_id
+                return manufacturer_id
+        except Exception as e:
+            logger.warning(f"Failed to resolve manufacturer '{manufacturer_name}': {e}")
+        
+        return None
+    
+    def _resolve_site_id(self, site_name: str) -> Optional[int]:
+        """Resolve site name to ID using cache or API lookup."""
+        if not site_name:
+            return None
+            
+        cache_key = f"site:{site_name}"
+        if cache_key in self.operation_cache:
+            return self.operation_cache[cache_key]
+        
+        # Fallback to API lookup
+        try:
+            sites = self.client._api.dcim.sites.filter(name=site_name)
+            if sites:
+                site_id = sites[0].id
+                self.operation_cache[cache_key] = site_id
+                return site_id
+        except Exception as e:
+            logger.warning(f"Failed to resolve site '{site_name}': {e}")
+        
+        return None
+    
+    def _resolve_device_role_id(self, role_name: str) -> Optional[int]:
+        """Resolve device role name to ID using cache or API lookup."""
+        if not role_name:
+            return None
+            
+        cache_key = f"device_role:{role_name}"
+        if cache_key in self.operation_cache:
+            return self.operation_cache[cache_key]
+        
+        # Fallback to API lookup
+        try:
+            roles = self.client._api.dcim.device_roles.filter(name=role_name)
+            if roles:
+                role_id = roles[0].id
+                self.operation_cache[cache_key] = role_id
+                return role_id
+        except Exception as e:
+            logger.warning(f"Failed to resolve device role '{role_name}': {e}")
+        
+        return None
+    
+    def _resolve_device_type_id(self, device_type_name: str) -> Optional[int]:
+        """Resolve device type name to ID using cache or API lookup."""
+        if not device_type_name:
+            return None
+            
+        cache_key = f"device_type:{device_type_name}"
+        if cache_key in self.operation_cache:
+            return self.operation_cache[cache_key]
+        
+        # Fallback to API lookup
+        try:
+            device_types = self.client._api.dcim.device_types.filter(name=device_type_name)
+            if device_types:
+                device_type_id = device_types[0].id
+                self.operation_cache[cache_key] = device_type_id
+                return device_type_id
+        except Exception as e:
+            logger.warning(f"Failed to resolve device type '{device_type_name}': {e}")
+        
+        return None
+    
+    def generate_operation_report(self) -> Dict[str, Any]:
+        """
+        Generate comprehensive report of two-pass operation results.
+        
+        Returns:
+            Detailed report with statistics and change summary
+        """
+        total_pass_1 = sum(len(self.results["pass_1"][action]) for action in ["created", "updated", "unchanged"])
+        total_pass_2 = sum(len(self.results["pass_2"][action]) for action in ["created", "updated", "unchanged"])
+        total_errors = len(self.results["pass_1"]["errors"]) + len(self.results["pass_2"]["errors"])
+        
+        report = {
+            "batch_id": self.batch_id,
+            "operation_summary": {
+                "total_objects_processed": total_pass_1 + total_pass_2,
+                "total_errors": total_errors,
+                "success_rate": round((total_pass_1 + total_pass_2) / (total_pass_1 + total_pass_2 + total_errors) * 100, 2) if (total_pass_1 + total_pass_2 + total_errors) > 0 else 100
+            },
+            "pass_1_summary": {
+                "core_objects_processed": total_pass_1,
+                "created": len(self.results["pass_1"]["created"]),
+                "updated": len(self.results["pass_1"]["updated"]),
+                "unchanged": len(self.results["pass_1"]["unchanged"]),
+                "errors": len(self.results["pass_1"]["errors"])
+            },
+            "pass_2_summary": {
+                "relationship_objects_processed": total_pass_2,
+                "created": len(self.results["pass_2"]["created"]),
+                "updated": len(self.results["pass_2"]["updated"]),
+                "unchanged": len(self.results["pass_2"]["unchanged"]),
+                "errors": len(self.results["pass_2"]["errors"])
+            },
+            "detailed_results": self.results,
+            "cache_statistics": {
+                "cached_objects": len(self.operation_cache),
+                "cache_keys": list(self.operation_cache.keys())
+            }
+        }
+        
+        return report
