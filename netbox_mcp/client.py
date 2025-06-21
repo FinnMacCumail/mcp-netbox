@@ -1022,14 +1022,17 @@ class NetBoxClient:
     MANAGED_FIELDS = {
         "manufacturers": ["name", "slug", "description"],
         "sites": ["name", "slug", "status", "description", "physical_address", "region"],
-        "device_roles": ["name", "slug", "color", "vm_role", "description"]
+        "device_roles": ["name", "slug", "color", "vm_role", "description"],
+        "device_types": ["name", "slug", "model", "manufacturer", "description"],
+        "devices": ["name", "device_type", "site", "role", "platform", "status", "description"]
     }
     
     # Custom fields for metadata tracking
     METADATA_CUSTOM_FIELDS = {
         "managed_hash": "unimus_managed_hash",
         "last_sync": "last_unimus_sync", 
-        "source": "management_source"
+        "source": "management_source",
+        "batch_id": "batch_id"  # Gemini: Essential for rollback capability
     }
     
     def _generate_managed_hash(self, data: Dict[str, Any], object_type: str) -> str:
@@ -1131,7 +1134,7 @@ class NetBoxClient:
         
         return hash_match
     
-    def _prepare_metadata_update(self, desired_state: Dict[str, Any], object_type: str, operation: str = "update") -> Dict[str, Any]:
+    def _prepare_metadata_update(self, desired_state: Dict[str, Any], object_type: str, operation: str = "update", batch_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Prepare custom fields metadata for state tracking.
         
@@ -1139,6 +1142,7 @@ class NetBoxClient:
             desired_state: Desired object state
             object_type: Type of object for hash generation
             operation: Operation type (create, update)
+            batch_id: Optional batch ID for rollback capability (Gemini guidance)
             
         Returns:
             Dict with custom_fields added for metadata tracking
@@ -1154,6 +1158,10 @@ class NetBoxClient:
             self.METADATA_CUSTOM_FIELDS["last_sync"]: datetime.utcnow().isoformat(),
             self.METADATA_CUSTOM_FIELDS["source"]: "unimus"
         }
+        
+        # Add batch_id if provided (essential for two-pass rollback)
+        if batch_id:
+            metadata[self.METADATA_CUSTOM_FIELDS["batch_id"]] = batch_id
         
         # Add metadata to desired state
         updated_state = desired_state.copy()
@@ -1731,3 +1739,202 @@ class NetBoxClient:
         except Exception as e:
             logger.error(f"Unexpected error in ensure_device_role: {e}")
             raise NetBoxError(f"Unexpected error ensuring device role: {e}")
+    
+    def ensure_device_type(
+        self,
+        name: Optional[str] = None,
+        manufacturer_id: Optional[int] = None,
+        slug: Optional[str] = None,
+        model: Optional[str] = None,
+        description: Optional[str] = None,
+        device_type_id: Optional[int] = None,
+        batch_id: Optional[str] = None,
+        confirm: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Ensure a device type exists with idempotent behavior using hybrid pattern.
+        
+        Part of Issue #13 Two-Pass Strategy - Pass 1 object creation.
+        Requires manufacturer_id from ensure_manufacturer() result.
+        
+        Args:
+            name: Device type name (required if device_type_id not provided)
+            manufacturer_id: Manufacturer ID (required for new device types when using name)
+            slug: URL slug (auto-generated from name if not provided)
+            model: Model number or name (optional)
+            description: Optional description
+            device_type_id: Direct device type ID (skips lookup if provided)
+            batch_id: Batch ID for rollback capability (two-pass operations)
+            confirm: Safety confirmation (REQUIRED: must be True)
+            
+        Returns:
+            Dict containing device type data and operation details
+            
+        Raises:
+            NetBoxValidationError: Invalid input parameters
+            NetBoxConfirmationError: Missing confirm=True
+            NetBoxNotFoundError: device_type_id provided but doesn't exist
+            NetBoxWriteError: API operation failed
+        """
+        operation = "ENSURE_DEVICE_TYPE"
+        
+        try:
+            # Safety check - ensure confirmation
+            self._check_write_safety(operation, confirm)
+            
+            # Input validation
+            if not name and not device_type_id:
+                raise NetBoxValidationError("Either 'name' or 'device_type_id' parameter is required")
+            
+            if device_type_id and name:
+                logger.warning(f"Both device_type_id ({device_type_id}) and name ('{name}') provided. Using device_type_id.")
+            
+            # Pattern B: Direct ID injection (performance path)
+            if device_type_id:
+                try:
+                    existing_obj = self.api.dcim.device_types.get(device_type_id)
+                    if not existing_obj:
+                        raise NetBoxNotFoundError(f"Device type with ID {device_type_id} not found")
+                    
+                    result_dict = self._object_to_dict(existing_obj)
+                    return {
+                        "success": True,
+                        "action": "unchanged",
+                        "object_type": "device_type",
+                        "device_type": result_dict,
+                        "changes": {
+                            "created_fields": [],
+                            "updated_fields": [],
+                            "unchanged_fields": list(result_dict.keys())
+                        },
+                        "dry_run": False
+                    }
+                except Exception as e:
+                    if "not found" in str(e).lower():
+                        raise NetBoxNotFoundError(f"Device type with ID {device_type_id} not found")
+                    else:
+                        raise NetBoxWriteError(f"Failed to retrieve device type {device_type_id}: {e}")
+            
+            # Pattern A: Hierarchical lookup and create (convenience path)
+            if not name or not name.strip():
+                raise NetBoxValidationError("Device type name cannot be empty")
+            
+            name = name.strip()
+            
+            # Validate manufacturer_id is provided for name-based device type operations
+            if not manufacturer_id:
+                raise NetBoxValidationError("manufacturer_id is required for device type operations")
+            
+            # Check if device type already exists by name and manufacturer
+            try:
+                existing_device_types = list(self.api.dcim.device_types.filter(name=name, manufacturer_id=manufacturer_id))
+                
+                if existing_device_types:
+                    existing_obj = existing_device_types[0]
+                    existing_dict = self._object_to_dict(existing_obj)
+                    
+                    # Build desired state for comparison
+                    desired_state = {"name": name, "manufacturer": manufacturer_id}
+                    if slug:
+                        desired_state["slug"] = slug
+                    if model:
+                        desired_state["model"] = model
+                    if description:
+                        desired_state["description"] = description
+                    
+                    # Issue #13: Enhanced selective field comparison with hash diffing
+                    # First try quick hash comparison
+                    if self._hash_comparison_check(existing_dict, desired_state, "device_types"):
+                        # Hash matches - no update needed, return unchanged
+                        logger.debug(f"Hash match for device type '{name}' - no update needed")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "device_type",
+                            "device_type": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": list(self.MANAGED_FIELDS["device_types"])
+                            },
+                            "dry_run": False
+                        }
+                    
+                    # Hash differs - perform detailed selective field comparison
+                    comparison = self._compare_managed_fields(existing_dict, desired_state, "device_types")
+                    
+                    if comparison["needs_update"]:
+                        # Prepare update with metadata tracking
+                        update_data = self._prepare_metadata_update(desired_state, "device_types", "update", batch_id)
+                        
+                        logger.info(f"Updating device type '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
+                        result = self.update_object("device_types", existing_obj.id, update_data, confirm=True)
+                        
+                        return {
+                            "success": True,
+                            "action": "updated",
+                            "object_type": "device_type",
+                            "device_type": result,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [f["field"] for f in comparison["updated_fields"]],
+                                "unchanged_fields": comparison["unchanged_fields"]
+                            },
+                            "dry_run": result.get("dry_run", False)
+                        }
+                    else:
+                        # No changes needed - hash mismatch but field comparison shows no changes
+                        logger.info(f"Device type '{name}' already exists with desired state")
+                        return {
+                            "success": True,
+                            "action": "unchanged",
+                            "object_type": "device_type",
+                            "device_type": existing_dict,
+                            "changes": {
+                                "created_fields": [],
+                                "updated_fields": [],
+                                "unchanged_fields": comparison["unchanged_fields"]
+                            },
+                            "dry_run": False
+                        }
+                
+                else:
+                    # Create new device type with metadata tracking
+                    logger.info(f"Creating new device type '{name}' for manufacturer {manufacturer_id}")
+                    create_data = {"name": name, "manufacturer": manufacturer_id}
+                    if slug:
+                        create_data["slug"] = slug
+                    if model:
+                        create_data["model"] = model
+                    if description:
+                        create_data["description"] = description
+                    
+                    # Add metadata for new objects
+                    create_data = self._prepare_metadata_update(create_data, "device_types", "create", batch_id)
+                    
+                    result = self.create_object("device_types", create_data, confirm=True)
+                    
+                    return {
+                        "success": True,
+                        "action": "created",
+                        "object_type": "device_type",
+                        "device_type": result,
+                        "changes": {
+                            "created_fields": list(create_data.keys()),
+                            "updated_fields": [],
+                            "unchanged_fields": []
+                        },
+                        "dry_run": result.get("dry_run", False)
+                    }
+                    
+            except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError):
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error in ensure_device_type: {e}")
+                raise NetBoxWriteError(f"Failed to ensure device type: {e}")
+                
+        except (NetBoxConfirmationError, NetBoxValidationError, NetBoxNotFoundError, NetBoxWriteError):
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in ensure_device_type: {e}")
+            raise NetBoxError(f"Unexpected error ensuring device type: {e}")
