@@ -35,7 +35,7 @@ Based on the successful completion of Phase 2, detailed architectural guidance w
 - **Hybrid Ensure Pattern**: Combines hierarchical convenience (`ensure_device(manufacturer="Cisco")`) with direct ID injection for performance (`ensure_device(manufacturer_id=5)`)
 - **Selective Field Comparison**: Only compare managed fields, use hash-based diffing for efficiency, store metadata in NetBox custom fields
 - **Two-Pass Strategy**: Separate core object creation from relationship establishment to avoid circular dependencies
-- **Canonical Data Model**: Pydantic models decouple Unimus and NetBox APIs with consistent tagging and metadata
+- **Canonical Data Model**: Pydantic models with consistent tagging and metadata
 - **Asynchronous Processing**: Redis + RQ task queue for enterprise-scale bulk operations with progress tracking
 
 These architectural patterns form the foundation for enterprise-grade NetBox automation and integration workflows.
@@ -100,7 +100,7 @@ These architectural patterns form the foundation for enterprise-grade NetBox aut
   - `netbox_get_queue_info()`: Queue statistics and system status
 
 - **Future Integration Tools (planned)**:
-  - `netbox_ensure_device_from_unimus(unimus_device_data: dict, confirm: bool = False)`: Unimus data integration
+  - Additional idempotent tools for complex enterprise workflows
   - Idempotent "ensure" methods for complex relationship management
 
 ### Write Operation Strategy
@@ -156,14 +156,14 @@ These architectural patterns form the foundation for enterprise-grade NetBox aut
 ### Phase 5: Production-readiness and Full Integration (v1.0)
 - Performance tuning for 1000+ device operations
 - Complete test coverage and security hardening
-- End-to-end automated Unimus-to-NetBox workflows
+- End-to-end automated device management workflows
 - Comprehensive documentation and deployment guides
 - Multi-tenant support and advanced security features
 
 ## Configuration and Deployment
 
 - **config.py**: Required NETBOX_URL and NETBOX_TOKEN variables, supports YAML/TOML and environment variables
-- **Dockerfile**: Multi-stage build similar to Unimus MCP, non-root user, optimized image
+- **Dockerfile**: Multi-stage build with non-root user, optimized image
 - **Health Checks**: Kubernetes-style endpoints (/healthz, /readyz) validating NetBox API connectivity
 
 ## Testing Commands
@@ -185,22 +185,22 @@ When making changes, always run linting and type checking if available:
 - `Dockerfile`: Container configuration
 - `docker-compose.yml`: Development environment setup
 
-## Reference Implementation
+## Implementation Standards
 
-The Unimus MCP server serves as a reference for:
-- Project structure and modularity
-- Configuration management patterns
+This project follows enterprise MCP server patterns:
+- Modular project structure
+- Configuration management with environment variables
 - Docker containerization approach
-- Testing methodology
-- Documentation standards
-- CI/CD pipeline setup
+- Comprehensive testing methodology
+- Clear documentation standards
+- Automated CI/CD pipeline setup
 
-**Key Differences from Unimus MCP**:
+**Key Features**:
 - Write capabilities with safety mechanisms
 - Idempotent operation design
 - Confirmation parameters for all mutations
-- More complex error handling for write operations
-- Integration-focused tools for Unimus data processing
+- Complex error handling for write operations
+- Enterprise-focused tools for network automation
 
 ## Development Workflow
 
@@ -221,7 +221,7 @@ The Unimus MCP server serves as a reference for:
 ### Milestones (Version-based)
 - **v0.1 - Foundation & Read-Only Core**: Project structure, config, basic read operations
 - **v0.2 - Initial Write Capabilities & Safety**: Write methods, safety mechanisms, basic write tools
-- **v0.3 - Advanced R/W Operations & Relations**: Idempotent operations, complex relationships, Unimus integration
+- **v0.3 - Advanced R/W Operations & Relations**: Idempotent operations, complex relationships, enterprise automation
 - **v0.4 - Enterprise Features & Integration-readiness**: Caching, advanced tools, health checks
 - **v1.0 - Production-readiness & Full Integration**: Performance tuning, full coverage, end-to-end workflows
 
@@ -232,7 +232,7 @@ The Unimus MCP server serves as a reference for:
   - `read-only` - Read-only functionality implementation
   - `read-write` - Write operation functionality (requires safety review)
   - `idempotency` - Idempotent operation design and testing
-  - `integration` - Unimus-NetBox integration workflows
+  - `integration` - Enterprise integration workflows
 
 - **Development Categories**:
   - `documentation` - Documentation updates and improvements
@@ -252,14 +252,14 @@ The Unimus MCP server serves as a reference for:
 ### Issue Templates
 1. **Feature Request Template**: For new functionality with safety checklist
 2. **Write Operation Template**: Special template for write-capable features with idempotency requirements
-3. **Integration Request Template**: For Unimus-NetBox workflow features
+3. **Integration Request Template**: For enterprise workflow features
 4. **Bug Report Template**: With write-operation impact assessment
 5. **Safety Review Template**: For reviewing safety-critical implementations
 
 ### Development Priority Guidelines
 1. **Safety-Critical Issues**: Always highest priority - must include confirmation mechanisms
 2. **Milestone Blockers**: Issues required for version completion
-3. **Integration Features**: Medium priority - focus on Unimus-NetBox workflows
+3. **Integration Features**: Medium priority - focus on enterprise automation workflows
 4. **Enhancement Features**: Lower priority - quality of life improvements
 
 **Benefits of GitHub Issues Approach**:
@@ -267,7 +267,7 @@ The Unimus MCP server serves as a reference for:
 - ✅ **Community Engagement**: Public roadmap and feature discussions
 - ✅ **Progress Tracking**: Clear milestone and completion tracking
 - ✅ **Safety Focus**: Dedicated labels and templates for safety-critical features
-- ✅ **Integration Planning**: Specific workflow for Unimus-NetBox integration features
+- ✅ **Integration Planning**: Specific workflow for enterprise integration features
 
 ## Development Instance Configuration
 

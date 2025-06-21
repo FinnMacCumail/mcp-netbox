@@ -1394,7 +1394,7 @@ def netbox_get_queue_info() -> Dict[str, Any]:
         }
 
 
-# HTTP Health Check Server (similar to unimus-mcp)
+# HTTP Health Check Server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     """HTTP handler for health check endpoints."""
     

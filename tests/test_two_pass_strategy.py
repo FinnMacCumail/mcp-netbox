@@ -161,8 +161,8 @@ class TestEnsureDeviceType:
         custom_fields = created_data["custom_fields"]
         assert "batch_id" in custom_fields
         assert custom_fields["batch_id"] == "batch_001"
-        assert "unimus_managed_hash" in custom_fields
-        assert "last_unimus_sync" in custom_fields
+        assert "enterprise_managed_hash" in custom_fields
+        assert "last_enterprise_sync" in custom_fields
         assert "management_source" in custom_fields
         
         # Should return created result
@@ -186,7 +186,7 @@ class TestEnsureDeviceType:
             "model": "C9300-24U",
             "description": "Old description",
             "custom_fields": {
-                "unimus_managed_hash": "old_hash"
+                "enterprise_managed_hash": "old_hash"
             }
         }
         
@@ -252,7 +252,7 @@ class TestEnsureDeviceType:
             "model": "C9300-24U",
             "description": "Core switch",
             "custom_fields": {
-                "unimus_managed_hash": expected_hash
+                "enterprise_managed_hash": expected_hash
             }
         }
         
@@ -408,7 +408,7 @@ class TestNetBoxBulkOrchestrator:
         # Verify metadata
         meta = normalized["metadata"]
         assert meta["batch_id"] == orchestrator.batch_id
-        assert meta["source_system"] == "unimus"
+        assert meta["source_system"] == "enterprise"
     
     @patch('netbox_mcp.client.pynetbox.api')
     def test_execute_pass_1_successful(self, mock_pynetbox_api, test_config, mock_api):

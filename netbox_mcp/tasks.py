@@ -161,7 +161,7 @@ class AsyncTaskManager:
         Generate unique task ID.
         
         Args:
-            operation_type: Type of operation (e.g., bulk_devices, unimus_sync)
+            operation_type: Type of operation (e.g., bulk_devices, enterprise_sync)
             additional_info: Additional identifier information
             
         Returns:

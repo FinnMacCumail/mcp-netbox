@@ -1029,8 +1029,8 @@ class NetBoxClient:
     
     # Custom fields for metadata tracking
     METADATA_CUSTOM_FIELDS = {
-        "managed_hash": "unimus_managed_hash",
-        "last_sync": "last_unimus_sync", 
+        "managed_hash": "enterprise_managed_hash",
+        "last_sync": "last_enterprise_sync", 
         "source": "management_source",
         "batch_id": "batch_id"  # Gemini: Essential for rollback capability
     }
@@ -1156,7 +1156,7 @@ class NetBoxClient:
         metadata = {
             self.METADATA_CUSTOM_FIELDS["managed_hash"]: new_hash,
             self.METADATA_CUSTOM_FIELDS["last_sync"]: datetime.utcnow().isoformat(),
-            self.METADATA_CUSTOM_FIELDS["source"]: "unimus"
+            self.METADATA_CUSTOM_FIELDS["source"]: "enterprise"
         }
         
         # Add batch_id if provided (essential for two-pass rollback)
@@ -2235,7 +2235,7 @@ class NetBoxBulkOrchestrator:
             },
             "metadata": {
                 "batch_id": self.batch_id,
-                "source_system": device_data.get("source_system", "unimus"),
+                "source_system": device_data.get("source_system", "enterprise"),
                 "sync_timestamp": device_data.get("sync_timestamp")
             }
         }

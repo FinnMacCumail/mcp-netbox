@@ -8,7 +8,7 @@ Features:
 - Read-only MCP tools for NetBox data exploration
 - Write operations with mandatory confirmation and dry-run mode
 - Idempotent ensure operations for robust automation
-- Integration-ready for Unimus network discovery workflows
+- Integration-ready for enterprise network discovery workflows
 """
 
 __version__ = "0.1.0"

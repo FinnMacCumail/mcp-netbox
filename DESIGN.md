@@ -2,14 +2,14 @@ Design Document: NetBox Read/Write MCP Server
 1. Visie en Doelstelling
 Dit document beschrijft het ontwerp voor een Read/Write Model Context Protocol (MCP) Server voor NetBox. Het doel is om een robuuste, veilige en conversationele interface te bieden voor het lezen én muteren van data in een NetBox (Cloud) instance.
 
-De primaire doelstelling is om, in combinatie met de Unimus MCP, een geautomatiseerde workflow te creëren waarbij netwerkdata, ontdekt door Unimus, wordt gebruikt om een NetBox instance op te bouwen en te onderhouden. Deze server zal vanaf de start ontworpen worden met zowel lees- als schrijfmogelijkheden in het achterhoofd.
+De primaire doelstelling is om een geautomatiseerde workflow te creëren waarbij netwerkdata, ontdekt door enterprise tools, wordt gebruikt om een NetBox instance op te bouwen en te onderhouden. Deze server zal vanaf de start ontworpen worden met zowel lees- als schrijfmogelijkheden in het achterhoofd.
 
 2. Kernprincipes
 Idempotentie is Cruciaal: Elke schrijfactie (tool) moet idempotent zijn. Een tool die tweemaal met dezelfde parameters wordt aangeroepen, moet hetzelfde eindresultaat opleveren als wanneer deze eenmaal wordt aangeroepen, zonder fouten of ongewenste duplicaten te creëren. Tools zoals netbox_ensure_device_exists zijn hier een perfect voorbeeld van.
 Veiligheid Voorop (Safety First): Omdat deze MCP destructieve acties kan uitvoeren, moeten er ingebouwde veiligheidsmechanismen zijn. Dit omvat een 'dry-run' modus en een expliciete bevestigingsparameter voor alle schrijfacties.
 API-First Benadering: De kernlogica wordt geïsoleerd in een netbox_client.py. Deze client is een directe, goed geteste wrapper rond de NetBox REST API en de pynetbox library, en vormt de fundering van de server.
 Atomische Operaties: MCP-tools moeten, waar mogelijk, volledige, logische handelingen uitvoeren. Een tool om een device met interfaces aan te maken, moet ofwel volledig slagen, ofwel volledig falen en de state terugdraaien, zonder een half-geconfigureerd object achter te laten.
-Modulaire Architectuur: De server volgt dezelfde modulaire opbouw als de Unimus MCP:
+Modulaire Architectuur: De server volgt een modulaire opbouw:
 Configuratie (config.py): Gescheiden en hiërarchisch.
 Client (netbox_client.py): Verantwoordelijk voor alle API-interactie.
 Server (server.py): Bevat de MCP-tool definities en de HTTP-server.
@@ -45,7 +45,7 @@ netbox_create_device(name: str, device_type: str, role: str, site: str, confirm:
 netbox_update_device_status(device_name: str, status: str, confirm: bool = False)
 netbox_assign_ip_to_interface(device_name: str, interface_name: str, ip_address: str, confirm: bool = False)
 netbox_delete_device(device_name: str, confirm: bool = False)
-Cruciale Integratie Tool: netbox_ensure_device_from_unimus(unimus_device_data: dict, confirm: bool = False): Deze tool accepteert een device-object van de Unimus MCP en vertaalt dit naar de juiste state in NetBox. Het mapt velden, creëert fabrikanten, device types en rollen indien nodig.
+Cruciale Integratie Tools: enterprise device management tools die device-objecten van externe systemen accepteren en vertalen naar de juiste state in NetBox. Deze mappen velden, creëren fabrikanten, device types en rollen indien nodig.
 3.3. Write Operation Strategy
 Dit is het meest kritieke onderdeel van het ontwerp.
 
@@ -55,5 +55,5 @@ Gedetailleerde Logging: Elke schrijfactie (create, update, delete) moet een gede
 Response Format: Een succesvolle schrijfactie geeft het gewijzigde of aangemaakte object terug. Dit stelt de LLM in staat om de succesvolle mutatie te verifiëren. Bijvoorbeeld: {"status": "success", "action": "created", "object": {...netbox_device...}}.
 3.4. Configuratie en Deployment
 config.py: Zal NETBOX_URL en NETBOX_TOKEN als vereiste variabelen hebben. Ondersteunt YAML/TOML en environment-variabelen.
-Dockerfile: Een multi-stage Dockerfile, vergelijkbaar met de Unimus MCP, die resulteert in een kleine, veilige image die als non-root gebruiker draait.
+Dockerfile: Een multi-stage Dockerfile die resulteert in een kleine, veilige image die als non-root gebruiker draait.
 Health Checks: Kubernetes-style health checks (/healthz, /readyz) die de bereikbaarheid van de NetBox API valideren in de readyz probe.

@@ -7,7 +7,7 @@ A Model Context Protocol (MCP) server that provides safe, intelligent read/write
 Create a robust bridge between LLMs and NetBox that enables:
 - **Safe Write Operations**: All mutations require explicit confirmation
 - **Idempotent Operations**: Consistent results regardless of call frequency  
-- **Integration Ready**: Designed for Unimus network discovery workflows
+- **Integration Ready**: Designed for enterprise network discovery workflows
 - **Enterprise Grade**: Production-ready with comprehensive safety mechanisms
 
 ## 🚧 Development Status
@@ -108,7 +108,7 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## 🔗 Related Projects
 
-- [Unimus MCP](https://github.com/Deployment-Team/unimus-mcp) - Read-only MCP for Unimus network management
+- Enterprise network automation tools - Production-ready MCP servers
 - [NetBox](https://github.com/netbox-community/netbox) - The network documentation and IPAM application
 
 ---

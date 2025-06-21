@@ -144,7 +144,7 @@ class NetBoxConfig:
     # Cache configuration
     cache: CacheConfig = field(default_factory=CacheConfig)
     
-    # Integration settings for future Unimus integration
+    # Integration settings for future enterprise integration
     integration: Dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):

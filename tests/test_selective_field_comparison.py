@@ -184,7 +184,7 @@ class TestSelectiveFieldComparison:
             "slug": "cisco-systems", 
             "description": "Network equipment",
             "custom_fields": {
-                "unimus_managed_hash": expected_hash
+                "enterprise_managed_hash": expected_hash
             }
         }
         
@@ -209,7 +209,7 @@ class TestSelectiveFieldComparison:
             "slug": "cisco-systems",
             "description": "Old description", 
             "custom_fields": {
-                "unimus_managed_hash": "old_hash_value"
+                "enterprise_managed_hash": "old_hash_value"
             }
         }
         
@@ -265,13 +265,13 @@ class TestSelectiveFieldComparison:
         
         # Verify metadata is added
         custom_fields = result["custom_fields"]
-        assert "unimus_managed_hash" in custom_fields
-        assert custom_fields["last_unimus_sync"] == "2025-06-21T10:00:00"
-        assert custom_fields["management_source"] == "unimus"
+        assert "enterprise_managed_hash" in custom_fields
+        assert custom_fields["last_enterprise_sync"] == "2025-06-21T10:00:00"
+        assert custom_fields["management_source"] == "enterprise"
         
         # Verify hash is correct
         expected_hash = client._generate_managed_hash(desired_state, "manufacturers")
-        assert custom_fields["unimus_managed_hash"] == expected_hash
+        assert custom_fields["enterprise_managed_hash"] == expected_hash
 
 
 class TestManagedFieldsConfiguration:
@@ -311,8 +311,8 @@ class TestManagedFieldsConfiguration:
         client = NetBoxClient(test_config)
         
         expected_fields = {
-            "managed_hash": "unimus_managed_hash",
-            "last_sync": "last_unimus_sync",
+            "managed_hash": "enterprise_managed_hash",
+            "last_sync": "last_enterprise_sync",
             "source": "management_source"
         }
         assert client.METADATA_CUSTOM_FIELDS == expected_fields
@@ -344,7 +344,7 @@ class TestHashBasedEnsureIntegration:
             "slug": "cisco-systems",
             "description": "Network equipment",
             "custom_fields": {
-                "unimus_managed_hash": expected_hash
+                "enterprise_managed_hash": expected_hash
             }
         }
         
@@ -388,7 +388,7 @@ class TestHashBasedEnsureIntegration:
             "description": "Old description",
             "physical_address": "123 Main St",
             "custom_fields": {
-                "unimus_managed_hash": "old_hash"
+                "enterprise_managed_hash": "old_hash"
             }
         }
         mock_api.dcim.sites.filter.return_value = [existing_site]
@@ -457,9 +457,9 @@ class TestHashBasedEnsureIntegration:
         # Verify metadata was added
         assert "custom_fields" in created_data
         custom_fields = created_data["custom_fields"]
-        assert "unimus_managed_hash" in custom_fields
-        assert custom_fields["last_unimus_sync"] == "2025-06-21T12:00:00"
-        assert custom_fields["management_source"] == "unimus"
+        assert "enterprise_managed_hash" in custom_fields
+        assert custom_fields["last_enterprise_sync"] == "2025-06-21T12:00:00"
+        assert custom_fields["management_source"] == "enterprise"
         
         # Verify result
         assert result["success"] is True
