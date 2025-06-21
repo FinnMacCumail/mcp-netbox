@@ -87,12 +87,13 @@ These architectural patterns form the foundation for enterprise-grade NetBox aut
   - `netbox_get_device_interfaces(device_name: str)`: Get all interfaces for device
   - `netbox_get_manufacturers(limit: int)`: Get list of manufacturers
 
-- **Write Tools (5 implemented)**:
+- **Write Tools (6 implemented)**:
   - `netbox_create_manufacturer(name: str, slug: str, description: str, confirm: bool = False)`: Create manufacturer
   - `netbox_create_site(name: str, slug: str, status: str, region: str, description: str, physical_address: str, confirm: bool = False)`: Create site
   - `netbox_create_device_role(name: str, slug: str, color: str, vm_role: bool, description: str, confirm: bool = False)`: Create device role
   - `netbox_update_device_status(device_name: str, status: str, site: str, confirm: bool = False)`: Update device status
   - `netbox_delete_manufacturer(manufacturer_name: str, confirm: bool = False)`: Delete manufacturer
+  - `netbox_bulk_ensure_devices(devices_data: List[Dict], confirm: bool = False, dry_run_report: bool = False)`: Two-pass bulk device operations
 
 - **Future Integration Tools (planned)**:
   - `netbox_ensure_device_from_unimus(unimus_device_data: dict, confirm: bool = False)`: Unimus data integration
@@ -366,14 +367,15 @@ The Unimus MCP server serves as a reference for:
   - Prevents overwrites of manually maintained data
   - **Status**: Production ready, 19 comprehensive tests
 
-**In Progress Issues**:
-- **Issue #13**: 🎯 Implement Two-Pass Strategy for Complex Relationships (PHASE 2 COMPLETE)
+**Recently Completed Issues**:
+- **Issue #13**: ✅ Implement Two-Pass Strategy for Complex Relationships (COMPLETE)
   - **Phase 1 Complete**: ensure_device_type() with hybrid pattern + batch_id tracking
   - **Phase 2 Complete**: NetBoxBulkOrchestrator class for stateless coordination
   - **Phase 3 Complete**: ensure_device() method for Pass 2 relationships
+  - **Phase 4 Complete**: netbox_bulk_ensure_devices MCP tool with pre-flight reporting
   - **Architecture**: Production-ready stateless design with enterprise rollback capabilities
-  - **Current Status**: 17 tests passing (100% pass rate), core two-pass infrastructure complete
-  - **Next**: Phase 3 data normalization and pre-flight reporting capabilities
+  - **Final Status**: 24 tests passing (100% pass rate), full two-pass strategy implementation ready
+  - **Key Features**: Bulk device operations, data normalization, comprehensive error handling, dry-run reports
 
 **Future Phase 3 Issues**:
 - **Issue #15**: Implement Asynchronous Task Queue for Long-Running Operations

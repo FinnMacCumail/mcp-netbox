@@ -9,7 +9,7 @@ Version: 0.1.0
 """
 
 from mcp.server.fastmcp import FastMCP
-from .client import NetBoxClient, ConnectionStatus
+from .client import NetBoxClient, ConnectionStatus, NetBoxBulkOrchestrator
 from .config import load_config, NetBoxConfig
 from .exceptions import (
     NetBoxError,
@@ -883,6 +883,199 @@ def netbox_delete_manufacturer(
         return {
             "success": False,
             "error": f"Unexpected error: {str(e)}",
+            "error_type": "UnexpectedError"
+        }
+
+
+@mcp.tool()
+def netbox_bulk_ensure_devices(
+    devices_data: List[Dict[str, Any]],
+    confirm: bool = False,
+    dry_run_report: bool = False
+) -> Dict[str, Any]:
+    """
+    Ensure multiple devices and their dependencies using two-pass strategy.
+    
+    This is the primary tool for bulk device synchronization leveraging the
+    NetBoxBulkOrchestrator for enterprise-grade two-pass dependency resolution.
+    
+    SAFETY: This is a complex write operation that requires confirm=True for safety.
+    All operations respect the global dry-run mode setting.
+    
+    Args:
+        devices_data: List of device data dictionaries with nested relationships
+        confirm: Must be True to execute operations (safety mechanism)
+        dry_run_report: If True, generate pre-flight report without changes
+        
+    Returns:
+        Comprehensive two-pass operation results with statistics
+        
+    Example device data structure:
+        [
+            {
+                "name": "switch-01",
+                "manufacturer": "Cisco",
+                "device_type": "Catalyst 9300",
+                "site": "Amsterdam DC",
+                "role": "Access Switch",
+                "model": "C9300-24U",
+                "status": "active",
+                "description": "Core switch for floor 3",
+                "platform": "ios",
+                "interfaces": [
+                    {"name": "GigabitEthernet1/0/1", "type": "1000base-t"}
+                ],
+                "ip_addresses": [
+                    {"address": "192.168.1.10/24", "interface": "Management1"}
+                ]
+            }
+        ]
+    """
+    try:
+        # Input validation
+        if not devices_data or not isinstance(devices_data, list):
+            return {
+                "success": False,
+                "error": "devices_data must be a non-empty list of device dictionaries",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate each device has required fields
+        required_fields = ["name", "manufacturer", "device_type", "site", "role"]
+        for i, device in enumerate(devices_data):
+            missing_fields = [field for field in required_fields if not device.get(field)]
+            if missing_fields:
+                return {
+                    "success": False,
+                    "error": f"Device {i} missing required fields: {', '.join(missing_fields)}",
+                    "error_type": "ValidationError"
+                }
+        
+        # Initialize stateless orchestrator
+        orchestrator = NetBoxBulkOrchestrator(netbox_client)
+        batch_id = orchestrator.generate_batch_id()
+        
+        logger.info(f"Starting bulk device operation with batch ID: {batch_id}")
+        logger.info(f"Processing {len(devices_data)} devices with two-pass strategy")
+        
+        # If dry_run_report requested, generate pre-flight analysis
+        if dry_run_report:
+            logger.info("Generating pre-flight report for bulk device operation")
+            
+            # Analyze what would be created/updated
+            pre_flight_summary = {
+                "batch_id": batch_id,
+                "devices_to_process": len(devices_data),
+                "estimated_operations": {
+                    "manufacturers": len(set(d.get("manufacturer") for d in devices_data if d.get("manufacturer"))),
+                    "sites": len(set(d.get("site") for d in devices_data if d.get("site"))),
+                    "device_roles": len(set(d.get("role") for d in devices_data if d.get("role"))),
+                    "device_types": len(set(d.get("device_type") for d in devices_data if d.get("device_type"))),
+                    "devices": len(devices_data)
+                },
+                "dry_run_mode": True,
+                "safety_checks": {
+                    "confirm_required": not confirm,
+                    "global_dry_run": netbox_client.config.safety.dry_run_mode
+                }
+            }
+            
+            return {
+                "success": True,
+                "action": "pre_flight_report",
+                "pre_flight_analysis": pre_flight_summary,
+                "message": "Pre-flight report generated. Use confirm=True to execute operations."
+            }
+        
+        # Safety check for actual execution
+        if not confirm:
+            return {
+                "success": False,
+                "error": "Bulk device operation requires confirm=True parameter for safety",
+                "error_type": "ConfirmationRequired",
+                "help": "Use dry_run_report=True to analyze operations before execution"
+            }
+        
+        # Process each device through two-pass strategy
+        total_results = {
+            "batch_id": batch_id,
+            "devices_processed": 0,
+            "devices_successful": 0,
+            "devices_failed": 0,
+            "pass_1_results": [],
+            "pass_2_results": [],
+            "errors": []
+        }
+        
+        for i, device_data in enumerate(devices_data):
+            try:
+                logger.info(f"Processing device {i+1}/{len(devices_data)}: {device_data.get('name')}")
+                
+                # Normalize device data for two-pass processing
+                normalized_data = orchestrator.normalize_device_data(device_data)
+                
+                # Execute Pass 1: Core objects
+                pass_1_results = orchestrator.execute_pass_1(normalized_data, confirm=confirm)
+                total_results["pass_1_results"].append({
+                    "device_name": device_data.get("name"),
+                    "results": pass_1_results
+                })
+                
+                # Execute Pass 2: Relationships
+                pass_2_results = orchestrator.execute_pass_2(normalized_data, pass_1_results, confirm=confirm)
+                total_results["pass_2_results"].append({
+                    "device_name": device_data.get("name"),
+                    "results": pass_2_results
+                })
+                
+                total_results["devices_processed"] += 1
+                total_results["devices_successful"] += 1
+                
+                logger.info(f"Successfully processed device: {device_data.get('name')}")
+                
+            except Exception as device_error:
+                error_details = {
+                    "device_index": i,
+                    "device_name": device_data.get("name"),
+                    "error": str(device_error),
+                    "error_type": type(device_error).__name__
+                }
+                total_results["errors"].append(error_details)
+                total_results["devices_failed"] += 1
+                
+                logger.error(f"Failed to process device {device_data.get('name')}: {device_error}")
+        
+        # Generate comprehensive operation report
+        operation_report = orchestrator.generate_operation_report()
+        
+        # Determine overall success
+        overall_success = total_results["devices_failed"] == 0
+        
+        logger.info(f"Bulk device operation completed. Success: {overall_success}")
+        logger.info(f"Processed: {total_results['devices_processed']}, "
+                   f"Successful: {total_results['devices_successful']}, "
+                   f"Failed: {total_results['devices_failed']}")
+        
+        return {
+            "success": overall_success,
+            "action": "bulk_device_operation",
+            "batch_id": batch_id,
+            "summary": {
+                "devices_processed": total_results["devices_processed"],
+                "devices_successful": total_results["devices_successful"],
+                "devices_failed": total_results["devices_failed"],
+                "success_rate": round(total_results["devices_successful"] / len(devices_data) * 100, 2) if devices_data else 100
+            },
+            "detailed_results": total_results,
+            "operation_report": operation_report,
+            "dry_run": netbox_client.config.safety.dry_run_mode
+        }
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in bulk device operation: {e}")
+        return {
+            "success": False,
+            "error": f"Bulk operation failed: {str(e)}",
             "error_type": "UnexpectedError"
         }
 
