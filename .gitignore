@@ -93,6 +93,14 @@ config/secrets.py
 tmp/
 temp/
 
-# Gemini consultation files (temporary)
+# Development and testing files
 ask-gemini.md
 answer-from-gemini.md
+demo_*.py
+test_*.py
+*_demo.py
+*_test.py
+
+# Documentation drafts and temporary files
+DESIGN.md
+ROADMAP.md
