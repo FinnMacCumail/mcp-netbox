@@ -56,9 +56,9 @@ USER netbox
 # Expose the port on which the application runs.
 EXPOSE 8080
 
-# Configure the health check. This is correct.
+# Configure the health check for Docker container orchestration
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/readyz || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Set environment variables.
 ENV PATH="/home/netbox/.local/bin:${PATH}"
