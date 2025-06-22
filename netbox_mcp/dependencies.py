@@ -13,6 +13,7 @@ from functools import lru_cache
 import logging
 from .config import NetBoxConfig, load_config
 from .client import NetBoxClient
+from .secrets import get_secrets_manager
 
 logger = logging.getLogger(__name__)
 
@@ -105,10 +106,21 @@ def get_client_status() -> dict:
     """
     global _netbox_client_instance
     
+    # Get secrets manager status
+    secrets_manager = get_secrets_manager()
+    connection_info = secrets_manager.get_connection_info()
+    
     return {
         "initialized": _netbox_client_instance is not None,
         "instance_id": id(_netbox_client_instance) if _netbox_client_instance else None,
-        "config_cached": get_netbox_config.cache_info().hits > 0
+        "config_cached": get_netbox_config.cache_info().hits > 0,
+        "secrets_status": {
+            "url_configured": connection_info['url'] != "Not Set",
+            "token_configured": connection_info['token'] != "Not Set",
+            "ssl_cert_available": connection_info['has_ssl_cert'],
+            "ssl_key_available": connection_info['has_ssl_key'],
+            "ca_cert_available": connection_info['has_ca_cert']
+        }
     }
 
 

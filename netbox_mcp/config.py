@@ -4,11 +4,11 @@ Configuration management for NetBox MCP Server
 
 Supports YAML and TOML configuration files with environment variable overrides.
 Configuration hierarchy (highest priority first):
-1. Environment variables
+1. Environment variables (via secrets management)
 2. Configuration file
 3. Default values
 
-Safety-focused configuration with write operation controls.
+Safety-focused configuration with write operation controls and enterprise secrets management.
 """
 
 import os
@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, List
 from dataclasses import dataclass, field
+from .secrets import get_secrets_manager, validate_secrets
 
 try:
     import yaml
@@ -112,6 +113,43 @@ class CacheConfig:
     enable_stats: bool = True              # Whether to track cache statistics
 
 
+@dataclass  
+class LoggingConfig:
+    """Structured logging configuration for enterprise deployment."""
+    
+    # Basic logging settings
+    level: str = "INFO"
+    format: str = "json"                      # "json" for structured, "text" for human-readable
+    
+    # File logging settings
+    enable_file_logging: bool = False
+    log_file_path: Optional[str] = None
+    max_file_size_mb: int = 10
+    backup_count: int = 5
+    
+    # Service identification
+    service_name: str = "netbox-mcp"
+    service_version: str = "0.6.0"
+    
+    # Component-specific log levels
+    component_levels: Dict[str, str] = field(default_factory=lambda: {
+        "netbox_mcp.client": "INFO",
+        "netbox_mcp.server": "INFO", 
+        "netbox_mcp.tools": "INFO",
+        "netbox_mcp.secrets": "WARNING",
+        "urllib3": "WARNING",
+        "requests": "WARNING",
+        "pynetbox": "INFO"
+    })
+    
+    # Performance and correlation
+    enable_correlation_ids: bool = True
+    enable_performance_logging: bool = True
+    
+    # Production detection
+    auto_detect_production: bool = True        # Auto-switch to JSON in container environments
+
+
 @dataclass
 class NetBoxConfig:
     """Configuration settings for NetBox MCP Server"""
@@ -125,7 +163,7 @@ class NetBoxConfig:
     verify_ssl: bool = True
     
     # Server settings
-    log_level: str = "INFO"
+    log_level: str = "INFO"                   # Legacy field, use logging.level instead
     health_check_port: int = 8080
     
     # Safety configuration (CRITICAL)
@@ -145,6 +183,9 @@ class NetBoxConfig:
     
     # Cache configuration
     cache: CacheConfig = field(default_factory=CacheConfig)
+    
+    # Logging configuration
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
     
     def __post_init__(self):
         """Validate configuration after initialization"""
@@ -190,6 +231,21 @@ class NetBoxConfig:
         
         if not self.safety.enable_write_operations:
             logger.info("Write operations DISABLED - server will be read-only")
+            
+        # Log secure connection information
+        secrets_manager = get_secrets_manager()
+        connection_info = secrets_manager.get_connection_info()
+        logger.info(f"NetBox connection configured: {connection_info['url']}")
+        logger.debug(f"Connection security: SSL cert={connection_info['has_ssl_cert']}, "
+                    f"SSL key={connection_info['has_ssl_key']}, CA cert={connection_info['has_ca_cert']}")
+        
+        # Validate that required secrets are available
+        secret_validation = validate_secrets()
+        missing_secrets = [key for key, available in secret_validation.items() if not available]
+        if missing_secrets:
+            logger.warning(f"Missing required secrets: {missing_secrets}")
+        else:
+            logger.info("All required secrets validated successfully")
 
 
 class ConfigurationManager:
@@ -232,8 +288,8 @@ class ConfigurationManager:
             config_data = cls._load_config_file(file_path)
             logger.info(f"Loaded configuration from {file_path}")
         
-        # Override with environment variables
-        env_config = cls._load_from_environment()
+        # Override with environment variables and secrets
+        env_config = cls._load_from_environment_and_secrets()
         config_data.update(env_config)
         
         # Create and validate configuration
@@ -281,11 +337,12 @@ class ConfigurationManager:
             raise
     
     @classmethod
-    def _load_from_environment(cls) -> Dict[str, Any]:
-        """Load configuration from environment variables."""
+    def _load_from_environment_and_secrets(cls) -> Dict[str, Any]:
+        """Load configuration from environment variables and secrets management."""
         config = {}
+        secrets_manager = get_secrets_manager()
         
-        # Direct mappings for main config
+        # Direct mappings for main config with secrets management
         env_mappings = {
             'NETBOX_URL': 'url',
             'NETBOX_TOKEN': 'token',
@@ -323,18 +380,33 @@ class ConfigurationManager:
             'NETBOX_CACHE_ENABLE_STATS': ('cache.enable_stats', cls._parse_bool),
         }
         
+        # Logging configuration mappings
+        logging_mappings = {
+            'NETBOX_LOG_LEVEL': ('logging.level', str),
+            'NETBOX_LOG_FORMAT': ('logging.format', str),
+            'NETBOX_LOG_FILE_ENABLED': ('logging.enable_file_logging', cls._parse_bool),
+            'NETBOX_LOG_FILE_PATH': ('logging.log_file_path', str),
+            'NETBOX_LOG_FILE_MAX_SIZE_MB': ('logging.max_file_size_mb', int),
+            'NETBOX_LOG_FILE_BACKUP_COUNT': ('logging.backup_count', int),
+            'NETBOX_LOG_SERVICE_NAME': ('logging.service_name', str),
+            'NETBOX_LOG_SERVICE_VERSION': ('logging.service_version', str),
+            'NETBOX_LOG_ENABLE_CORRELATION_IDS': ('logging.enable_correlation_ids', cls._parse_bool),
+            'NETBOX_LOG_ENABLE_PERFORMANCE': ('logging.enable_performance_logging', cls._parse_bool),
+        }
+        
         # Combine all mappings
-        all_mappings = {**env_mappings, **safety_mappings, **cache_mappings}
+        all_mappings = {**env_mappings, **safety_mappings, **cache_mappings, **logging_mappings}
         
         for env_var, config_key in all_mappings.items():
-            value = os.getenv(env_var)
+            # Use secrets manager to get values (handles all sources)
+            value = secrets_manager.get_secret(env_var)
             if value is not None:
                 if isinstance(config_key, tuple):
                     key, converter = config_key
                     try:
                         value = converter(value)
                     except (ValueError, TypeError) as e:
-                        logger.warning(f"Invalid value for {env_var}: {value} ({e})")
+                        logger.warning(f"Invalid value for {env_var}: {secrets_manager.mask_for_logging(env_var)} ({e})")
                         continue
                 else:
                     key = config_key
@@ -343,6 +415,11 @@ class ConfigurationManager:
                 cls._set_nested_value(config, key, value)
         
         return config
+    
+    @classmethod
+    def _load_from_environment(cls) -> Dict[str, Any]:
+        """Legacy method - redirects to secrets management."""
+        return cls._load_from_environment_and_secrets()
     
     @staticmethod
     def _parse_bool(value: str) -> bool:
@@ -382,6 +459,10 @@ class ConfigurationManager:
                 cache_config['ttl'] = CacheTTLConfig(**cache_config['ttl'])
             
             processed['cache'] = CacheConfig(**cache_config)
+        
+        # Handle logging configuration
+        if 'logging' in processed and isinstance(processed['logging'], dict):
+            processed['logging'] = LoggingConfig(**processed['logging'])
         
         return processed
 

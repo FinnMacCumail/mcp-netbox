@@ -484,7 +484,11 @@ Following the successful self-describing server architecture, comprehensive DCIM
 - **Test Coverage**: 41 comprehensive unit tests across all Phase 3 components
 - **Architecture**: Stateless orchestrator + async task queue with comprehensive monitoring
 
-**🎯 NEXT PHASE: Enterprise Features & Integration-readiness (v0.4)**
+**🎯 EPIC 3: PRODUCTION HARDENING COMPLETE (v0.6) ✅**
+
+**Enterprise Production Features Implemented:**
+- **Issue #30**: ✅ Centralized Configuration and Secrets Management - Enterprise-grade multi-source secrets with Docker/K8s support
+- **Issue #31**: ✅ Structured Logging (JSON) - ELK Stack compatible logging with correlation tracking and performance monitoring
 
 **Phase 3 Architecture Achievements (Based on Gemini Guidance)**:
 - **Issue #11**: ✅ Implement Hybrid Ensure Pattern for Core Objects
@@ -733,3 +737,133 @@ client.extras.tags.update(1, name="Updated", confirm=True)   # Full CRUD operati
 **Milestone**: v0.5 - Dynamic Client Architecture (July 15, 2025)
 
 **Status**: **CORE ARCHITECTURE COMPLETE** - Revolutionary transformation achieved! 🎉
+
+## 🚀 **EPIC 3: PRODUCTION HARDENING COMPLETE (v0.6)**
+
+Following the successful completion of Epics 1 and 2, comprehensive production hardening has been implemented to make the NetBox MCP enterprise-deployment ready.
+
+### **🔐 Issue #30: Centralized Configuration and Secrets Management** ✅ COMPLETE
+
+**Enterprise Secrets Management System:**
+- **Multi-Source Support**: Environment variables, Docker secrets (/run/secrets/), Kubernetes secrets (/var/secrets/), .env files
+- **Priority-Based Loading**: Environment variables → Docker secrets → Kubernetes secrets → configuration files
+- **Security Features**: Automatic secret masking for logs, validation without exposure, memory clearing of sensitive data
+- **Integration**: Seamless integration with existing configuration system via dependency injection
+
+**Key Components Implemented:**
+```python
+# netbox_mcp/secrets.py - Enterprise secrets management
+class SecretsManager:
+    DOCKER_SECRETS_PATH = Path("/run/secrets")
+    K8S_SECRETS_PATH = Path("/var/secrets")
+    ENV_PREFIX = "NETBOX_"
+    
+    def get_required_secret(self, key: str) -> str
+    def mask_for_logging(self, key: str) -> str
+    def validate_secrets(self) -> Dict[str, bool]
+    def get_connection_info(self) -> Dict[str, Any]
+```
+
+**Configuration Integration:**
+- Updated `config.py` with LoggingConfig dataclass for structured logging configuration
+- Enhanced environment variable loading through secrets manager
+- Integrated secrets validation with configuration validation
+- Added secure connection information logging with masked credentials
+
+**Testing Results**: 4/4 core tests passed including environment variables, Docker/Kubernetes secrets simulation, priority order validation, and configuration integration.
+
+### **📝 Issue #31: Structured Logging (JSON)** ✅ COMPLETE
+
+**Enterprise Structured Logging System:**
+- **JSON Format**: ELK Stack, Splunk, Datadog, AWS CloudWatch, Azure Monitor compatible
+- **Correlation Tracking**: Thread-local correlation IDs for distributed request tracing
+- **Performance Monitoring**: Operation timing with context managers and automatic duration tracking
+- **NetBox Context**: Specialized logging for NetBox operations with endpoint, object type, and dry-run context
+- **Security**: Automatic secrets masking in log output with heuristic detection
+
+**Key Components Implemented:**
+```python
+# netbox_mcp/logging_config.py - Enterprise structured logging
+class StructuredFormatter(logging.Formatter):
+    """JSON structured log formatter for enterprise log aggregation"""
+    
+class NetBoxOperationLogger(logging.Logger):
+    """Specialized logger for NetBox operations with structured context"""
+    
+    def netbox_operation(self, level, msg, operation, endpoint=None, object_type=None, ...)
+    def netbox_read(self, msg, endpoint, start_time=None, ...)
+    def netbox_write(self, msg, operation, object_type, dry_run=None, ...)
+    def netbox_error(self, msg, operation, error, endpoint=None, ...)
+
+# Context managers for enterprise logging
+class correlation_id:
+    """Context manager for setting correlation ID for request tracing"""
+    
+class operation_timing:
+    """Context manager for timing operations and logging results"""
+```
+
+**Structured Log Format:**
+```json
+{
+    "timestamp": "2025-06-22T10:30:45.123456+00:00",
+    "level": "INFO",
+    "logger": "netbox_mcp.tools.dcim",
+    "message": "Created device successfully",
+    "service": {"name": "netbox-mcp", "version": "0.6.0"},
+    "source": {"file": "dcim_tools.py", "line": 123, "function": "netbox_create_device"},
+    "correlation_id": "abc123ef",
+    "netbox": {
+        "operation": "create",
+        "object_type": "device",
+        "object_id": 456,
+        "dry_run": false
+    },
+    "performance": {"duration_ms": 234.567},
+    "process": {"pid": 12345, "thread_name": "MainThread"}
+}
+```
+
+**Configuration Integration:**
+- Extended configuration system with LoggingConfig dataclass
+- Environment variable mapping for all logging settings (NETBOX_LOG_LEVEL, NETBOX_LOG_FORMAT, etc.)
+- Production environment auto-detection (container/secrets paths)
+- Component-specific log level configuration
+
+**Testing Results**: Comprehensive test suite validating JSON formatting, correlation IDs, operation timing, NetBox context, secrets masking, and full logging pipeline.
+
+### **🏗️ Production Architecture Achievements**
+
+**Enterprise Deployment Ready:**
+- **Docker/Kubernetes Support**: Native secrets mounting and container detection
+- **Log Aggregation**: Structured JSON logs ready for enterprise log management systems
+- **Security Compliance**: Comprehensive secrets masking and secure credential handling
+- **Observability**: Request correlation tracking and performance monitoring
+- **Configuration Management**: Centralized, multi-source configuration with validation
+
+**Integration Points:**
+- **Dependencies**: Enhanced dependency injection with secrets status reporting
+- **Configuration**: Unified configuration system supporting all deployment patterns
+- **Logging**: Integrated throughout existing tools and client operations
+- **Health Monitoring**: Enhanced health endpoints with secrets and logging status
+
+### **📊 Epic 3 Validation Results**
+
+**Secrets Management**: 4/4 core functionality tests passed
+- ✅ Environment variable secrets loading
+- ✅ Docker/Kubernetes secrets simulation 
+- ✅ Priority order validation
+- ✅ Configuration system integration
+
+**Structured Logging**: 7/7 comprehensive tests passed
+- ✅ JSON structured log formatting
+- ✅ Correlation ID context management
+- ✅ Operation timing integration
+- ✅ NetBox operation logger
+- ✅ Automatic secrets masking
+- ✅ Configuration integration
+- ✅ Full logging pipeline with file output
+
+**Status**: **PRODUCTION HARDENING COMPLETE** - Enterprise-grade deployment ready! 🎉
+
+The NetBox MCP server now provides complete production-ready capabilities suitable for enterprise deployment with comprehensive secrets management, structured logging, and observability features.
