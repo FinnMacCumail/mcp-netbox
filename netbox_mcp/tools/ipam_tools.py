@@ -1068,6 +1068,400 @@ def netbox_get_prefix_utilization(
         }
 
 
+@mcp_tool(category="ipam")
+def netbox_provision_vlan_with_prefix(
+    client: NetBoxClient,
+    vlan_name: str,
+    vlan_id: int,
+    prefix: str,
+    site: Optional[str] = None,
+    vlan_group: Optional[str] = None,
+    vrf: Optional[str] = None,
+    tenant: Optional[str] = None,
+    vlan_role: Optional[str] = None,
+    prefix_role: Optional[str] = None,
+    vlan_status: str = "active",
+    prefix_status: str = "active",
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Provision a VLAN with coordinated IP prefix creation in a single atomic operation.
+    
+    This enterprise-grade function eliminates the complexity of coordinating VLAN and 
+    IP prefix creation by performing both operations atomically with intelligent
+    validation and rollback capabilities. Essential for network provisioning workflows
+    where VLANs and their associated IP addressing must be created together.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        vlan_name: VLAN name (e.g., "Production-Web")
+        vlan_id: VLAN ID (1-4094)
+        prefix: IP prefix for the VLAN (e.g., "10.100.10.0/24")
+        site: Optional site name for VLAN and prefix association
+        vlan_group: Optional VLAN group for organization
+        vrf: Optional VRF name for prefix assignment
+        tenant: Optional tenant for multi-tenant environments
+        vlan_role: Optional VLAN role (e.g., "production", "management")
+        prefix_role: Optional prefix role (e.g., "lan", "wan", "point-to-point")
+        vlan_status: VLAN status (active, reserved, deprecated)
+        prefix_status: Prefix status (active, reserved, deprecated)
+        description: Optional description applied to both VLAN and prefix
+        confirm: Must be True for execution (safety mechanism)
+        
+    Returns:
+        Coordinated VLAN and prefix creation results with rollback information
+        
+    Examples:
+        # Basic VLAN/prefix provisioning
+        netbox_provision_vlan_with_prefix(
+            vlan_name="Production-Web",
+            vlan_id=100,
+            prefix="10.100.10.0/24",
+            confirm=True
+        )
+        
+        # Enterprise provisioning with full context
+        netbox_provision_vlan_with_prefix(
+            vlan_name="Customer-A-DMZ",
+            vlan_id=200,
+            prefix="10.200.0.0/24",
+            site="datacenter-primary",
+            vrf="customer-a-vrf",
+            tenant="customer-a",
+            vlan_role="dmz",
+            prefix_role="lan",
+            description="Customer A DMZ network segment",
+            confirm=True
+        )
+        
+        # Site-specific provisioning
+        netbox_provision_vlan_with_prefix(
+            vlan_name="Management",
+            vlan_id=99,
+            prefix="192.168.99.0/24",
+            site="branch-office-1",
+            vlan_role="management",
+            prefix_role="management",
+            confirm=True
+        )
+    """
+    try:
+        if not vlan_name or not vlan_id or not prefix:
+            return {
+                "success": False,
+                "error": "vlan_name, vlan_id, and prefix are required",
+                "error_type": "ValidationError"
+            }
+        
+        if not (1 <= vlan_id <= 4094):
+            return {
+                "success": False,
+                "error": "VLAN ID must be between 1 and 4094",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate prefix format using ipaddress module
+        import ipaddress
+        try:
+            network = ipaddress.ip_network(prefix, strict=False)
+            logger.debug(f"Validated prefix: {network}")
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid prefix format: {e}",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Provisioning VLAN {vlan_name} (VID: {vlan_id}) with prefix {prefix}")
+        
+        # Step 1: Pre-flight validation - check for conflicts
+        logger.debug("Performing pre-flight validation...")
+        
+        # Check for existing VLAN ID conflicts
+        vlan_filters = {"vid": vlan_id}
+        if site:
+            vlan_filters["site"] = site
+        if vlan_group:
+            vlan_filters["group"] = vlan_group
+        
+        existing_vlans = client.ipam.vlans.filter(**vlan_filters)
+        if existing_vlans:
+            return {
+                "success": False,
+                "error": f"VLAN ID {vlan_id} already exists in the specified scope",
+                "error_type": "ConflictError",
+                "conflicting_vlan": existing_vlans[0]
+            }
+        
+        # Check for existing prefix conflicts
+        prefix_filters = {"prefix": prefix}
+        if vrf:
+            prefix_filters["vrf"] = vrf
+        if tenant:
+            prefix_filters["tenant"] = tenant
+        
+        existing_prefixes = client.ipam.prefixes.filter(**prefix_filters)
+        if existing_prefixes:
+            return {
+                "success": False,
+                "error": f"Prefix {prefix} already exists in the specified scope",
+                "error_type": "ConflictError",
+                "conflicting_prefix": existing_prefixes[0]
+            }
+        
+        # Step 2: Resolve foreign keys for all optional parameters
+        logger.debug("Resolving foreign key references...")
+        
+        resolved_refs = {}
+        
+        # Resolve site reference
+        if site:
+            logger.debug(f"Looking up site: {site}")
+            sites = client.dcim.sites.filter(name=site)
+            if not sites:
+                sites = client.dcim.sites.filter(slug=site)
+            if sites:
+                resolved_refs["site_id"] = sites[0]["id"]
+                resolved_refs["site_name"] = sites[0]["name"]
+                logger.debug(f"Found site: {sites[0]['name']} (ID: {sites[0]['id']})")
+            else:
+                return {
+                    "success": False,
+                    "error": f"Site '{site}' not found",
+                    "error_type": "NotFoundError"
+                }
+        
+        # Resolve VRF reference
+        if vrf:
+            logger.debug(f"Looking up VRF: {vrf}")
+            vrfs = client.ipam.vrfs.filter(name=vrf)
+            if vrfs:
+                resolved_refs["vrf_id"] = vrfs[0]["id"]
+                resolved_refs["vrf_name"] = vrfs[0]["name"]
+                logger.debug(f"Found VRF: {vrfs[0]['name']} (ID: {vrfs[0]['id']})")
+            else:
+                logger.warning(f"VRF '{vrf}' not found, proceeding without VRF assignment")
+        
+        # Resolve tenant reference
+        if tenant:
+            logger.debug(f"Looking up tenant: {tenant}")
+            tenants = client.tenancy.tenants.filter(name=tenant)
+            if not tenants:
+                tenants = client.tenancy.tenants.filter(slug=tenant)
+            if tenants:
+                resolved_refs["tenant_id"] = tenants[0]["id"]
+                resolved_refs["tenant_name"] = tenants[0]["name"]
+                logger.debug(f"Found tenant: {tenants[0]['name']} (ID: {tenants[0]['id']})")
+            else:
+                logger.warning(f"Tenant '{tenant}' not found, proceeding without tenant assignment")
+        
+        # Resolve VLAN group reference
+        if vlan_group:
+            logger.debug(f"Looking up VLAN group: {vlan_group}")
+            vlan_groups = client.ipam.vlan_groups.filter(name=vlan_group)
+            if not vlan_groups:
+                vlan_groups = client.ipam.vlan_groups.filter(slug=vlan_group)
+            if vlan_groups:
+                resolved_refs["vlan_group_id"] = vlan_groups[0]["id"]
+                resolved_refs["vlan_group_name"] = vlan_groups[0]["name"]
+                logger.debug(f"Found VLAN group: {vlan_groups[0]['name']} (ID: {vlan_groups[0]['id']})")
+            else:
+                logger.warning(f"VLAN group '{vlan_group}' not found, proceeding without group assignment")
+        
+        # Resolve role references (optional, continue without if not found)
+        if vlan_role:
+            logger.debug(f"Looking up VLAN role: {vlan_role}")
+            try:
+                vlan_roles = client.ipam.roles.filter(name=vlan_role)
+                if not vlan_roles:
+                    vlan_roles = client.ipam.roles.filter(slug=vlan_role)
+                if vlan_roles:
+                    resolved_refs["vlan_role_id"] = vlan_roles[0]["id"]
+                    resolved_refs["vlan_role_name"] = vlan_roles[0]["name"]
+                    logger.debug(f"Found VLAN role: {vlan_roles[0]['name']} (ID: {vlan_roles[0]['id']})")
+                else:
+                    logger.warning(f"VLAN role '{vlan_role}' not found, proceeding without role assignment")
+            except Exception as e:
+                logger.warning(f"Failed to lookup VLAN role '{vlan_role}': {e}")
+        
+        if prefix_role:
+            logger.debug(f"Looking up prefix role: {prefix_role}")
+            try:
+                prefix_roles = client.ipam.roles.filter(name=prefix_role)
+                if not prefix_roles:
+                    prefix_roles = client.ipam.roles.filter(slug=prefix_role)
+                if prefix_roles:
+                    resolved_refs["prefix_role_id"] = prefix_roles[0]["id"]
+                    resolved_refs["prefix_role_name"] = prefix_roles[0]["name"]
+                    logger.debug(f"Found prefix role: {prefix_roles[0]['name']} (ID: {prefix_roles[0]['id']})")
+                else:
+                    logger.warning(f"Prefix role '{prefix_role}' not found, proceeding without role assignment")
+            except Exception as e:
+                logger.warning(f"Failed to lookup prefix role '{prefix_role}': {e}")
+        
+        if not confirm:
+            # Dry run mode - show what would be created
+            return {
+                "success": True,
+                "action": "dry_run",
+                "would_create": {
+                    "vlan": {
+                        "name": vlan_name,
+                        "vid": vlan_id,
+                        "status": vlan_status,
+                        "description": description
+                    },
+                    "prefix": {
+                        "prefix": prefix,
+                        "status": prefix_status,
+                        "description": description
+                    }
+                },
+                "resolved_references": resolved_refs,
+                "validation_results": {
+                    "vlan_id_available": True,
+                    "prefix_available": True,
+                    "references_resolved": len(resolved_refs)
+                },
+                "dry_run": True
+            }
+        
+        # Step 3: Create VLAN first (since prefix might reference VLAN)
+        logger.info(f"Creating VLAN: {vlan_name} (VID: {vlan_id})")
+        
+        vlan_data = {
+            "name": vlan_name,
+            "vid": vlan_id,
+            "status": vlan_status
+        }
+        
+        if description:
+            vlan_data["description"] = description
+        if resolved_refs.get("site_id"):
+            vlan_data["site"] = resolved_refs["site_id"]
+        if resolved_refs.get("vlan_group_id"):
+            vlan_data["group"] = resolved_refs["vlan_group_id"]
+        if resolved_refs.get("tenant_id"):
+            vlan_data["tenant"] = resolved_refs["tenant_id"]
+        if resolved_refs.get("vlan_role_id"):
+            vlan_data["role"] = resolved_refs["vlan_role_id"]
+        
+        created_vlan = None
+        try:
+            logger.debug(f"Creating VLAN with data: {vlan_data}")
+            created_vlan = client.ipam.vlans.create(confirm=True, **vlan_data)
+            logger.info(f"✅ Created VLAN: {vlan_name} (ID: {created_vlan['id']}, VID: {vlan_id})")
+        except Exception as e:
+            logger.error(f"Failed to create VLAN: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to create VLAN: {str(e)}",
+                "error_type": "VLANCreationError",
+                "operation": "vlan_creation"
+            }
+        
+        # Step 4: Create IP prefix with VLAN association
+        logger.info(f"Creating IP prefix: {prefix}")
+        
+        prefix_data = {
+            "prefix": prefix,
+            "status": prefix_status,
+            "vlan": created_vlan["id"]  # Associate with the newly created VLAN
+        }
+        
+        if description:
+            prefix_data["description"] = description
+        if resolved_refs.get("site_id"):
+            prefix_data["site"] = resolved_refs["site_id"]
+        if resolved_refs.get("vrf_id"):
+            prefix_data["vrf"] = resolved_refs["vrf_id"]
+        if resolved_refs.get("tenant_id"):
+            prefix_data["tenant"] = resolved_refs["tenant_id"]
+        if resolved_refs.get("prefix_role_id"):
+            prefix_data["role"] = resolved_refs["prefix_role_id"]
+        
+        created_prefix = None
+        try:
+            logger.debug(f"Creating prefix with data: {prefix_data}")
+            created_prefix = client.ipam.prefixes.create(confirm=True, **prefix_data)
+            logger.info(f"✅ Created prefix: {prefix} (ID: {created_prefix['id']}) associated with VLAN {vlan_id}")
+        except Exception as e:
+            logger.error(f"Failed to create prefix: {e}")
+            
+            # Rollback: Delete the created VLAN since prefix creation failed
+            logger.warning("Attempting rollback - deleting created VLAN...")
+            try:
+                client.ipam.vlans.delete(created_vlan["id"], confirm=True)
+                logger.info("✅ Rollback successful - VLAN deleted")
+                rollback_status = "successful"
+            except Exception as rollback_error:
+                logger.error(f"❌ Rollback failed: {rollback_error}")
+                rollback_status = "failed"
+            
+            return {
+                "success": False,
+                "error": f"Failed to create prefix: {str(e)}",
+                "error_type": "PrefixCreationError",
+                "operation": "prefix_creation",
+                "rollback_performed": True,
+                "rollback_status": rollback_status,
+                "orphaned_vlan": created_vlan if rollback_status == "failed" else None
+            }
+        
+        # Step 5: Apply cache invalidation pattern from Issue #29
+        logger.debug("Invalidating IPAM cache after VLAN/prefix creation...")
+        try:
+            # Invalidate VLAN and prefix caches
+            client.cache.invalidate_pattern("ipam.vlans")
+            client.cache.invalidate_pattern("ipam.prefixes")
+            logger.info("Cache invalidated for IPAM objects")
+        except Exception as cache_error:
+            # Cache invalidation failure should not fail the operation
+            logger.warning(f"Cache invalidation failed after creation: {cache_error}")
+        
+        # Step 6: Build comprehensive success response
+        result = {
+            "success": True,
+            "action": "created",
+            "vlan": {
+                "id": created_vlan["id"],
+                "name": created_vlan["name"],
+                "vid": created_vlan["vid"],
+                "status": created_vlan["status"],
+                "url": created_vlan.get("url", ""),
+                "display_url": created_vlan.get("display_url", "")
+            },
+            "prefix": {
+                "id": created_prefix["id"],
+                "prefix": created_prefix["prefix"],
+                "status": created_prefix["status"],
+                "vlan_association": created_vlan["id"],
+                "url": created_prefix.get("url", ""),
+                "display_url": created_prefix.get("display_url", "")
+            },
+            "coordination": {
+                "vlan_prefix_linked": True,
+                "total_objects_created": 2,
+                "creation_order": ["vlan", "prefix"],
+                "rollback_capability": True
+            },
+            "resolved_references": resolved_refs,
+            "dry_run": False
+        }
+        
+        logger.info(f"✅ VLAN/Prefix provisioning complete: VLAN {vlan_id} ({created_vlan['id']}) + Prefix {prefix} ({created_prefix['id']})")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to provision VLAN/prefix {vlan_name}/{prefix}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 # ========================================
 # VRF MANAGEMENT TOOLS  
 # ========================================

@@ -646,16 +646,92 @@ def netbox_get_prefix_utilization(
 **Enterprise Value:**
 Essential for network capacity planning, growth forecasting, and infrastructure optimization. Transforms complex multi-step analysis into comprehensive single-call reports perfect for automated capacity management and executive reporting.
 
+### ✅ Issue #32 COMPLETED - Coordinated VLAN/Prefix Creation
+
+**Revolutionary network provisioning tool** that eliminates coordination complexity between VLAN and IP prefix creation through atomic operations:
+
+#### ✅ `netbox_provision_vlan_with_prefix` - Atomic VLAN/Prefix Coordination
+
+**Function Signature:**
+```python
+def netbox_provision_vlan_with_prefix(
+    client: NetBoxClient,
+    vlan_name: str,
+    vlan_id: int,
+    prefix: str,
+    site: Optional[str] = None,
+    vlan_group: Optional[str] = None,
+    vrf: Optional[str] = None,
+    tenant: Optional[str] = None,
+    vlan_role: Optional[str] = None,
+    prefix_role: Optional[str] = None,
+    vlan_status: str = "active",
+    prefix_status: str = "active",
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]
+```
+
+**Atomic Coordination Workflow:**
+1. **Pre-flight Validation**: Comprehensive conflict detection for VLAN IDs and IP prefixes
+2. **Format Validation**: IPv4/IPv6 prefix validation using Python ipaddress module
+3. **Foreign Key Resolution**: Automatic lookup of sites, VRFs, tenants, groups, and roles
+4. **VLAN Creation**: Primary VLAN object creation with all resolved references
+5. **Prefix Creation**: IP prefix creation with automatic VLAN association
+6. **Rollback Capability**: Automatic VLAN deletion if prefix creation fails
+7. **Cache Invalidation**: Apply Issue #29 pattern ensuring data consistency
+
+**Enterprise Coordination Features:**
+- ✅ **Atomic Operations**: Single-call VLAN/prefix creation with automatic association
+- ✅ **Intelligent Rollback**: Automatic cleanup on partial failures with detailed status reporting
+- ✅ **Conflict Prevention**: Pre-flight validation prevents VLAN ID and prefix duplication
+- ✅ **Foreign Key Intelligence**: Comprehensive resolution of sites, VRFs, tenants, groups, roles
+- ✅ **Multi-Scope Validation**: Site-specific and VRF-aware conflict detection
+- ✅ **Cache Consistency**: Implements Issue #29 cache invalidation pattern for data integrity
+- ✅ **Enterprise Safety**: Comprehensive validation, error handling, and audit trails
+
+**Testing & Validation:**
+- ✅ **Live Integration Testing**: Validated against NetBox 4.2.9 with atomic VLAN/prefix creation
+- ✅ **Complete Test Suite**: Dry-run validation, atomic creation, conflict detection, rollback testing
+- ✅ **Coordination Testing**: VLAN-prefix association validation and foreign key resolution
+- ✅ **Error Handling Testing**: Parameter validation, conflict detection, rollback capability
+
+**Test Results:**
+```
+✅ Basic VLAN/prefix provisioning (dry run): PASSED - Validation and planning working
+✅ Actual VLAN/prefix provisioning: PASSED - VLAN 3230 + Prefix 10.231.0.0/24 created atomically
+✅ Site-specific provisioning: PASSED - Foreign key resolution working
+✅ VLAN ID conflict detection: PASSED - Prevents duplicate VLAN IDs correctly
+✅ Prefix conflict detection: PASSED - Prevents duplicate prefixes correctly
+✅ Parameter validation: PASSED - VLAN ID and prefix format validation working
+✅ Rollback capability: PASSED - Automatic cleanup on partial failures
+📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/ipam/vlans/2/
+```
+
+**Sample Operations:**
+```
+🌐 VLAN Creation: TEST-VLAN-224230 (VID: 3230) → ID: 2
+📊 Prefix Creation: 10.231.0.0/24 → ID: 3 (linked to VLAN 2)
+🔗 Coordination: VLAN-Prefix automatically associated
+🎯 Atomic Success: 2 objects created in proper order with rollback capability
+```
+
+**Rollback Intelligence:**
+The function implements sophisticated rollback logic - if prefix creation fails after VLAN creation, the VLAN is automatically deleted to prevent orphaned objects. This ensures database consistency and prevents partial provisioning states.
+
+**Enterprise Value:**
+Essential for automated network provisioning workflows where VLANs and IP addressing must be coordinated. Eliminates manual coordination errors and ensures consistent network configuration across enterprise environments.
+
 ### 🎯 Current Status: v0.9.0 Development
 
-**Milestone Progress**: 7/13 high-level tools completed (54% complete)
+**Milestone Progress**: 8/13 high-level tools completed (62% complete)
 
 **Remaining High-Level Tools (Issues #30-37):**
 
 **IPAM Tools (4 tools):**
 - ✅ #30: `netbox_find_next_available_ip` - Atomic IP reservation
 - ✅ #31: `netbox_get_prefix_utilization` - Capacity planning reports
-- #32: `netbox_provision_vlan_with_prefix` - Coordinated VLAN/prefix creation
+- ✅ #32: `netbox_provision_vlan_with_prefix` - Coordinated VLAN/prefix creation
 - #33: `netbox_find_duplicate_ips` - Network auditing and conflict detection
 
 **Tenancy Tools (4 tools):**
@@ -673,22 +749,157 @@ Essential for network capacity planning, growth forecasting, and infrastructure 
 - **Milestones**: Development organized by version milestones
 - **Docker Hub**: Container images published for production deployment
 
-## Development Workflow
+## Development Workflow & Best Practices
 
-1. **Before implementing new features**: Check the roadmap GitHub Issues and Milestones
-2. **API changes**: Always follow NetBox API best practices and foreign key resolution patterns
-3. **Testing**: Test against real NetBox instances with preserved test infrastructure  
-4. **Documentation**: Update relevant documentation when adding features
-5. **Community**: Engage with the community through GitHub Issues for feedback
+### Pre-Development Planning
+1. **Issue Analysis**: Thoroughly analyze GitHub Issues and understand the enterprise value proposition
+2. **Architecture Review**: Ensure alignment with self-describing server architecture and dependency injection patterns
+3. **NetBox API Research**: Study NetBox API endpoints, foreign key relationships, and data models
+4. **Test Infrastructure**: Verify test data availability and create preserved test objects as needed
+
+### Implementation Standards
+1. **Function Design**: Follow enterprise tool patterns with comprehensive parameter validation
+2. **Foreign Key Resolution**: Implement intelligent slug/name to ID conversion for all NetBox relationships
+3. **Error Handling**: Use specific error types (ValidationError, ConflictError, NotFoundError) with detailed messages
+4. **Cache Management**: Apply Issue #29 cache invalidation pattern for all write operations
+5. **Dry-Run Support**: Always implement confirm=False dry-run mode for enterprise safety
+
+### Testing Protocol
+1. **Live Integration**: Test against real NetBox 4.2.9 instances with actual data
+2. **Comprehensive Scenarios**: Cover dry-run, execution, error handling, parameter validation, conflict detection
+3. **Test Data Preservation**: Maintain test infrastructure (sites, devices, interfaces) for consistent testing
+4. **Web UI Verification**: Always provide NetBox URLs for manual verification of created objects
+5. **Report Generation**: Save detailed JSON reports for each test run with timestamps and results
+
+### Code Quality & Safety
+1. **Enterprise Safety**: Comprehensive validation, error handling, audit trails, rollback capabilities
+2. **Parameter Validation**: Strict validation of all inputs with helpful error messages
+3. **Atomic Operations**: Implement rollback logic for multi-step operations (like VLAN/prefix coordination)
+4. **Cache Consistency**: Ensure data consistency through proper cache invalidation patterns
+5. **Performance**: Optimize API calls and implement intelligent caching where appropriate
+
+### Documentation Standards
+1. **Function Signatures**: Complete type hints and comprehensive docstrings with examples
+2. **Enterprise Features**: Document all safety mechanisms, validation logic, and error handling
+3. **Test Results**: Include actual test output, success rates, and Web UI verification links
+4. **Architecture Impact**: Document how each tool contributes to the overall enterprise platform
+5. **Value Proposition**: Clearly articulate the enterprise value and automation benefits
+
+## Session Learning & Technical Insights (2025-06-22)
+
+### Key Technical Discoveries
+
+**NetBox API Patterns:**
+- **Content Type Resolution**: NetBox 4.2.9 requires string format `"dcim.interface"` for assigned_object_type, not integer IDs
+- **Two-Step IP Assignment**: IP creation followed by assignment update is the reliable pattern for interface assignments
+- **Cache Conflict Detection**: Real-time conflict detection requires cache invalidation after write operations
+- **Foreign Key Flexibility**: NetBox accepts both name and slug lookups for most object types, graceful degradation recommended
+
+**Cache Management Breakthroughs:**
+- Issue #29 cache invalidation pattern is critical for all write operations to prevent stale data conflicts
+- `client.cache.invalidate_pattern()` and `client.cache.invalidate_for_object()` ensure data consistency
+- Cache invalidation should never fail the primary operation - log warnings only
+
+**Enterprise Tool Architecture:**
+- **Atomic Operations**: Multi-step workflows (VLAN+Prefix) require sophisticated rollback logic
+- **Pre-flight Validation**: Comprehensive conflict detection prevents partial failures
+- **Foreign Key Intelligence**: Automatic resolution with graceful degradation enhances user experience
+- **Dry-Run Capability**: Essential for enterprise safety - always implement confirm=False validation mode
+
+### Advanced Implementation Patterns
+
+**Error Handling Hierarchy:**
+```python
+# Standard error types for consistent API responses
+ValidationError    # Input validation failures
+ConflictError     # Resource conflicts (duplicate IPs, VLAN IDs)
+NotFoundError     # Missing foreign key references
+NetBoxAPIError    # NetBox API communication issues
+```
+
+**Rollback Pattern (VLAN/Prefix Example):**
+```python
+try:
+    created_vlan = create_vlan()
+    try:
+        created_prefix = create_prefix_with_vlan_association()
+    except Exception:
+        # Rollback: Delete created VLAN to prevent orphans
+        delete_vlan(created_vlan_id)
+        raise PrefixCreationError with rollback status
+except Exception:
+    return VLANCreationError
+```
+
+**Cache Invalidation Pattern:**
+```python
+# After any write operation
+try:
+    client.cache.invalidate_pattern("ipam.vlans")
+    client.cache.invalidate_pattern("ipam.prefixes") 
+    if interface_assignment:
+        client.cache.invalidate_for_object("dcim.interfaces", interface_id)
+except Exception as cache_error:
+    # Never fail primary operation due to cache issues
+    logger.warning(f"Cache invalidation failed: {cache_error}")
+```
+
+### Testing Infrastructure Excellence
+
+**Preserved Test Data Strategy:**
+- **Test Site**: "MCP Test Site" with rack and device infrastructure
+- **Test Device**: `test-sw-20250622-183126` with multiple interfaces for assignment testing
+- **Test Prefixes**: Dynamic generation with `10.{unique}.0.0/24` pattern to avoid conflicts
+- **Test VLANs**: Dynamic VLAN ID generation `3000 + timestamp` for uniqueness
+
+**Comprehensive Test Coverage:**
+1. **Dry-Run Validation**: Always test planning phase without execution
+2. **Actual Execution**: Verify real object creation with Web UI confirmation
+3. **Conflict Detection**: Test duplicate prevention for all unique fields
+4. **Parameter Validation**: Test input validation with invalid data
+5. **Error Handling**: Test failure scenarios and error message quality
+6. **Foreign Key Resolution**: Test automatic lookups and graceful degradation
+
+### Performance & Scalability Insights
+
+**API Optimization Strategies:**
+- **Bulk Operations**: Process up to 100 consecutive IPs in single operations
+- **Intelligent Caching**: Per-type TTL caches with automatic invalidation
+- **Foreign Key Batching**: Resolve all foreign keys before main operations
+- **Available IP Endpoint**: Use NetBox's native available-ips endpoint for accuracy
+
+**Enterprise Scalability Features:**
+- **Multi-Tenant Support**: Tenant and VRF filtering for complex environments
+- **Hierarchical Analysis**: Child prefix discovery for large network analysis
+- **Growth Projections**: Linear capacity forecasting with recommendation engine
+- **Assignment Classification**: Automatic categorization of IP assignments
+
+### Next Session Preparation
+
+**Remaining High-Level Tools (Issues #33-37):**
+- **#33**: `netbox_find_duplicate_ips` - Network auditing and conflict detection
+- **#34**: `netbox_onboard_new_tenant` - Formalized tenant onboarding  
+- **#35**: `netbox_assign_resources_to_tenant` - Flexible resource ownership
+- **#36**: `netbox_get_tenant_resource_report` - Comprehensive tenant reporting
+- **#37**: `netbox_create_tenant_group` - Hierarchical tenant organization
+
+**Architecture Readiness:**
+- Comprehensive test infrastructure preserved and validated
+- Cache invalidation patterns established and proven
+- Foreign key resolution patterns standardized across all tools
+- Enterprise safety mechanisms validated with real NetBox instances
+- Atomic operation patterns established with rollback capabilities
 
 ## Current Architecture Status
 
 **✅ PRODUCTION READY**: The NetBox MCP server has achieved enterprise-grade status with:
 
 - **Self-Describing Architecture**: Complete tool registry and dependency injection
-- **Production Hardening**: Secrets management, structured logging, health endpoints
-- **High-Level Automation**: First enterprise tool (`netbox_provision_new_device`) implemented and tested
-- **Enterprise Safety**: Comprehensive validation, error handling, and audit trails
+- **Production Hardening**: Secrets management, structured logging, health endpoints  
+- **High-Level Automation**: 8 sophisticated enterprise tools implemented and tested
+- **Enterprise Safety**: Comprehensive validation, error handling, audit trails, and rollback capabilities
 - **Container Ready**: Docker optimization with graceful degradation and health checks
+- **Cache Consistency**: Advanced cache invalidation patterns ensuring data integrity
+- **Atomic Operations**: Multi-step workflows with intelligent rollback and error recovery
 
-The foundation is established for rapid development of the remaining 12 high-level tools in v0.9.0, transforming NetBox MCP into the ultimate enterprise automation platform for network infrastructure management.
+**v0.9.0 Progress**: 8/13 tools completed (62%) - On track for enterprise automation platform transformation with revolutionary high-level functions that reduce complex multi-step workflows into intelligent single-call operations.
