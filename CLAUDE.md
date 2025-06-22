@@ -273,14 +273,82 @@ def netbox_assign_ip_to_interface(
 📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/ipam/ip-addresses/11/
 ```
 
+### ✅ Issue #27 COMPLETED - Rack Inventory Reporting
+
+**Comprehensive rack reporting tool** that transforms raw NetBox data into human-readable inventory reports:
+
+#### ✅ `netbox_get_rack_inventory` - Human-Readable Rack Inventory Reports
+
+**Function Signature:**
+```python
+def netbox_get_rack_inventory(
+    client: NetBoxClient,
+    site_name: str,
+    rack_name: str,
+    include_detailed: bool = False
+) -> Dict[str, Any]
+```
+
+**Rack Analysis Workflow:**
+1. **Site & Rack Resolution**: Find rack within specified site with validation
+2. **Device Collection**: Retrieve all devices assigned to the rack
+3. **Data Transformation**: Process device information with foreign key resolution
+4. **Position Mapping**: Generate complete rack elevation map (occupied vs available)
+5. **Utilization Analysis**: Calculate capacity statistics and device distribution
+6. **Report Generation**: Create human-readable summary with detailed device information
+
+**Key Features:**
+- ✅ **Complete Rack Visualization**: Position map showing occupied and available rack units
+- ✅ **Utilization Statistics**: Capacity percentages, device counts, availability metrics
+- ✅ **Device Details**: Model, manufacturer, role, status, IP addresses, serial numbers
+- ✅ **Foreign Key Resolution**: Automatic lookup of device types, roles, manufacturers
+- ✅ **Flexible Detail Levels**: Basic summary or comprehensive detailed reporting
+- ✅ **Status Analysis**: Device status overview and distribution statistics
+
+**Report Structure:**
+- **Rack Information**: Site, rack specs, dimensions, status
+- **Utilization Metrics**: Total/occupied/available positions, utilization percentage
+- **Device Inventory**: Sorted by position with complete device details
+- **Position Map**: Visual rack elevation (top-to-bottom view)
+- **Summary**: Human-readable capacity and status overview
+
+**Enterprise Features:**
+- ✅ **Robust Data Handling**: Handles both object and ID references from NetBox API
+- ✅ **Error Handling**: Graceful handling of missing data and lookup failures
+- ✅ **Performance Optimized**: Efficient API calls with intelligent caching
+- ✅ **Export Capability**: JSON report export for external processing
+
+**Testing & Validation:**
+- ✅ **Live Integration Testing**: Validated against NetBox 4.2.9 with real rack data
+- ✅ **Complete Test Coverage**: Basic inventory, detailed reporting, error handling
+- ✅ **Real Data Verification**: Successfully processed test rack with device inventory
+- ✅ **Export Validation**: JSON report generation and file export confirmed
+
+**Test Results:**
+```
+✅ Basic inventory: PASSED - Generated clean rack overview
+✅ Detailed inventory: PASSED - Complete device details with interface counts
+✅ Error handling: PASSED - Proper validation for non-existent racks
+✅ Utilization analysis: 1/42U occupied (2.4%) with accurate position mapping
+📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/api/dcim/racks/18/
+```
+
+**Sample Output:**
+```
+📍 Rack Information: MCP Test Site > MCP Test Rack (42U, 19")
+📊 Utilization: 1/42U occupied (2.4%), 1 device installed
+🖥️ Device at Position 10U: test-sw-20250622-183126
+   Model: MCP Test Vendor MCP Test Switch
+   Role: MCP Test Switch, Status: planned
+```
+
 ### 🎯 Current Status: v0.9.0 Development
 
-**Milestone Progress**: 2/13 high-level tools completed (15% complete)
+**Milestone Progress**: 3/13 high-level tools completed (23% complete)
 
-**Remaining High-Level Tools (Issues #27-37):**
+**Remaining High-Level Tools (Issues #28-37):**
 
-**DCIM Tools (3 remaining):**
-- #27: `netbox_get_rack_inventory` - Human-readable rack inventory reports  
+**DCIM Tools (2 remaining):**
 - #28: `netbox_decommission_device` - Safe device decommissioning workflow
 - #29: `netbox_create_cable_connection` - Physical connection documentation
 

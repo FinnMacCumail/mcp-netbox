@@ -1319,3 +1319,269 @@ def netbox_assign_ip_to_interface(
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+@mcp_tool(category="dcim")
+def netbox_get_rack_inventory(
+    client: NetBoxClient,
+    site_name: str,
+    rack_name: str,
+    include_detailed: bool = False
+) -> Dict[str, Any]:
+    """
+    Generate a comprehensive, human-readable inventory report for all devices in a specific rack.
+    
+    This reporting tool transforms raw NetBox data into a clean, organized rack inventory
+    that provides essential information for capacity planning and data center documentation.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        site_name: Name of the site containing the rack
+        rack_name: Name of the rack to inventory
+        include_detailed: Include detailed device information (interfaces, IPs, etc.)
+        
+    Returns:
+        Comprehensive rack inventory with utilization statistics and device details
+        
+    Example:
+        netbox_get_rack_inventory(
+            site_name="Main DC",
+            rack_name="R-12",
+            include_detailed=True
+        )
+    """
+    try:
+        if not all([site_name, rack_name]):
+            return {
+                "success": False,
+                "error": "site_name and rack_name are required",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Generating rack inventory for {site_name}/{rack_name}")
+        
+        # Step 1: Find the site
+        logger.debug(f"Looking up site: {site_name}")
+        sites = client.dcim.sites.filter(name=site_name)
+        if not sites:
+            sites = client.dcim.sites.filter(slug=site_name)
+        if not sites:
+            return {
+                "success": False,
+                "error": f"Site '{site_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        site = sites[0]
+        site_id = site["id"]
+        logger.debug(f"Found site: {site['name']} (ID: {site_id})")
+        
+        # Step 2: Find the rack within that site
+        logger.debug(f"Looking up rack: {rack_name} in site {site['name']}")
+        racks = client.dcim.racks.filter(site_id=site_id, name=rack_name)
+        if not racks:
+            return {
+                "success": False,
+                "error": f"Rack '{rack_name}' not found in site '{site['name']}'",
+                "error_type": "NotFoundError"
+            }
+        rack = racks[0]
+        rack_id = rack["id"]
+        rack_height = rack["u_height"]
+        logger.debug(f"Found rack: {rack['name']} (ID: {rack_id}, Height: {rack_height}U)")
+        
+        # Step 3: Get all devices in this rack
+        logger.debug(f"Retrieving all devices in rack {rack['name']}")
+        devices = client.dcim.devices.filter(rack_id=rack_id)
+        logger.debug(f"Found {len(devices)} devices in rack")
+        
+        # Step 4: Process devices and organize by position
+        device_inventory = {}
+        occupied_positions = set()
+        
+        for device in devices:
+            position = device.get("position")
+            device_type = device.get("device_type")
+            
+            if position is not None:
+                # Get device type details
+                device_type_info = None
+                if device_type:
+                    device_types = client.dcim.device_types.filter(id=device_type)
+                    if device_types:
+                        device_type_info = device_types[0]
+                
+                # Calculate device height and occupied positions (ensure integers)
+                device_height = 1
+                if device_type_info:
+                    device_height = int(device_type_info.get("u_height", 1))
+                
+                # Ensure position is also an integer
+                position = int(position)
+                
+                # Mark all positions occupied by this device
+                for u in range(position, position + device_height):
+                    occupied_positions.add(u)
+                
+                # Get role name (handle both ID and object formats)
+                role_name = "Unknown"
+                role_data = device.get("role")
+                if role_data:
+                    if isinstance(role_data, dict):
+                        role_name = role_data.get("name", "Unknown")
+                    else:
+                        # If it's an ID, look up the role
+                        try:
+                            roles = client.dcim.device_roles.filter(id=role_data)
+                            if roles:
+                                role_name = roles[0].get("name", "Unknown")
+                        except Exception as e:
+                            logger.warning(f"Could not resolve role ID {role_data}: {e}")
+                
+                # Get manufacturer name safely
+                manufacturer_name = "Unknown"
+                if device_type_info:
+                    manufacturer_data = device_type_info.get("manufacturer")
+                    if isinstance(manufacturer_data, dict):
+                        manufacturer_name = manufacturer_data.get("name", "Unknown")
+                    elif manufacturer_data:
+                        # If it's an ID, look up the manufacturer
+                        try:
+                            manufacturers = client.dcim.manufacturers.filter(id=manufacturer_data)
+                            if manufacturers:
+                                manufacturer_name = manufacturers[0].get("name", "Unknown")
+                        except Exception as e:
+                            logger.warning(f"Could not resolve manufacturer ID {manufacturer_data}: {e}")
+                
+                # Get IP addresses safely
+                primary_ip4 = None
+                primary_ip6 = None
+                primary_ip4_data = device.get("primary_ip4")
+                primary_ip6_data = device.get("primary_ip6")
+                
+                if primary_ip4_data:
+                    if isinstance(primary_ip4_data, dict):
+                        primary_ip4 = primary_ip4_data.get("address")
+                    else:
+                        # If it's an ID, we could look it up, but for now just note it exists
+                        primary_ip4 = f"IP ID: {primary_ip4_data}"
+                
+                if primary_ip6_data:
+                    if isinstance(primary_ip6_data, dict):
+                        primary_ip6 = primary_ip6_data.get("address")
+                    else:
+                        primary_ip6 = f"IP ID: {primary_ip6_data}"
+                
+                # Basic device information
+                device_info = {
+                    "name": device.get("name", "Unknown"),
+                    "position": position,
+                    "height": device_height,
+                    "device_type": device_type_info.get("model", "Unknown") if device_type_info else "Unknown",
+                    "manufacturer": manufacturer_name,
+                    "status": device.get("status", "unknown"),
+                    "serial": device.get("serial", ""),
+                    "asset_tag": device.get("asset_tag", ""),
+                    "role": role_name,
+                    "primary_ip": None,
+                    "primary_ip4": primary_ip4,
+                    "primary_ip6": primary_ip6
+                }
+                
+                # Determine primary IP
+                if device_info["primary_ip4"]:
+                    device_info["primary_ip"] = device_info["primary_ip4"]
+                elif device_info["primary_ip6"]:
+                    device_info["primary_ip"] = device_info["primary_ip6"]
+                
+                # Add detailed information if requested
+                if include_detailed:
+                    device_info["detailed"] = {
+                        "description": device.get("description", ""),
+                        "platform": device.get("platform", {}).get("name") if device.get("platform") else None,
+                        "tenant": device.get("tenant", {}).get("name") if device.get("tenant") else None,
+                        "face": device.get("face", "front"),
+                        "device_id": device.get("id"),
+                        "url": device.get("url", ""),
+                        "created": device.get("created", ""),
+                        "last_updated": device.get("last_updated", "")
+                    }
+                    
+                    # Get interface count
+                    try:
+                        interfaces = client.dcim.interfaces.filter(device_id=device["id"])
+                        device_info["detailed"]["interface_count"] = len(interfaces)
+                    except Exception as e:
+                        logger.warning(f"Could not get interface count for device {device['name']}: {e}")
+                        device_info["detailed"]["interface_count"] = 0
+                
+                device_inventory[position] = device_info
+        
+        # Step 5: Generate position map
+        position_map = []
+        for u in range(1, rack_height + 1):
+            if u in occupied_positions:
+                device = device_inventory.get(u)
+                position_map.append({
+                    "position": u,
+                    "status": "occupied",
+                    "device": device
+                })
+            else:
+                position_map.append({
+                    "position": u,
+                    "status": "available",
+                    "device": None
+                })
+        
+        # Step 6: Calculate utilization statistics
+        total_positions = rack_height
+        occupied_count = len(occupied_positions)
+        available_count = total_positions - occupied_count
+        utilization_percent = (occupied_count / total_positions * 100) if total_positions > 0 else 0
+        
+        # Step 7: Sort devices by position (ascending - bottom to top)
+        devices_by_position = sorted(device_inventory.values(), key=lambda d: d["position"])
+        
+        # Generate status overview
+        status_counts = {}
+        for device in devices_by_position:
+            status = device.get("status", "unknown")
+            status_counts[status] = status_counts.get(status, 0) + 1
+        
+        return {
+            "success": True,
+            "rack_info": {
+                "site": site["name"],
+                "rack_name": rack["name"],
+                "rack_height": rack_height,
+                "rack_width": rack.get("width", 19),
+                "rack_status": rack.get("status", "unknown"),
+                "rack_description": rack.get("description", ""),
+                "rack_id": rack_id,
+                "rack_url": rack.get("url", "")
+            },
+            "utilization": {
+                "total_positions": total_positions,
+                "occupied_positions": occupied_count,
+                "available_positions": available_count,
+                "utilization_percentage": round(utilization_percent, 1),
+                "device_count": len(devices)
+            },
+            "devices": devices_by_position,
+            "position_map": sorted(position_map, key=lambda p: p["position"], reverse=True),  # Top to bottom view
+            "summary": {
+                "rack_location": f"{site['name']} > {rack['name']}",
+                "capacity": f"{occupied_count}/{total_positions}U occupied ({utilization_percent:.1f}%)",
+                "device_summary": f"{len(devices)} devices installed" if devices else "Rack is empty",
+                "status_overview": status_counts
+            },
+            "detailed": include_detailed
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to generate rack inventory for {site_name}/{rack_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
