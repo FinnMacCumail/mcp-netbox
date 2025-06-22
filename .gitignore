@@ -104,3 +104,4 @@ test_*.py
 # Documentation drafts and temporary files
 DESIGN.md
 ROADMAP.md
+CLAUDE.md
