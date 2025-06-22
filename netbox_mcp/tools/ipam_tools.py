@@ -448,6 +448,340 @@ def netbox_find_available_vlan_id(
 
 
 # ========================================
+# HIGH-LEVEL ENTERPRISE IPAM TOOLS (v0.9.0)
+# ========================================
+
+@mcp_tool(category="ipam")
+def netbox_find_next_available_ip(
+    client: NetBoxClient,
+    prefix: str,
+    count: int = 1,
+    assign_to_interface: Optional[str] = None,
+    device_name: Optional[str] = None,
+    status: str = "active",
+    description: Optional[str] = None,
+    tenant: Optional[str] = None,
+    vrf: Optional[str] = None,
+    reserve_immediately: bool = False,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Find and optionally reserve the next available IP address(es) in a prefix with atomic operation.
+    
+    This enterprise-grade function combines IP discovery with optional atomic reservation,
+    providing essential functionality for automated IP allocation workflows. Supports
+    both simple IP discovery and complete interface assignment in a single operation.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        prefix: Network prefix to search (e.g., "192.168.1.0/24")
+        count: Number of consecutive IPs to find (default: 1)
+        assign_to_interface: Optional interface name for immediate assignment
+        device_name: Device name (required if assign_to_interface specified)
+        status: IP status if reserving (active, reserved, deprecated, dhcp, slaac)
+        description: Optional description for reserved IPs
+        tenant: Optional tenant name for IP assignment
+        vrf: Optional VRF name for IP assignment
+        reserve_immediately: Create IP objects immediately (requires confirm=True)
+        confirm: Must be True for any write operations (safety mechanism)
+        
+    Returns:
+        Available IP addresses with optional reservation details
+        
+    Examples:
+        # Find next available IP (read-only)
+        netbox_find_next_available_ip(prefix="10.0.1.0/24")
+        
+        # Find and reserve 3 consecutive IPs
+        netbox_find_next_available_ip(
+            prefix="10.0.1.0/24", 
+            count=3,
+            reserve_immediately=True,
+            description="Reserved for new servers",
+            confirm=True
+        )
+        
+        # Find IP and assign to device interface atomically
+        netbox_find_next_available_ip(
+            prefix="10.0.1.0/24",
+            assign_to_interface="eth0",
+            device_name="server-01",
+            description="Management IP",
+            confirm=True
+        )
+    """
+    try:
+        if not prefix:
+            return {
+                "success": False,
+                "error": "prefix is required",
+                "error_type": "ValidationError"
+            }
+        
+        if count < 1 or count > 100:
+            return {
+                "success": False,
+                "error": "count must be between 1 and 100",
+                "error_type": "ValidationError"
+            }
+        
+        if assign_to_interface and not device_name:
+            return {
+                "success": False,
+                "error": "device_name is required when assign_to_interface is specified",
+                "error_type": "ValidationError"
+            }
+        
+        # Note: reserve_immediately with confirm=False is allowed for dry-run validation
+        
+        logger.info(f"Finding next {count} available IP(s) in prefix: {prefix}")
+        
+        # Step 1: Find and validate the prefix
+        logger.debug(f"Looking up prefix: {prefix}")
+        prefixes = client.ipam.prefixes.filter(prefix=prefix)
+        
+        if not prefixes:
+            return {
+                "success": False,
+                "error": f"Prefix '{prefix}' not found in NetBox",
+                "error_type": "NotFoundError"
+            }
+        
+        prefix_obj = prefixes[0]
+        prefix_id = prefix_obj["id"]
+        logger.debug(f"Found prefix: {prefix_obj['prefix']} (ID: {prefix_id})")
+        
+        # Step 2: Get available IPs using NetBox's available-ips endpoint
+        logger.debug("Retrieving available IPs from NetBox")
+        try:
+            # Use direct API access for the available-ips endpoint
+            available_ips_response = client.api.ipam.prefixes.get(prefix_id).available_ips.list()
+            available_ips = [str(ip) for ip in available_ips_response]
+        except Exception as e:
+            logger.error(f"Failed to get available IPs: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to retrieve available IPs from prefix: {str(e)}",
+                "error_type": "NetBoxAPIError"
+            }
+        
+        if not available_ips:
+            return {
+                "success": False,
+                "error": f"No available IP addresses in prefix {prefix}",
+                "error_type": "NoAvailableIPs"
+            }
+        
+        if len(available_ips) < count:
+            return {
+                "success": False,
+                "error": f"Only {len(available_ips)} available IPs in prefix, but {count} requested",
+                "error_type": "InsufficientIPs"
+            }
+        
+        # Step 3: Select the requested number of consecutive IPs
+        selected_ips = available_ips[:count]
+        logger.info(f"Selected {len(selected_ips)} available IPs: {selected_ips}")
+        
+        # If only discovery is requested, return the IPs without reservation
+        if not reserve_immediately and not assign_to_interface:
+            return {
+                "success": True,
+                "action": "discovered",
+                "prefix": prefix,
+                "available_ips": selected_ips,
+                "total_available": len(available_ips),
+                "dry_run": True
+            }
+        
+        # Step 4: Handle device and interface lookup if assignment is requested
+        device_id = None
+        interface_id = None
+        device_obj = None
+        interface_obj = None
+        
+        if assign_to_interface:
+            logger.debug(f"Looking up device: {device_name}")
+            devices = client.dcim.devices.filter(name=device_name)
+            if not devices:
+                return {
+                    "success": False,
+                    "error": f"Device '{device_name}' not found",
+                    "error_type": "NotFoundError"
+                }
+            
+            device_obj = devices[0]
+            device_id = device_obj["id"]
+            logger.debug(f"Found device: {device_obj['name']} (ID: {device_id})")
+            
+            logger.debug(f"Looking up interface: {assign_to_interface} on device {device_obj['name']}")
+            interfaces = client.dcim.interfaces.filter(device_id=device_id, name=assign_to_interface)
+            if not interfaces:
+                return {
+                    "success": False,
+                    "error": f"Interface '{assign_to_interface}' not found on device '{device_obj['name']}'",
+                    "error_type": "NotFoundError"
+                }
+            
+            interface_obj = interfaces[0]
+            interface_id = interface_obj["id"]
+            logger.debug(f"Found interface: {interface_obj['name']} (ID: {interface_id})")
+        
+        # Step 5: Resolve optional foreign keys
+        tenant_id = None
+        vrf_id = None
+        
+        if tenant:
+            logger.debug(f"Looking up tenant: {tenant}")
+            tenants = client.tenancy.tenants.filter(name=tenant)
+            if not tenants:
+                tenants = client.tenancy.tenants.filter(slug=tenant)
+            if tenants:
+                tenant_id = tenants[0]["id"]
+                logger.debug(f"Found tenant: {tenants[0]['name']} (ID: {tenant_id})")
+            else:
+                logger.warning(f"Tenant '{tenant}' not found, proceeding without tenant assignment")
+        
+        if vrf:
+            logger.debug(f"Looking up VRF: {vrf}")
+            vrfs = client.ipam.vrfs.filter(name=vrf)
+            if vrfs:
+                vrf_id = vrfs[0]["id"]
+                logger.debug(f"Found VRF: {vrfs[0]['name']} (ID: {vrf_id})")
+            else:
+                logger.warning(f"VRF '{vrf}' not found, proceeding without VRF assignment")
+        
+        if not confirm:
+            # Dry run mode - show what would be created
+            result = {
+                "success": True,
+                "action": "dry_run",
+                "prefix": prefix,
+                "selected_ips": selected_ips,
+                "total_available": len(available_ips),
+                "would_reserve": reserve_immediately,
+                "would_assign": bool(assign_to_interface),
+                "dry_run": True
+            }
+            
+            if assign_to_interface:
+                result["assignment_target"] = {
+                    "device": device_obj["name"],
+                    "interface": interface_obj["name"],
+                    "device_id": device_id,
+                    "interface_id": interface_id
+                }
+            
+            return result
+        
+        # Step 6: Create IP address objects (only if confirm=True and operation requires it)
+        if not (reserve_immediately or assign_to_interface):
+            # No actual IP creation needed, return discovery results
+            return {
+                "success": True,
+                "action": "discovered",
+                "prefix": prefix,
+                "available_ips": selected_ips,
+                "total_available": len(available_ips),
+                "dry_run": False
+            }
+        
+        created_ips = []
+        assignment_results = []
+        
+        for ip_address in selected_ips:
+            try:
+                # Build IP data
+                ip_data = {
+                    "address": ip_address,
+                    "status": status
+                }
+                
+                if description:
+                    ip_data["description"] = description
+                if tenant_id:
+                    ip_data["tenant"] = tenant_id
+                if vrf_id:
+                    ip_data["vrf"] = vrf_id
+                
+                logger.debug(f"Creating IP address: {ip_data}")
+                created_ip = client.ipam.ip_addresses.create(confirm=True, **ip_data)
+                created_ips.append(created_ip)
+                logger.info(f"✅ Created IP address: {ip_address} (ID: {created_ip['id']})")
+                
+                # Step 7: Assign to interface if requested
+                if assign_to_interface:
+                    assignment_data = {
+                        "assigned_object_type": "dcim.interface",
+                        "assigned_object_id": interface_id
+                    }
+                    
+                    logger.debug(f"Assigning IP {ip_address} to interface {interface_obj['name']}")
+                    assigned_ip = client.ipam.ip_addresses.update(created_ip["id"], confirm=True, **assignment_data)
+                    assignment_results.append({
+                        "ip_address": ip_address,
+                        "ip_id": created_ip["id"],
+                        "assigned_to": f"{device_obj['name']}:{interface_obj['name']}",
+                        "assignment_result": assigned_ip
+                    })
+                    logger.info(f"✅ Assigned IP {ip_address} to {device_obj['name']}:{interface_obj['name']}")
+                
+            except Exception as e:
+                logger.error(f"Failed to create/assign IP {ip_address}: {e}")
+                # Continue with other IPs but record the failure
+                assignment_results.append({
+                    "ip_address": ip_address,
+                    "error": str(e),
+                    "success": False
+                })
+        
+        # Step 8: Apply cache invalidation pattern from Issue #29
+        # Invalidate relevant caches to ensure data consistency
+        logger.debug("Invalidating IPAM cache after IP creation...")
+        try:
+            # Invalidate prefix cache
+            client.cache.invalidate_pattern("ipam.prefixes")
+            
+            # Invalidate interface cache if assignment was performed
+            if assign_to_interface and interface_id:
+                invalidated = client.cache.invalidate_for_object("dcim.interfaces", interface_id)
+                logger.info(f"Cache invalidated: {invalidated} entries for interface {interface_id}")
+                
+        except Exception as cache_error:
+            # Cache invalidation failure should not fail the IP creation
+            logger.warning(f"Cache invalidation failed after IP creation: {cache_error}")
+        
+        # Step 9: Build comprehensive response
+        success_count = len([r for r in (assignment_results or created_ips) if isinstance(r, dict) and r.get("success", True)])
+        
+        result = {
+            "success": True,
+            "action": "assigned" if assign_to_interface else "reserved",
+            "prefix": prefix,
+            "requested_count": count,
+            "successful_count": success_count,
+            "ips_created": len(created_ips),
+            "created_ips": created_ips,
+            "dry_run": False
+        }
+        
+        if assign_to_interface:
+            result["assignment_results"] = assignment_results
+            result["device"] = {"name": device_obj["name"], "id": device_id}
+            result["interface"] = {"name": interface_obj["name"], "id": interface_id}
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to find/reserve next available IP in {prefix}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+# ========================================
 # VRF MANAGEMENT TOOLS  
 # ========================================
 

@@ -1,0 +1,161 @@
+{
+  "discovery_result": {
+    "success": true,
+    "action": "discovered",
+    "prefix": "10.99.0.0/24",
+    "available_ips": [
+      "10.99.0.4/24"
+    ],
+    "total_available": 50,
+    "dry_run": true
+  },
+  "multi_discovery_result": {
+    "success": true,
+    "action": "discovered",
+    "prefix": "10.99.0.0/24",
+    "available_ips": [
+      "10.99.0.4/24",
+      "10.99.0.5/24",
+      "10.99.0.6/24",
+      "10.99.0.7/24",
+      "10.99.0.8/24"
+    ],
+    "total_available": 50,
+    "dry_run": true
+  },
+  "reservation_result": {
+    "success": true,
+    "action": "reserved",
+    "prefix": "10.99.0.0/24",
+    "requested_count": 2,
+    "successful_count": 2,
+    "ips_created": 2,
+    "created_ips": [
+      {
+        "id": 15,
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/ipam/ip-addresses/15/",
+        "display_url": "https://zwqg2756.cloud.netboxapp.com/ipam/ip-addresses/15/",
+        "display": "10.99.0.4/24",
+        "family": 4,
+        "address": "10.99.0.4/24",
+        "vrf": null,
+        "tenant": null,
+        "status": "reserved",
+        "role": null,
+        "assigned_object_type": null,
+        "assigned_object_id": null,
+        "assigned_object": null,
+        "nat_inside": null,
+        "nat_outside": [],
+        "dns_name": "",
+        "description": "Test IP reservation at 2025-06-22 22:24:34.075065",
+        "comments": "",
+        "tags": [],
+        "custom_fields": {},
+        "created": "2025-06-22T20:24:34.279675Z",
+        "last_updated": "2025-06-22T20:24:34.279690Z"
+      },
+      {
+        "id": 16,
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/ipam/ip-addresses/16/",
+        "display_url": "https://zwqg2756.cloud.netboxapp.com/ipam/ip-addresses/16/",
+        "display": "10.99.0.5/24",
+        "family": 4,
+        "address": "10.99.0.5/24",
+        "vrf": null,
+        "tenant": null,
+        "status": "reserved",
+        "role": null,
+        "assigned_object_type": null,
+        "assigned_object_id": null,
+        "assigned_object": null,
+        "nat_inside": null,
+        "nat_outside": [],
+        "dns_name": "",
+        "description": "Test IP reservation at 2025-06-22 22:24:34.075065",
+        "comments": "",
+        "tags": [],
+        "custom_fields": {},
+        "created": "2025-06-22T20:24:34.392892Z",
+        "last_updated": "2025-06-22T20:24:34.392906Z"
+      }
+    ],
+    "dry_run": false
+  },
+  "test_prefix": "10.99.0.0/24",
+  "test_timestamp": "2025-06-22T22:24:35.458317",
+  "assignment_result": {
+    "success": true,
+    "action": "assigned",
+    "prefix": "10.99.0.0/24",
+    "requested_count": 1,
+    "successful_count": 1,
+    "ips_created": 1,
+    "created_ips": [
+      {
+        "id": 17,
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/ipam/ip-addresses/17/",
+        "display_url": "https://zwqg2756.cloud.netboxapp.com/ipam/ip-addresses/17/",
+        "display": "10.99.0.6/24",
+        "family": 4,
+        "address": "10.99.0.6/24",
+        "vrf": null,
+        "tenant": null,
+        "status": "active",
+        "role": null,
+        "assigned_object_type": null,
+        "assigned_object_id": null,
+        "assigned_object": null,
+        "nat_inside": null,
+        "nat_outside": [],
+        "dns_name": "",
+        "description": "Test IP assignment at 2025-06-22 22:24:34.435110",
+        "comments": "",
+        "tags": [],
+        "custom_fields": {},
+        "created": "2025-06-22T20:24:34.910141Z",
+        "last_updated": "2025-06-22T20:24:34.910155Z"
+      }
+    ],
+    "dry_run": false,
+    "assignment_results": [
+      {
+        "ip_address": "10.99.0.6/24",
+        "ip_id": 17,
+        "assigned_to": "test-sw-20250622-183126:TestIP-222433",
+        "assignment_result": {
+          "id": 17,
+          "url": "https://zwqg2756.cloud.netboxapp.com/api/ipam/ip-addresses/17/",
+          "display_url": "https://zwqg2756.cloud.netboxapp.com/ipam/ip-addresses/17/",
+          "display": "10.99.0.6/24",
+          "family": 4,
+          "address": "10.99.0.6/24",
+          "vrf": null,
+          "tenant": null,
+          "status": "active",
+          "role": null,
+          "assigned_object_type": "dcim.interface",
+          "assigned_object_id": 31,
+          "assigned_object": null,
+          "nat_inside": null,
+          "nat_outside": [],
+          "dns_name": "",
+          "description": "Test IP assignment at 2025-06-22 22:24:34.435110",
+          "comments": "",
+          "tags": [],
+          "custom_fields": {},
+          "created": "2025-06-22T20:24:34.910141Z",
+          "last_updated": "2025-06-22T20:24:34.910155Z"
+        }
+      }
+    ],
+    "device": {
+      "name": "test-sw-20250622-183126",
+      "id": 11
+    },
+    "interface": {
+      "name": "TestIP-222433",
+      "id": 31
+    }
+  }
+}

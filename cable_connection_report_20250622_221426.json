@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "action": "created",
+  "object_type": "cable",
+  "cable": {
+    "id": 5,
+    "url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/cables/5/",
+    "display_url": "https://zwqg2756.cloud.netboxapp.com/dcim/cables/5/",
+    "display": "TEST-LOOPBACK-CABLE",
+    "type": "cat6",
+    "a_terminations": [
+      25
+    ],
+    "b_terminations": [
+      26
+    ],
+    "status": "connected",
+    "tenant": null,
+    "label": "TEST-LOOPBACK-CABLE",
+    "color": "",
+    "length": 2.0,
+    "length_unit": "m",
+    "description": "Test cable connection created at 2025-06-22 22:14:25.867203",
+    "comments": "",
+    "tags": [],
+    "custom_fields": {},
+    "created": "2025-06-22T20:14:26.149036Z",
+    "last_updated": "2025-06-22T20:14:26.149050Z"
+  },
+  "connection_details": {
+    "cable_id": 5,
+    "cable_type": "cat6",
+    "cable_status": "connected",
+    "cable_label": "TEST-LOOPBACK-CABLE",
+    "cable_length": "2 m",
+    "termination_a": {
+      "device": "test-sw-20250622-183126",
+      "interface": "TestPort3-221423",
+      "device_id": 11,
+      "interface_id": 25,
+      "device_url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/devices/11/"
+    },
+    "termination_b": {
+      "device": "test-sw-20250622-183126",
+      "interface": "TestPort4-221423",
+      "device_id": 11,
+      "interface_id": 26,
+      "device_url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/devices/11/"
+    }
+  },
+  "dry_run": false
+}

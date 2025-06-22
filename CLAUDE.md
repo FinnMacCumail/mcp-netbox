@@ -491,9 +491,93 @@ This implementation identified and solved a critical cache consistency issue aff
 **Architecture Impact:**
 This implementation established the **cache invalidation pattern** that will be applied to all future high-level tools, ensuring data consistency across the entire NetBox MCP platform. This solves a fundamental challenge in cached API architectures.
 
+### ✅ Issue #30 COMPLETED - Atomic IP Reservation
+
+**Revolutionary IPAM automation tool** that transforms IP allocation from manual multi-step process into intelligent atomic operations:
+
+#### ✅ `netbox_find_next_available_ip` - Intelligent IP Discovery and Atomic Reservation
+
+**Function Signature:**
+```python
+def netbox_find_next_available_ip(
+    client: NetBoxClient,
+    prefix: str,
+    count: int = 1,
+    assign_to_interface: Optional[str] = None,
+    device_name: Optional[str] = None,
+    status: str = "active",
+    description: Optional[str] = None,
+    tenant: Optional[str] = None,
+    vrf: Optional[str] = None,
+    reserve_immediately: bool = False,
+    confirm: bool = False
+) -> Dict[str, Any]
+```
+
+**Multi-Mode Operation Workflow:**
+1. **Prefix Discovery**: Find and validate target network prefix in NetBox
+2. **Available IP Retrieval**: Use NetBox's available-ips endpoint for real-time availability
+3. **IP Selection**: Select consecutive IP addresses based on count parameter
+4. **Foreign Key Resolution**: Optional tenant/VRF lookup with graceful degradation
+5. **Device/Interface Resolution**: Cross-domain DCIM integration for interface assignment
+6. **Atomic Operations**: Create IP objects and assign to interfaces in single workflow
+7. **Cache Invalidation**: Apply Issue #29 pattern ensuring data consistency
+
+**Operation Modes:**
+- **Discovery Mode**: Read-only IP discovery without reservation
+- **Reservation Mode**: Create IP objects with specified status (reserved, active, etc.)
+- **Assignment Mode**: Atomic IP allocation directly to device interfaces
+- **Bulk Mode**: Process multiple consecutive IPs in single operation (up to 100)
+
+**Cross-Domain Integration:**
+- **IPAM → DCIM**: Seamlessly bridges IP management with device infrastructure
+- **Atomic Assignment**: Single function call handles IP creation + interface assignment
+- **Cache Consistency**: Invalidates both IPAM and DCIM caches maintaining data integrity
+
+**Enterprise Features:**
+- ✅ **Intelligent Discovery**: Uses NetBox's native available-ips endpoint for accuracy
+- ✅ **Atomic Operations**: Single-call IP reservation with interface assignment
+- ✅ **Bulk Processing**: Handle up to 100 consecutive IPs in one operation
+- ✅ **Multi-Mode Support**: Discovery, reservation, and assignment workflows
+- ✅ **Cache Consistency**: Implements Issue #29 cache invalidation pattern
+- ✅ **Cross-Domain Safety**: Validates devices and interfaces before IP assignment
+- ✅ **Foreign Key Resolution**: Automatic tenant and VRF lookup with graceful fallback
+- ✅ **Comprehensive Error Handling**: Specific error types for different failure scenarios
+
+**Testing & Validation:**
+- ✅ **Live Integration Testing**: Validated against NetBox 4.2.9 with real IP allocations
+- ✅ **Complete Test Suite**: Discovery, reservation, assignment, error handling, parameter validation
+- ✅ **Multi-Mode Testing**: All operation modes validated with dry-run and actual execution
+- ✅ **Cache Consistency Testing**: Verified cache invalidation maintains data integrity
+- ✅ **Cross-Domain Testing**: IPAM/DCIM integration validated with live interface assignment
+
+**Test Results:**
+```
+✅ IP Discovery: PASSED - Finds next available IP (10.99.0.4/24)
+✅ Multiple IP Discovery: PASSED - Finds 5 consecutive IPs correctly
+✅ Dry run reservation: PASSED - Shows what would be reserved without creating
+✅ IP Reservation: PASSED - Creates 2 IP objects (IDs: 15, 16) with reserved status
+✅ Interface Assignment: PASSED - Atomically assigns IP to device interface
+✅ Error handling: PASSED - Proper validation for non-existent prefixes
+✅ Parameter validation: PASSED - Rejects invalid count values appropriately
+✅ Confirm dry-run validation: PASSED - Allows safe validation without confirm=True
+📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/ipam/prefixes/?q=10.99.0.0/24
+```
+
+**Sample Operations:**
+```
+🌐 IP Discovery: 10.99.0.4/24 (50 total available)
+💾 IP Reservation: 10.99.0.4/24, 10.99.0.5/24 (Status: reserved)
+🔗 Interface Assignment: 10.99.0.6/24 → test-sw-20250622-183126:TestIP-222433
+🎯 Atomic Operation: Single function call handled IP creation + interface assignment
+```
+
+**Revolutionary Value:**
+This function transforms traditional multi-step IP allocation workflows (discover → reserve → assign) into intelligent single-call operations, essential for automated network provisioning and LLM-driven infrastructure management.
+
 ### 🎯 Current Status: v0.9.0 Development
 
-**Milestone Progress**: 5/13 high-level tools completed (38% complete)
+**Milestone Progress**: 6/13 high-level tools completed (46% complete)
 
 **Remaining High-Level Tools (Issues #30-37):**
 

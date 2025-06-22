@@ -1,0 +1,292 @@
+{
+  "success": true,
+  "rack_info": {
+    "site": "MCP Test Site",
+    "rack_name": "MCP Test Rack",
+    "rack_height": 42,
+    "rack_width": 19,
+    "rack_status": "active",
+    "rack_description": "Test rack for MCP device provisioning tests",
+    "rack_id": 18,
+    "rack_url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/racks/18/"
+  },
+  "utilization": {
+    "total_positions": 42,
+    "occupied_positions": 1,
+    "available_positions": 41,
+    "utilization_percentage": 2.4,
+    "device_count": 1
+  },
+  "devices": [
+    {
+      "name": "test-sw-20250622-183126",
+      "position": 10,
+      "height": 1,
+      "device_type": "MCP Test Switch",
+      "manufacturer": "MCP Test Vendor",
+      "status": "planned",
+      "serial": "SN20250622-183126",
+      "asset_tag": "AT20250622-183126",
+      "role": "MCP Test Switch",
+      "primary_ip": null,
+      "primary_ip4": null,
+      "primary_ip6": null,
+      "detailed": {
+        "description": "Test device created by MCP provisioning test at 2025-06-22 18:31:26.618413",
+        "platform": null,
+        "tenant": null,
+        "face": "front",
+        "device_id": 11,
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/devices/11/",
+        "created": "2025-06-22T16:31:26.784108Z",
+        "last_updated": "2025-06-22T16:31:26.784125Z",
+        "interface_count": 1
+      }
+    }
+  ],
+  "position_map": [
+    {
+      "position": 42,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 41,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 40,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 39,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 38,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 37,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 36,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 35,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 34,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 33,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 32,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 31,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 30,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 29,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 28,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 27,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 26,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 25,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 24,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 23,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 22,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 21,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 20,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 19,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 18,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 17,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 16,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 15,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 14,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 13,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 12,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 11,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 10,
+      "status": "occupied",
+      "device": {
+        "name": "test-sw-20250622-183126",
+        "position": 10,
+        "height": 1,
+        "device_type": "MCP Test Switch",
+        "manufacturer": "MCP Test Vendor",
+        "status": "planned",
+        "serial": "SN20250622-183126",
+        "asset_tag": "AT20250622-183126",
+        "role": "MCP Test Switch",
+        "primary_ip": null,
+        "primary_ip4": null,
+        "primary_ip6": null,
+        "detailed": {
+          "description": "Test device created by MCP provisioning test at 2025-06-22 18:31:26.618413",
+          "platform": null,
+          "tenant": null,
+          "face": "front",
+          "device_id": 11,
+          "url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/devices/11/",
+          "created": "2025-06-22T16:31:26.784108Z",
+          "last_updated": "2025-06-22T16:31:26.784125Z",
+          "interface_count": 1
+        }
+      }
+    },
+    {
+      "position": 9,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 8,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 7,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 6,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 5,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 4,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 3,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 2,
+      "status": "available",
+      "device": null
+    },
+    {
+      "position": 1,
+      "status": "available",
+      "device": null
+    }
+  ],
+  "summary": {
+    "rack_location": "MCP Test Site > MCP Test Rack",
+    "capacity": "1/42U occupied (2.4%)",
+    "device_summary": "1 devices installed",
+    "status_overview": {
+      "planned": 1
+    }
+  },
+  "detailed": true
+}
