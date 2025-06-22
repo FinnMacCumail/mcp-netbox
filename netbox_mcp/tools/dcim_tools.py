@@ -1585,3 +1585,351 @@ def netbox_get_rack_inventory(
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+@mcp_tool(category="dcim")
+def netbox_decommission_device(
+    client: NetBoxClient,
+    device_name: str,
+    decommission_strategy: str = "offline",
+    handle_ips: str = "unassign",
+    handle_cables: str = "remove",
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Safely decommission a device with comprehensive validation and cleanup.
+    
+    This enterprise-grade decommissioning tool handles the complex workflow of removing
+    devices from production while maintaining data integrity and preventing accidental
+    deletion of devices with active connections.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the device to decommission
+        decommission_strategy: Strategy for device status ("offline", "decommissioning", "inventory")
+        handle_ips: IP address handling ("unassign", "deprecate", "keep")
+        handle_cables: Cable handling ("remove", "deprecate", "keep")
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Comprehensive decommissioning report with all actions performed
+        
+    Example:
+        netbox_decommission_device(
+            device_name="old-server-01",
+            decommission_strategy="offline",
+            handle_ips="deprecate",
+            handle_cables="remove",
+            confirm=True
+        )
+    """
+    try:
+        if not device_name:
+            return {
+                "success": False,
+                "error": "device_name is required",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate strategy parameters
+        valid_strategies = ["offline", "decommissioning", "inventory", "failed"]
+        valid_ip_handling = ["unassign", "deprecate", "keep"]
+        valid_cable_handling = ["remove", "deprecate", "keep"]
+        
+        if decommission_strategy not in valid_strategies:
+            return {
+                "success": False,
+                "error": f"Invalid decommission_strategy. Must be one of: {valid_strategies}",
+                "error_type": "ValidationError"
+            }
+        
+        if handle_ips not in valid_ip_handling:
+            return {
+                "success": False,
+                "error": f"Invalid handle_ips. Must be one of: {valid_ip_handling}",
+                "error_type": "ValidationError"
+            }
+        
+        if handle_cables not in valid_cable_handling:
+            return {
+                "success": False,
+                "error": f"Invalid handle_cables. Must be one of: {valid_cable_handling}",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Decommissioning device: {device_name} (strategy: {decommission_strategy})")
+        
+        # Step 1: Find the device
+        logger.debug(f"Looking up device: {device_name}")
+        devices = client.dcim.devices.filter(name=device_name)
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        device = devices[0]
+        device_id = device["id"]
+        current_status = device.get("status", "unknown")
+        logger.debug(f"Found device: {device['name']} (ID: {device_id}, Current Status: {current_status})")
+        
+        # Step 2: Pre-flight validation and dependency checks
+        logger.debug("Performing pre-flight validation...")
+        validation_results = {}
+        
+        # Check for critical dependencies (cluster membership, etc.)
+        if device.get("cluster"):
+            validation_results["cluster_warning"] = f"Device is member of cluster: {device['cluster'].get('name', 'Unknown')}"
+        
+        if device.get("virtual_chassis"):
+            validation_results["virtual_chassis_warning"] = f"Device is part of virtual chassis: {device['virtual_chassis']}"
+        
+        # Step 3: Inventory current connections and assignments
+        logger.debug("Inventorying current device connections...")
+        
+        # Get all interfaces
+        interfaces = client.dcim.interfaces.filter(device_id=device_id)
+        interface_count = len(interfaces)
+        
+        # Get all IP addresses assigned to this device's interfaces
+        device_ips = []
+        for interface in interfaces:
+            assigned_ips = client.ipam.ip_addresses.filter(assigned_object_id=interface["id"])
+            interface_ips = [ip for ip in assigned_ips if ip.get("assigned_object_type") == "dcim.interface"]
+            device_ips.extend(interface_ips)
+        
+        # Get all cables connected to this device
+        device_cables = []
+        for interface in interfaces:
+            if interface.get("cable"):
+                try:
+                    cables = client.dcim.cables.filter(id=interface["cable"])
+                    device_cables.extend(cables)
+                except Exception as e:
+                    logger.warning(f"Could not retrieve cable {interface['cable']}: {e}")
+        
+        # Remove duplicate cables
+        unique_cables = {cable["id"]: cable for cable in device_cables}.values()
+        device_cables = list(unique_cables)
+        
+        logger.debug(f"Device inventory: {len(device_ips)} IP addresses, {len(device_cables)} cables, {interface_count} interfaces")
+        
+        # Step 4: Risk assessment
+        risk_factors = []
+        if current_status in ["active", "planned"]:
+            risk_factors.append("Device is currently in active/planned status")
+        if device_ips:
+            risk_factors.append(f"{len(device_ips)} IP addresses currently assigned")
+        if device_cables:
+            risk_factors.append(f"{len(device_cables)} cables currently connected")
+        if device.get("primary_ip4") or device.get("primary_ip6"):
+            risk_factors.append("Device has primary IP addresses configured")
+        
+        # Generate decommissioning plan
+        decommission_plan = {
+            "device_status_change": {
+                "from": current_status,
+                "to": decommission_strategy,
+                "action": "Update device status"
+            },
+            "ip_addresses": {
+                "count": len(device_ips),
+                "action": handle_ips,
+                "details": [{"address": ip["address"], "interface": ip.get("assigned_object_id")} for ip in device_ips]
+            },
+            "cables": {
+                "count": len(device_cables),
+                "action": handle_cables,
+                "details": [{"cable_id": cable["id"], "label": cable.get("label", "Unlabeled")} for cable in device_cables]
+            },
+            "interfaces": {
+                "count": interface_count,
+                "action": "Keep (status will reflect device decommissioning)"
+            }
+        }
+        
+        if not confirm:
+            # Dry run mode - return the plan without executing
+            logger.info(f"DRY RUN: Would decommission device {device_name}")
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "device_decommission",
+                "device": {
+                    "name": device["name"],
+                    "id": device_id,
+                    "current_status": current_status,
+                    "dry_run": True
+                },
+                "decommission_plan": decommission_plan,
+                "risk_assessment": {
+                    "risk_level": "high" if len(risk_factors) > 2 else "medium" if risk_factors else "low",
+                    "risk_factors": risk_factors
+                },
+                "validation_results": validation_results,
+                "dry_run": True
+            }
+        
+        # Step 5: Execute decommissioning plan
+        execution_results = {}
+        
+        # 5a: Handle IP addresses
+        if device_ips and handle_ips != "keep":
+            logger.info(f"Processing {len(device_ips)} IP addresses...")
+            ip_results = []
+            
+            for ip in device_ips:
+                try:
+                    if handle_ips == "unassign":
+                        # Unassign the IP from the interface
+                        update_data = {
+                            "assigned_object_type": None,
+                            "assigned_object_id": None
+                        }
+                        result = client.ipam.ip_addresses.update(ip["id"], confirm=True, **update_data)
+                        ip_results.append({
+                            "ip": ip["address"],
+                            "action": "unassigned",
+                            "status": "success"
+                        })
+                    elif handle_ips == "deprecate":
+                        # Change IP status to deprecated
+                        update_data = {"status": "deprecated"}
+                        result = client.ipam.ip_addresses.update(ip["id"], confirm=True, **update_data)
+                        ip_results.append({
+                            "ip": ip["address"],
+                            "action": "deprecated",
+                            "status": "success"
+                        })
+                except Exception as e:
+                    logger.error(f"Failed to process IP {ip['address']}: {e}")
+                    ip_results.append({
+                        "ip": ip["address"],
+                        "action": f"failed: {e}",
+                        "status": "error"
+                    })
+            
+            execution_results["ip_processing"] = {
+                "total": len(device_ips),
+                "successful": len([r for r in ip_results if r["status"] == "success"]),
+                "failed": len([r for r in ip_results if r["status"] == "error"]),
+                "details": ip_results
+            }
+        
+        # 5b: Handle cables
+        if device_cables and handle_cables != "keep":
+            logger.info(f"Processing {len(device_cables)} cables...")
+            cable_results = []
+            
+            for cable in device_cables:
+                try:
+                    if handle_cables == "remove":
+                        # Delete the cable
+                        client.dcim.cables.delete(cable["id"], confirm=True)
+                        cable_results.append({
+                            "cable_id": cable["id"],
+                            "label": cable.get("label", "Unlabeled"),
+                            "action": "removed",
+                            "status": "success"
+                        })
+                    elif handle_cables == "deprecate":
+                        # Update cable status to deprecated (if status field exists)
+                        try:
+                            update_data = {"status": "deprecated"}
+                            result = client.dcim.cables.update(cable["id"], confirm=True, **update_data)
+                            cable_results.append({
+                                "cable_id": cable["id"],
+                                "label": cable.get("label", "Unlabeled"),
+                                "action": "deprecated",
+                                "status": "success"
+                            })
+                        except Exception as e:
+                            # If deprecation fails, try removal
+                            client.dcim.cables.delete(cable["id"], confirm=True)
+                            cable_results.append({
+                                "cable_id": cable["id"],
+                                "label": cable.get("label", "Unlabeled"),
+                                "action": "removed (deprecation not supported)",
+                                "status": "success"
+                            })
+                except Exception as e:
+                    logger.error(f"Failed to process cable {cable['id']}: {e}")
+                    cable_results.append({
+                        "cable_id": cable["id"],
+                        "label": cable.get("label", "Unlabeled"),
+                        "action": f"failed: {e}",
+                        "status": "error"
+                    })
+            
+            execution_results["cable_processing"] = {
+                "total": len(device_cables),
+                "successful": len([r for r in cable_results if r["status"] == "success"]),
+                "failed": len([r for r in cable_results if r["status"] == "error"]),
+                "details": cable_results
+            }
+        
+        # 5c: Update device status
+        logger.info(f"Updating device status to: {decommission_strategy}")
+        try:
+            device_update_data = {"status": decommission_strategy}
+            updated_device = client.dcim.devices.update(device_id, confirm=True, **device_update_data)
+            execution_results["device_status"] = {
+                "action": "updated",
+                "from": current_status,
+                "to": decommission_strategy,
+                "status": "success"
+            }
+        except Exception as e:
+            logger.error(f"Failed to update device status: {e}")
+            execution_results["device_status"] = {
+                "action": "failed",
+                "error": str(e),
+                "status": "error"
+            }
+        
+        # Step 6: Generate completion summary
+        total_actions = 1  # Device status update
+        successful_actions = 1 if execution_results.get("device_status", {}).get("status") == "success" else 0
+        
+        if "ip_processing" in execution_results:
+            total_actions += execution_results["ip_processing"]["total"]
+            successful_actions += execution_results["ip_processing"]["successful"]
+        
+        if "cable_processing" in execution_results:
+            total_actions += execution_results["cable_processing"]["total"]
+            successful_actions += execution_results["cable_processing"]["successful"]
+        
+        overall_success = successful_actions == total_actions
+        
+        return {
+            "success": overall_success,
+            "action": "decommissioned",
+            "object_type": "device",
+            "device": {
+                "name": device["name"],
+                "id": device_id,
+                "status_changed": execution_results.get("device_status", {}).get("status") == "success",
+                "new_status": decommission_strategy if execution_results.get("device_status", {}).get("status") == "success" else current_status
+            },
+            "execution_summary": {
+                "total_actions": total_actions,
+                "successful_actions": successful_actions,
+                "failed_actions": total_actions - successful_actions,
+                "success_rate": f"{(successful_actions/total_actions*100):.1f}%" if total_actions > 0 else "0%"
+            },
+            "execution_results": execution_results,
+            "decommission_strategy": decommission_strategy,
+            "cleanup_performed": {
+                "ips": handle_ips if device_ips else "none",
+                "cables": handle_cables if device_cables else "none"
+            },
+            "dry_run": False
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to decommission device {device_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }

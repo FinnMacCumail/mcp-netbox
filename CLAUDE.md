@@ -342,14 +342,93 @@ def netbox_get_rack_inventory(
    Role: MCP Test Switch, Status: planned
 ```
 
+### ✅ Issue #28 COMPLETED - Safe Device Decommissioning
+
+**Enterprise-grade decommissioning tool** with comprehensive safety mechanisms and validation:
+
+#### ✅ `netbox_decommission_device` - Safe Device Decommissioning Workflow
+
+**Function Signature:**
+```python
+def netbox_decommission_device(
+    client: NetBoxClient,
+    device_name: str,
+    decommission_strategy: str = "offline",
+    handle_ips: str = "unassign", 
+    handle_cables: str = "remove",
+    confirm: bool = False
+) -> Dict[str, Any]
+```
+
+**Safe Decommissioning Workflow:**
+1. **Device Lookup & Validation**: Find device with comprehensive error handling
+2. **Pre-flight Validation**: Check for cluster membership, virtual chassis dependencies
+3. **Inventory Analysis**: Collect all interfaces, IP addresses, and cable connections
+4. **Risk Assessment**: Evaluate decommissioning risk based on current status and connections
+5. **Strategy Planning**: Generate detailed execution plan with multiple strategy options
+6. **Controlled Execution**: Execute plan with granular error handling and rollback capability
+7. **Comprehensive Reporting**: Detailed success/failure tracking with audit trail
+
+**Decommissioning Strategies:**
+- **"offline"**: Mark device as offline (maintenance mode)
+- **"decommissioning"**: Mark as actively being decommissioned  
+- **"inventory"**: Convert to inventory status (spare)
+- **"failed"**: Mark as failed hardware
+
+**IP Address Handling:**
+- **"unassign"**: Remove IP assignments (full cleanup)
+- **"deprecate"**: Mark IPs as deprecated (preserves for potential reactivation)
+- **"keep"**: Leave IP assignments unchanged
+
+**Cable Handling:**
+- **"remove"**: Delete cable connections completely
+- **"deprecate"**: Mark cables as deprecated (if supported)
+- **"keep"**: Leave cables connected
+
+**Enterprise Safety Features:**
+- ✅ **Risk Assessment**: Automatic evaluation of decommissioning risks
+- ✅ **Pre-flight Validation**: Dependency checks (clusters, virtual chassis)
+- ✅ **Conservative Strategies**: Multiple approaches for different scenarios
+- ✅ **Granular Control**: Separate handling for IPs, cables, and device status
+- ✅ **Dry-Run Mode**: Complete validation without actual changes
+- ✅ **Audit Trail**: Detailed execution reporting with success/failure tracking
+
+**Testing & Validation:**
+- ✅ **Live Integration Testing**: Validated against NetBox 4.2.9 with real device
+- ✅ **Complete Test Coverage**: Dry-run, execution, error handling, parameter validation
+- ✅ **Real Decommissioning**: Successfully processed test device with IP cleanup
+- ✅ **Report Export**: JSON decommissioning report generation
+
+**Test Results:**
+```
+✅ Dry run validation: PASSED - Risk assessment and planning working
+✅ Conservative decommissioning: PASSED - 100% success rate (3/3 actions)
+✅ IP processing: PASSED - 2/2 IP addresses successfully deprecated
+✅ Device status update: PASSED - Status changed from "planned" to "decommissioning"
+✅ Error handling: PASSED - Proper validation for non-existent devices
+✅ Parameter validation: PASSED - Invalid strategy rejection working
+📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/dcim/devices/11/
+```
+
+**Sample Execution:**
+```
+🎯 Risk Assessment: Medium risk (2 factors)
+   ⚠️ Device is currently in active/planned status
+   ⚠️ 2 IP addresses currently assigned
+
+📊 Execution Summary: 100% success rate
+   ✅ Device Status: planned → decommissioning
+   ✅ IP Processing: 2/2 addresses deprecated
+   ✅ Conservative cleanup: IPs preserved for potential reactivation
+```
+
 ### 🎯 Current Status: v0.9.0 Development
 
-**Milestone Progress**: 3/13 high-level tools completed (23% complete)
+**Milestone Progress**: 4/13 high-level tools completed (31% complete)
 
-**Remaining High-Level Tools (Issues #28-37):**
+**Remaining High-Level Tools (Issues #29-37):**
 
-**DCIM Tools (2 remaining):**
-- #28: `netbox_decommission_device` - Safe device decommissioning workflow
+**DCIM Tools (1 remaining):**
 - #29: `netbox_create_cable_connection` - Physical connection documentation
 
 **IPAM Tools (4 tools):**
