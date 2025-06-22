@@ -262,6 +262,63 @@ class CacheManager:
             logger.warning(f"Cache invalidation error for pattern {pattern}: {e}")
             return 0
     
+    def invalidate_for_object(self, object_type: str, object_id: int) -> int:
+        """
+        Invalidate all cache entries containing a specific object ID.
+        
+        This method invalidates all cached queries that might contain the specified object,
+        ensuring data consistency after write operations that affect the object.
+        
+        Args:
+            object_type: NetBox object type (e.g., "dcim.interface", "dcim.device")
+            object_id: ID of the object that was modified
+            
+        Returns:
+            Number of cache entries invalidated
+        """
+        if not self.enabled:
+            return 0
+        
+        try:
+            total_invalidated = 0
+            
+            # Thread-safe cache access
+            with self.lock:
+                # Check all cache instances
+                all_caches = list(self.caches.values())
+                if self.default_cache:
+                    all_caches.append(self.default_cache)
+                
+                # Invalidate all cache entries that might contain this object
+                # This includes both direct lookups and filtered queries
+                patterns_to_check = [
+                    f"{object_type}:id={object_id}",  # Direct ID lookup
+                    f"{object_type}:",                # Any query for this object type
+                ]
+                
+                for cache in all_caches:
+                    keys_to_remove = []
+                    
+                    for key in cache.keys():
+                        # Check if this cache entry might contain the modified object
+                        for pattern in patterns_to_check:
+                            if pattern in key:
+                                keys_to_remove.append(key)
+                                break
+                    
+                    # Remove identified keys
+                    for key in keys_to_remove:
+                        del cache[key]
+                        self.stats["invalidations"] += 1
+                        total_invalidated += 1
+            
+            logger.debug(f"Cache invalidated {total_invalidated} entries for {object_type} ID {object_id}")
+            return total_invalidated
+            
+        except Exception as e:
+            logger.warning(f"Cache invalidation error for {object_type} ID {object_id}: {e}")
+            return 0
+    
     def clear(self) -> None:
         """Clear entire cache."""
         if self.enabled:

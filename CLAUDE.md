@@ -422,14 +422,80 @@ def netbox_decommission_device(
    ✅ Conservative cleanup: IPs preserved for potential reactivation
 ```
 
+### ✅ Issue #29 COMPLETED - Physical Cable Management
+
+**Enterprise-grade cable connection documentation** with comprehensive validation and conflict detection:
+
+#### ✅ `netbox_create_cable_connection` - Physical Connection Documentation
+
+**Function Signature:**
+```python
+def netbox_create_cable_connection(
+    client: NetBoxClient,
+    device_a_name: str,
+    interface_a_name: str,
+    device_b_name: str,
+    interface_b_name: str,
+    cable_type: str = "cat6",
+    cable_status: str = "connected",
+    cable_length: Optional[int] = None,
+    cable_length_unit: str = "m",
+    label: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]
+```
+
+**Cable Management Workflow:**
+1. **Device Resolution**: Find both devices with comprehensive validation
+2. **Interface Resolution**: Locate interfaces on respective devices  
+3. **Availability Validation**: Check for existing cable connections with cache-aware conflict detection
+4. **Parameter Validation**: Validate cable types, statuses, and length units against NetBox standards
+5. **Cable Creation**: Create NetBox cable object with termination assignments
+6. **Cache Invalidation**: Invalidate interface cache to ensure data consistency for subsequent operations
+
+**Supported Cable Types:**
+- **Copper**: cat3, cat5, cat5e, cat6, cat6a, cat7, cat8, dac-active, dac-passive
+- **Fiber**: mmf, mmf-om1/2/3/4/5, smf, smf-os1/2, aoc
+- **Other**: coaxial, mrj21-trunk, power, usb
+
+**Enterprise Features:**
+- ✅ **Smart Conflict Detection**: Cache-aware interface availability validation
+- ✅ **Cache Invalidation**: Automatic cache cleanup after cable creation ensuring data consistency
+- ✅ **Parameter Validation**: Comprehensive cable type, status, and length unit validation
+- ✅ **Dual Interface Validation**: Validates both termination points before cable creation
+- ✅ **Self-Connection Prevention**: Prevents connecting interface to itself
+- ✅ **Dry-Run Support**: Safe validation without actual cable creation
+- ✅ **Comprehensive Error Handling**: Specific error types (ValidationError, ConflictError, NotFoundError)
+
+**Cache Innovation Breakthrough:**
+This implementation identified and solved a critical cache consistency issue affecting all NetBox MCP write operations. The solution includes automatic cache invalidation for affected objects, ensuring subsequent queries return fresh data.
+
+**Testing & Validation:**
+- ✅ **Live Integration Testing**: Validated against NetBox 4.2.9 with real cable connections
+- ✅ **Complete Test Suite**: Dry-run validation, cable creation, conflict detection, error handling, parameter validation
+- ✅ **Cache Consistency Testing**: Verified cache invalidation resolves conflict detection issues
+- ✅ **Web UI Verification**: Cable successfully created (ID: 5) and visible in NetBox UI
+
+**Test Results:**
+```
+✅ Dry run validation: PASSED - All lookups and validations working
+✅ Cable creation: PASSED - Cable successfully created between TestPort3/TestPort4
+✅ Conflict detection: PASSED - Detects existing cable connections correctly (FIXED with cache invalidation)
+✅ Error handling: PASSED - Proper validation for non-existent devices/interfaces
+✅ Parameter validation: PASSED - Invalid cable type rejection working
+📡 Cable Created: cat6 cable (2m) between device interfaces
+📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/dcim/cables/5/
+```
+
+**Architecture Impact:**
+This implementation established the **cache invalidation pattern** that will be applied to all future high-level tools, ensuring data consistency across the entire NetBox MCP platform. This solves a fundamental challenge in cached API architectures.
+
 ### 🎯 Current Status: v0.9.0 Development
 
-**Milestone Progress**: 4/13 high-level tools completed (31% complete)
+**Milestone Progress**: 5/13 high-level tools completed (38% complete)
 
-**Remaining High-Level Tools (Issues #29-37):**
-
-**DCIM Tools (1 remaining):**
-- #29: `netbox_create_cable_connection` - Physical connection documentation
+**Remaining High-Level Tools (Issues #30-37):**
 
 **IPAM Tools (4 tools):**
 - #30: `netbox_find_next_available_ip` - Atomic IP reservation

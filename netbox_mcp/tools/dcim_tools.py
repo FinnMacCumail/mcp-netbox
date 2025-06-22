@@ -1933,3 +1933,315 @@ def netbox_decommission_device(
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+@mcp_tool(category="dcim")
+def netbox_create_cable_connection(
+    client: NetBoxClient,
+    device_a_name: str,
+    interface_a_name: str,
+    device_b_name: str,
+    interface_b_name: str,
+    cable_type: str = "cat6",
+    cable_status: str = "connected",
+    cable_length: Optional[int] = None,
+    cable_length_unit: str = "m",
+    label: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create a physical cable connection between two device interfaces.
+    
+    This tool simplifies documenting physical connections by handling device/interface
+    lookups and creating cable objects that link two termination points. Essential
+    for cable management and network topology documentation.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_a_name: Name of the first device
+        interface_a_name: Name of the interface on device A
+        device_b_name: Name of the second device  
+        interface_b_name: Name of the interface on device B
+        cable_type: Type of cable (cat5e, cat6, cat6a, fiber, power, coax, dac)
+        cable_status: Cable status (connected, planned, decommissioning)
+        cable_length: Length of the cable
+        cable_length_unit: Unit for cable length (m, ft, in, cm)
+        label: Optional cable label for identification
+        description: Optional description of the connection
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Cable connection creation result with termination details
+        
+    Example:
+        netbox_create_cable_connection(
+            device_a_name="sw-01",
+            interface_a_name="GigabitEthernet0/1",
+            device_b_name="sw-02", 
+            interface_b_name="GigabitEthernet0/1",
+            cable_type="cat6",
+            cable_length=3,
+            label="SW01-SW02-TRUNK",
+            confirm=True
+        )
+    """
+    try:
+        if not all([device_a_name, interface_a_name, device_b_name, interface_b_name]):
+            return {
+                "success": False,
+                "error": "device_a_name, interface_a_name, device_b_name, and interface_b_name are required",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate cable parameters
+        valid_cable_types = ["cat3", "cat5", "cat5e", "cat6", "cat6a", "cat7", "cat8", 
+                           "dac-active", "dac-passive", "mrj21-trunk", "coaxial", 
+                           "mmf", "mmf-om1", "mmf-om2", "mmf-om3", "mmf-om4", "mmf-om5",
+                           "smf", "smf-os1", "smf-os2", "aoc", "power", "usb", "other"]
+        
+        valid_cable_statuses = ["connected", "planned", "decommissioning"]
+        valid_length_units = ["km", "m", "cm", "mi", "ft", "in"]
+        
+        if cable_type not in valid_cable_types:
+            return {
+                "success": False,
+                "error": f"Invalid cable_type. Must be one of: {valid_cable_types}",
+                "error_type": "ValidationError"
+            }
+        
+        if cable_status not in valid_cable_statuses:
+            return {
+                "success": False,
+                "error": f"Invalid cable_status. Must be one of: {valid_cable_statuses}",
+                "error_type": "ValidationError"
+            }
+        
+        if cable_length_unit not in valid_length_units:
+            return {
+                "success": False,
+                "error": f"Invalid cable_length_unit. Must be one of: {valid_length_units}",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Creating cable connection: {device_a_name}:{interface_a_name} ↔ {device_b_name}:{interface_b_name}")
+        
+        # Step 1: Find Device A and Interface A
+        logger.debug(f"Looking up device A: {device_a_name}")
+        devices_a = client.dcim.devices.filter(name=device_a_name)
+        if not devices_a:
+            return {
+                "success": False,
+                "error": f"Device A '{device_a_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        device_a = devices_a[0]
+        device_a_id = device_a["id"]
+        logger.debug(f"Found device A: {device_a['name']} (ID: {device_a_id})")
+        
+        logger.debug(f"Looking up interface A: {interface_a_name} on device {device_a['name']}")
+        interfaces_a = client.dcim.interfaces.filter(device_id=device_a_id, name=interface_a_name)
+        if not interfaces_a:
+            return {
+                "success": False,
+                "error": f"Interface A '{interface_a_name}' not found on device '{device_a['name']}'",
+                "error_type": "NotFoundError"
+            }
+        interface_a = interfaces_a[0]
+        interface_a_id = interface_a["id"]
+        logger.debug(f"Found interface A: {interface_a['name']} (ID: {interface_a_id})")
+        
+        # Step 2: Find Device B and Interface B
+        logger.debug(f"Looking up device B: {device_b_name}")
+        devices_b = client.dcim.devices.filter(name=device_b_name)
+        if not devices_b:
+            return {
+                "success": False,
+                "error": f"Device B '{device_b_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        device_b = devices_b[0]
+        device_b_id = device_b["id"]
+        logger.debug(f"Found device B: {device_b['name']} (ID: {device_b_id})")
+        
+        logger.debug(f"Looking up interface B: {interface_b_name} on device {device_b['name']}")
+        interfaces_b = client.dcim.interfaces.filter(device_id=device_b_id, name=interface_b_name)
+        if not interfaces_b:
+            return {
+                "success": False,
+                "error": f"Interface B '{interface_b_name}' not found on device '{device_b['name']}'",
+                "error_type": "NotFoundError"
+            }
+        interface_b = interfaces_b[0]
+        interface_b_id = interface_b["id"]
+        logger.debug(f"Found interface B: {interface_b['name']} (ID: {interface_b_id})")
+        
+        # Step 3: Validate interface availability (refresh interface data for accurate cable status)
+        logger.debug("Validating interface availability...")
+        
+        # Refresh interface data to get current cable status (avoid cache issues)
+        try:
+            fresh_interfaces_a = client.dcim.interfaces.filter(device_id=device_a_id, name=interface_a_name)
+            if fresh_interfaces_a:
+                fresh_interface_a = fresh_interfaces_a[0]
+                if fresh_interface_a.get("cable"):
+                    return {
+                        "success": False,
+                        "error": f"Interface A '{interface_a_name}' on device '{device_a['name']}' is already connected to cable ID {fresh_interface_a['cable']}",
+                        "error_type": "ConflictError"
+                    }
+            
+            fresh_interfaces_b = client.dcim.interfaces.filter(device_id=device_b_id, name=interface_b_name)
+            if fresh_interfaces_b:
+                fresh_interface_b = fresh_interfaces_b[0]
+                if fresh_interface_b.get("cable"):
+                    return {
+                        "success": False,
+                        "error": f"Interface B '{interface_b_name}' on device '{device_b['name']}' is already connected to cable ID {fresh_interface_b['cable']}",
+                        "error_type": "ConflictError"
+                    }
+        except Exception as e:
+            logger.warning(f"Could not refresh interface data for conflict detection: {e}")
+            # Fall back to original interface data
+            if interface_a.get("cable"):
+                return {
+                    "success": False,
+                    "error": f"Interface A '{interface_a_name}' on device '{device_a['name']}' is already connected to cable ID {interface_a['cable']}",
+                    "error_type": "ConflictError"
+                }
+            
+            if interface_b.get("cable"):
+                return {
+                    "success": False,
+                    "error": f"Interface B '{interface_b_name}' on device '{device_b['name']}' is already connected to cable ID {interface_b['cable']}",
+                    "error_type": "ConflictError"
+                }
+        
+        # Check if trying to connect the same interface to itself
+        if device_a_id == device_b_id and interface_a_id == interface_b_id:
+            return {
+                "success": False,
+                "error": "Cannot connect an interface to itself",
+                "error_type": "ValidationError"
+            }
+        
+        # Step 4: Generate cable data
+        cable_data = {
+            "a_terminations": [
+                {
+                    "object_type": "dcim.interface",
+                    "object_id": interface_a_id
+                }
+            ],
+            "b_terminations": [
+                {
+                    "object_type": "dcim.interface", 
+                    "object_id": interface_b_id
+                }
+            ],
+            "type": cable_type,
+            "status": cable_status
+        }
+        
+        # Add optional fields
+        if cable_length is not None:
+            cable_data["length"] = cable_length
+            cable_data["length_unit"] = cable_length_unit
+        
+        if label:
+            cable_data["label"] = label
+        
+        if description:
+            cable_data["description"] = description
+        
+        if not confirm:
+            # Dry run mode - return what would be created
+            logger.info(f"DRY RUN: Would create cable connection")
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "cable",
+                "cable_connection": {
+                    "termination_a": {
+                        "device": device_a["name"],
+                        "interface": interface_a["name"],
+                        "device_id": device_a_id,
+                        "interface_id": interface_a_id
+                    },
+                    "termination_b": {
+                        "device": device_b["name"],
+                        "interface": interface_b["name"],
+                        "device_id": device_b_id,
+                        "interface_id": interface_b_id
+                    },
+                    "cable_type": cable_type,
+                    "cable_status": cable_status,
+                    "cable_length": f"{cable_length} {cable_length_unit}" if cable_length else None,
+                    "cable_label": label,
+                    "dry_run": True
+                },
+                "dry_run": True
+            }
+        
+        # Step 5: Create the cable
+        logger.info(f"Creating cable: {cable_data}")
+        try:
+            created_cable = client.dcim.cables.create(confirm=True, **cable_data)
+            logger.info(f"Cable created successfully with ID: {created_cable['id']}")
+            
+            # CACHE INVALIDATION: Invalidate interface cache after cable creation
+            # This ensures that subsequent queries for interface data return fresh information
+            # including the new cable assignment, fixing conflict detection issues
+            logger.debug("Invalidating interface cache for connected interfaces...")
+            try:
+                invalidated_a = client.cache.invalidate_for_object("dcim.interfaces", interface_a_id)
+                invalidated_b = client.cache.invalidate_for_object("dcim.interfaces", interface_b_id)
+                logger.info(f"Cache invalidated: {invalidated_a + invalidated_b} entries for interfaces {interface_a_id}, {interface_b_id}")
+            except Exception as cache_error:
+                # Cache invalidation failure should not fail the cable creation
+                logger.warning(f"Cache invalidation failed after cable creation: {cache_error}")
+            
+            return {
+                "success": True,
+                "action": "created",
+                "object_type": "cable",
+                "cable": created_cable,
+                "connection_details": {
+                    "cable_id": created_cable["id"],
+                    "cable_type": cable_type,
+                    "cable_status": cable_status,
+                    "cable_label": label or f"Cable-{created_cable['id']}",
+                    "cable_length": f"{cable_length} {cable_length_unit}" if cable_length else "Unspecified",
+                    "termination_a": {
+                        "device": device_a["name"],
+                        "interface": interface_a["name"],
+                        "device_id": device_a_id,
+                        "interface_id": interface_a_id,
+                        "device_url": device_a.get("url", "")
+                    },
+                    "termination_b": {
+                        "device": device_b["name"],
+                        "interface": interface_b["name"], 
+                        "device_id": device_b_id,
+                        "interface_id": interface_b_id,
+                        "device_url": device_b.get("url", "")
+                    }
+                },
+                "dry_run": False
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to create cable: {e}")
+            return {
+                "success": False,
+                "error": f"Cable creation failed: {str(e)}",
+                "error_type": "CreationError"
+            }
+        
+    except Exception as e:
+        logger.error(f"Failed to create cable connection {device_a_name}:{interface_a_name} ↔ {device_b_name}:{interface_b_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
