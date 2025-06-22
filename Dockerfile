@@ -59,9 +59,9 @@ USER appuser
 # Expose port 8080
 EXPOSE 8080
 
-# Health check
+# Health check - gebruik /healthz voor liveness probe (altijd beschikbaar)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD curl -f http://localhost:8080/healthz || exit 1
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
