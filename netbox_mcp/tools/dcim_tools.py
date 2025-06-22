@@ -1131,3 +1131,191 @@ def netbox_provision_new_device(
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+@mcp_tool(category="dcim")
+def netbox_assign_ip_to_interface(
+    client: NetBoxClient,
+    device_name: str,
+    interface_name: str,
+    ip_address: str,
+    status: str = "active",
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Assign an IP address directly to a device interface with a single function call.
+    
+    This cross-domain function bridges IPAM and DCIM by creating IP addresses and 
+    assigning them directly to device interfaces. Essential for interface configuration workflows.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the device containing the interface
+        interface_name: Name of the interface to assign IP to
+        ip_address: IP address with CIDR notation (e.g., "10.0.0.1/24")
+        status: IP address status (active, reserved, deprecated, dhcp, slaac)
+        description: Optional description for the IP address
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        IP assignment result with device and interface information
+        
+    Example:
+        netbox_assign_ip_to_interface(
+            device_name="sw-floor3-001",
+            interface_name="Vlan100", 
+            ip_address="10.100.0.1/24",
+            description="Management IP for Floor 3 switch",
+            confirm=True
+        )
+    """
+    try:
+        if not all([device_name, interface_name, ip_address]):
+            return {
+                "success": False,
+                "error": "device_name, interface_name, and ip_address are required",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate IP address format
+        import ipaddress
+        try:
+            ip_obj = ipaddress.ip_interface(ip_address)
+            ip_str = str(ip_obj.ip)
+            prefix_length = ip_obj.network.prefixlen
+            ip_with_cidr = f"{ip_str}/{prefix_length}"
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid IP address format '{ip_address}': {e}",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Assigning IP {ip_with_cidr} to {device_name}:{interface_name}")
+        
+        # Step 1: Find the device
+        logger.debug(f"Looking up device: {device_name}")
+        devices = client.dcim.devices.filter(name=device_name)
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        device = devices[0]
+        device_id = device["id"]
+        logger.debug(f"Found device: {device['name']} (ID: {device_id})")
+        
+        # Step 2: Find the interface within that device
+        logger.debug(f"Looking up interface: {interface_name} on device {device['name']}")
+        interfaces = client.dcim.interfaces.filter(device_id=device_id, name=interface_name)
+        if not interfaces:
+            return {
+                "success": False,
+                "error": f"Interface '{interface_name}' not found on device '{device['name']}'",
+                "error_type": "NotFoundError"
+            }
+        interface = interfaces[0]
+        interface_id = interface["id"]
+        logger.debug(f"Found interface: {interface['name']} (ID: {interface_id})")
+        
+        # Step 3: Check for existing IP assignments on this interface
+        # Note: We can't filter by assigned_object_type during create, so we'll get all IPs
+        # assigned to this interface_id and filter afterwards
+        all_assigned_ips = client.ipam.ip_addresses.filter(assigned_object_id=interface_id)
+        existing_ips = [ip for ip in all_assigned_ips if ip.get("assigned_object_type") == "dcim.interface"]
+        
+        # Check for IP conflicts
+        conflicting_ips = client.ipam.ip_addresses.filter(address=ip_with_cidr)
+        if conflicting_ips:
+            conflict_info = conflicting_ips[0]
+            assigned_to = "unassigned"
+            if conflict_info.get("assigned_object_type") and conflict_info.get("assigned_object_id"):
+                assigned_to = f"{conflict_info['assigned_object_type']} ID {conflict_info['assigned_object_id']}"
+            
+            return {
+                "success": False,
+                "error": f"IP address {ip_with_cidr} is already assigned to {assigned_to}",
+                "error_type": "ConflictError"
+            }
+        
+        if not confirm:
+            # Dry run mode
+            logger.info(f"DRY RUN: Would assign IP {ip_with_cidr} to interface {interface['name']}")
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "ip_address",
+                "ip_assignment": {
+                    "ip_address": ip_with_cidr,
+                    "device": {"name": device["name"], "id": device_id},
+                    "interface": {"name": interface["name"], "id": interface_id},
+                    "existing_ips": len(existing_ips),
+                    "dry_run": True
+                },
+                "dry_run": True
+            }
+        
+        # Step 4: Create IP address and assign to interface (two-step approach)
+        # NetBox create operation doesn't accept assigned_object_type, but update does
+        
+        # First, create the IP address without assignment
+        ip_data_basic = {
+            "address": ip_with_cidr,
+            "status": status
+        }
+        
+        if description:
+            ip_data_basic["description"] = description
+        
+        logger.info(f"Creating IP address: {ip_data_basic}")
+        created_ip = client.ipam.ip_addresses.create(confirm=confirm, **ip_data_basic)
+        
+        if not confirm:
+            # For dry run, we can't do the assignment step, so return the basic creation result
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "ip_address",
+                "ip_assignment": {
+                    "ip_address": ip_with_cidr,
+                    "device": {"name": device["name"], "id": device_id},
+                    "interface": {"name": interface["name"], "id": interface_id},
+                    "existing_ips": len(existing_ips),
+                    "dry_run": True
+                },
+                "dry_run": True
+            }
+        
+        # Step 5: Assign the IP to the interface using update
+        assignment_data = {
+            "assigned_object_type": "dcim.interface",
+            "assigned_object_id": interface_id
+        }
+        
+        logger.info(f"Assigning IP to interface: {assignment_data}")
+        result = client.ipam.ip_addresses.update(created_ip["id"], confirm=True, **assignment_data)
+        
+        return {
+            "success": True,
+            "action": "assigned",
+            "object_type": "ip_address",
+            "ip_address": result,
+            "assignment_details": {
+                "device": {"name": device["name"], "id": device_id},
+                "interface": {"name": interface["name"], "id": interface_id, "type": interface.get("type")},
+                "ip_with_cidr": ip_with_cidr,
+                "status": status,
+                "existing_ips_on_interface": len(existing_ips)
+            },
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to assign IP {ip_address} to {device_name}:{interface_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }

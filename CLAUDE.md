@@ -217,14 +217,69 @@ def netbox_provision_new_device(
 **Value Proposition:**
 This is the ultimate high-level function for data center provisioning workflows. It transforms complex multi-step device provisioning into a single, safe, validated operation perfect for LLM automation.
 
+### ✅ Issue #26 COMPLETED - Cross-Domain IP Assignment
+
+**Revolutionary IPAM/DCIM integration** that bridges network configuration and infrastructure management:
+
+#### ✅ `netbox_assign_ip_to_interface` - Cross-Domain IPAM/DCIM Integration
+
+**Function Signature:**
+```python
+def netbox_assign_ip_to_interface(
+    client: NetBoxClient,
+    device_name: str,
+    interface_name: str,
+    ip_address: str,  # e.g., "10.100.0.1/24"
+    status: str = "active",
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]
+```
+
+**Cross-Domain Workflow:**
+1. **Device Resolution**: Find device by name with validation
+2. **Interface Resolution**: Find interface within device context
+3. **IP Validation**: Validate IP format using Python ipaddress module
+4. **Conflict Detection**: Check for existing IP assignments and conflicts
+5. **Two-Step Assignment**: Create IP address, then assign to interface (NetBox 4.2.9 pattern)
+6. **Assignment Verification**: Confirm successful IP-to-interface binding
+
+**Key Technical Innovation:**
+- **Two-Step API Pattern**: Discovered NetBox 4.2.9 requires IP creation first, then update with assignment
+- **Content Type Resolution**: Uses `"dcim.interface"` string format for `assigned_object_type`
+- **Smart Conflict Detection**: Filters assigned IPs client-side when API filtering fails
+- **IP Format Validation**: Robust IP address and CIDR validation with Python ipaddress module
+
+**Enterprise Features:**
+- ✅ **Cross-Domain Integration**: Seamlessly bridges IPAM and DCIM domains
+- ✅ **IP Conflict Detection**: Prevents duplicate IP assignments
+- ✅ **Interface Validation**: Ensures interface exists before assignment
+- ✅ **Format Validation**: Validates IP address format and CIDR notation
+- ✅ **Dry-Run Support**: Safe validation without actual assignment
+- ✅ **Comprehensive Error Handling**: ValidationError, ConflictError, NotFoundError
+
+**Testing & Validation:**
+- ✅ **Live Integration Testing**: Validated against NetBox 4.2.9 instance
+- ✅ **Complete Test Suite**: Dry-run validation, IP assignment, conflict detection, format validation
+- ✅ **Web UI Verification**: IP successfully assigned (ID: 11) and visible in NetBox UI
+- ✅ **Two-Step Verification**: Confirmed both IP creation and interface assignment work correctly
+
+**Test Results:**
+```
+✅ Dry run validation: PASSED - All lookups and validations working
+✅ IP assignment: PASSED - IP 10.100.184.1/24 successfully assigned to interface Vlan100
+✅ Conflict detection: PASSED - Detects existing IP assignments correctly
+✅ Format validation: PASSED - Rejects invalid IP formats appropriately
+📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/ipam/ip-addresses/11/
+```
+
 ### 🎯 Current Status: v0.9.0 Development
 
-**Milestone Progress**: 1/13 high-level tools completed (8% complete)
+**Milestone Progress**: 2/13 high-level tools completed (15% complete)
 
-**Remaining High-Level Tools (Issues #26-37):**
+**Remaining High-Level Tools (Issues #27-37):**
 
-**DCIM Tools (4 remaining):**
-- #26: `netbox_assign_ip_to_interface` - Cross-domain IPAM/DCIM integration
+**DCIM Tools (3 remaining):**
 - #27: `netbox_get_rack_inventory` - Human-readable rack inventory reports  
 - #28: `netbox_decommission_device` - Safe device decommissioning workflow
 - #29: `netbox_create_cable_connection` - Physical connection documentation
