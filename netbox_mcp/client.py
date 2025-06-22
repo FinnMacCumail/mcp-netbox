@@ -273,6 +273,403 @@ class CacheManager:
             }
 
 
+class EndpointWrapper:
+    """
+    Wraps a pynetbox Endpoint to inject caching and safety logic.
+    
+    This class serves as the "Executor" in the dynamic client architecture,
+    implementing comprehensive caching, safety checks, and audit logging
+    for all NetBox API operations.
+    
+    Following Gemini's architectural guidance for enterprise-grade API wrapping.
+    """
+    
+    def __init__(self, endpoint, client: 'NetBoxClient', app_name: str = None):
+        """
+        Initialize EndpointWrapper with pynetbox endpoint and client reference.
+        
+        Args:
+            endpoint: pynetbox.core.endpoint.Endpoint instance
+            client: NetBoxClient instance for access to config, cache, logging
+            app_name: NetBox app name (e.g., 'dcim', 'ipam') - will be provided by AppWrapper
+        """
+        self._endpoint = endpoint
+        self._client = client
+        
+        # Construct object type from app and endpoint name
+        # endpoint.name provides the endpoint name (e.g., 'manufacturers')
+        # app_name will be provided by AppWrapper (e.g., 'dcim')
+        endpoint_name = getattr(endpoint, 'name', 'unknown')
+        self._app_name = app_name or 'unknown'
+        self._obj_type = f"{self._app_name}.{endpoint_name}"
+        
+        self.cache = self._client.cache
+        
+        logger.debug(f"EndpointWrapper initialized for {self._obj_type}")
+    
+    def _serialize_result(self, result):
+        """
+        Serialize pynetbox objects for caching using Gemini's recommended strategy.
+        
+        Uses pynetbox's built-in serialize() method for complete data integrity.
+        
+        Args:
+            result: pynetbox object or list of objects
+            
+        Returns:
+            Serialized dictionary or list of dictionaries
+        """
+        if isinstance(result, list):
+            return [item.serialize() if hasattr(item, 'serialize') else dict(item) for item in result]
+        if hasattr(result, 'serialize'):
+            return result.serialize()
+        return result
+    
+    def filter(self, *args, **kwargs) -> list:
+        """
+        Wrapped filter() method with comprehensive caching.
+        
+        Implements Gemini's caching strategy with cache lookup → API call → cache storage.
+        Uses *args, **kwargs for universal pynetbox parameter compatibility.
+        
+        Args:
+            *args: Positional arguments for pynetbox filter()
+            **kwargs: Keyword arguments for pynetbox filter()
+            
+        Returns:
+            List of serialized objects from cache or API
+        """
+        # Generate cache key from filter parameters
+        cache_key = self.cache.generate_cache_key(self._obj_type, **kwargs)
+        
+        # Check cache first
+        cached_result = self.cache.get(cache_key, self._obj_type)
+        if cached_result is not None:
+            logger.debug(f"CACHE HIT for {self._obj_type} with key: {cache_key}")
+            return cached_result
+        
+        # Cache miss: fetch from API
+        logger.debug(f"CACHE MISS for {self._obj_type}. Fetching from API with params: {kwargs}")
+        live_result = list(self._endpoint.filter(*args, **kwargs))
+        
+        # Serialize for caching (Gemini's obj.serialize() strategy)
+        serialized_result = self._serialize_result(live_result)
+        
+        # Store in cache
+        self.cache.set(cache_key, serialized_result, self._obj_type)
+        logger.debug(f"Cached {len(serialized_result)} objects for {self._obj_type}")
+        
+        return serialized_result
+    
+    def get(self, *args, **kwargs) -> dict:
+        """
+        Wrapped get() method with caching for single object retrieval.
+        
+        Args:
+            *args: Positional arguments for pynetbox get()
+            **kwargs: Keyword arguments for pynetbox get()
+            
+        Returns:
+            Serialized object dictionary or None if not found
+        """
+        # Generate cache key for get operation
+        cache_key = self.cache.generate_cache_key(f"{self._obj_type}:get", **kwargs)
+        
+        # Check cache first
+        cached_result = self.cache.get(cache_key, self._obj_type)
+        if cached_result is not None:
+            logger.debug(f"CACHE HIT for {self._obj_type}.get() with key: {cache_key}")
+            return cached_result
+        
+        # Cache miss: fetch from API
+        logger.debug(f"CACHE MISS for {self._obj_type}.get(). Fetching from API with params: {kwargs}")
+        live_result = self._endpoint.get(*args, **kwargs)
+        
+        if live_result is None:
+            logger.debug(f"No object found for {self._obj_type}.get() with params: {kwargs}")
+            return None
+        
+        # Serialize for caching
+        serialized_result = self._serialize_result(live_result)
+        
+        # Store in cache
+        self.cache.set(cache_key, serialized_result, self._obj_type)
+        logger.debug(f"Cached single object for {self._obj_type}")
+        
+        return serialized_result
+    
+    def all(self, *args, **kwargs) -> list:
+        """
+        Wrapped all() method with caching for complete object listing.
+        
+        Args:
+            *args: Positional arguments for pynetbox all()
+            **kwargs: Keyword arguments for pynetbox all()
+            
+        Returns:
+            List of serialized objects from cache or API
+        """
+        # Generate cache key for all operation
+        cache_key = self.cache.generate_cache_key(f"{self._obj_type}:all", **kwargs)
+        
+        # Check cache first
+        cached_result = self.cache.get(cache_key, self._obj_type)
+        if cached_result is not None:
+            logger.debug(f"CACHE HIT for {self._obj_type}.all() with key: {cache_key}")
+            return cached_result
+        
+        # Cache miss: fetch from API
+        logger.debug(f"CACHE MISS for {self._obj_type}.all(). Fetching from API")
+        live_result = list(self._endpoint.all(*args, **kwargs))
+        
+        # Serialize for caching
+        serialized_result = self._serialize_result(live_result)
+        
+        # Store in cache
+        self.cache.set(cache_key, serialized_result, self._obj_type)
+        logger.debug(f"Cached {len(serialized_result)} objects for {self._obj_type}.all()")
+        
+        return serialized_result
+    
+    def create(self, confirm: bool = False, **payload) -> dict:
+        """
+        Wrapped create() method with comprehensive safety mechanisms.
+        
+        Implements Gemini's safety strategy with confirm=True enforcement,
+        dry-run integration, and type-based cache invalidation.
+        
+        Args:
+            confirm: Required safety confirmation (must be True)
+            **payload: Object data for creation (natural pynetbox-style parameters)
+            
+        Returns:
+            Serialized created object dictionary
+            
+        Raises:
+            NetBoxConfirmationError: If confirm=True not provided
+            NetBoxError: For API or validation errors
+        """
+        # Import exceptions locally to avoid circular imports
+        from .exceptions import NetBoxConfirmationError, NetBoxError
+        
+        # Check 1: Per-call confirmation requirement (Gemini's safety pattern)
+        if not confirm:
+            raise NetBoxConfirmationError(
+                f"create operation on {self._obj_type} requires confirm=True"
+            )
+        
+        # Check 2: Global Dry-Run mode (Gemini's integration pattern)
+        if self._client.config.safety.dry_run_mode:
+            logger.info(f"[DRY-RUN] Would CREATE {self._obj_type} with payload: {payload}")
+            # Return simulated response for dry-run
+            return {"id": "dry-run-generated-id", **payload}
+        
+        try:
+            # Execute real operation
+            logger.info(f"Creating {self._obj_type} with data: {payload}")
+            result = self._endpoint.create(**payload)
+            
+            # Serialize result for return
+            serialized_result = self._serialize_result(result)
+            
+            # Type-based cache invalidation (Gemini's recommended strategy)
+            self._client.cache.invalidate_pattern(self._obj_type)
+            logger.info(f"Cache invalidated for {self._obj_type} after create operation")
+            
+            logger.info(f"✅ Successfully created {self._obj_type} with ID: {result.id}")
+            return serialized_result
+            
+        except Exception as e:
+            error_msg = f"Failed to create {self._obj_type}: {e}"
+            logger.error(error_msg)
+            raise NetBoxError(error_msg)
+    
+    def update(self, obj_id: int, confirm: bool = False, **payload) -> dict:
+        """
+        Wrapped update() method with comprehensive safety mechanisms.
+        
+        Args:
+            obj_id: ID of object to update
+            confirm: Required safety confirmation (must be True)
+            **payload: Object data for update
+            
+        Returns:
+            Serialized updated object dictionary
+            
+        Raises:
+            NetBoxConfirmationError: If confirm=True not provided
+            NetBoxError: For API or validation errors
+        """
+        # Import exceptions locally
+        from .exceptions import NetBoxConfirmationError, NetBoxError
+        
+        # Check 1: Per-call confirmation requirement
+        if not confirm:
+            raise NetBoxConfirmationError(
+                f"update operation on {self._obj_type} requires confirm=True"
+            )
+        
+        # Check 2: Global Dry-Run mode
+        if self._client.config.safety.dry_run_mode:
+            logger.info(f"[DRY-RUN] Would UPDATE {self._obj_type} ID {obj_id} with payload: {payload}")
+            # Return simulated response for dry-run
+            return {"id": obj_id, **payload}
+        
+        try:
+            # Get the object to update
+            obj_to_update = self._endpoint.get(obj_id)
+            if not obj_to_update:
+                raise NetBoxError(f"{self._obj_type} with ID {obj_id} not found")
+            
+            # Execute update operation
+            logger.info(f"Updating {self._obj_type} ID {obj_id} with data: {payload}")
+            
+            # Update the object
+            for key, value in payload.items():
+                setattr(obj_to_update, key, value)
+            obj_to_update.save()
+            
+            # Serialize result
+            serialized_result = self._serialize_result(obj_to_update)
+            
+            # Type-based cache invalidation
+            self._client.cache.invalidate_pattern(self._obj_type)
+            logger.info(f"Cache invalidated for {self._obj_type} after update operation")
+            
+            logger.info(f"✅ Successfully updated {self._obj_type} ID {obj_id}")
+            return serialized_result
+            
+        except Exception as e:
+            error_msg = f"Failed to update {self._obj_type} ID {obj_id}: {e}"
+            logger.error(error_msg)
+            raise NetBoxError(error_msg)
+    
+    def delete(self, obj_id: int, confirm: bool = False) -> bool:
+        """
+        Wrapped delete() method with comprehensive safety mechanisms.
+        
+        Args:
+            obj_id: ID of object to delete
+            confirm: Required safety confirmation (must be True)
+            
+        Returns:
+            True if deletion successful
+            
+        Raises:
+            NetBoxConfirmationError: If confirm=True not provided
+            NetBoxError: For API or validation errors
+        """
+        # Import exceptions locally
+        from .exceptions import NetBoxConfirmationError, NetBoxError
+        
+        # Check 1: Per-call confirmation requirement
+        if not confirm:
+            raise NetBoxConfirmationError(
+                f"delete operation on {self._obj_type} requires confirm=True"
+            )
+        
+        # Check 2: Global Dry-Run mode
+        if self._client.config.safety.dry_run_mode:
+            logger.info(f"[DRY-RUN] Would DELETE {self._obj_type} ID {obj_id}")
+            return True  # Simulated success for dry-run
+        
+        try:
+            # Get the object to verify it exists
+            obj_to_delete = self._endpoint.get(obj_id)
+            if not obj_to_delete:
+                raise NetBoxError(f"{self._obj_type} with ID {obj_id} not found")
+            
+            # Execute delete operation
+            logger.info(f"Deleting {self._obj_type} ID {obj_id}")
+            obj_to_delete.delete()
+            
+            # Type-based cache invalidation
+            self._client.cache.invalidate_pattern(self._obj_type)
+            logger.info(f"Cache invalidated for {self._obj_type} after delete operation")
+            
+            logger.info(f"✅ Successfully deleted {self._obj_type} ID {obj_id}")
+            return True
+            
+        except Exception as e:
+            error_msg = f"Failed to delete {self._obj_type} ID {obj_id}: {e}"
+            logger.error(error_msg)
+            raise NetBoxError(error_msg)
+
+
+class AppWrapper:
+    """
+    Wraps a pynetbox App to navigate to wrapped Endpoints.
+    
+    This class serves as the "Navigator" in the dynamic client architecture,
+    routing from NetBox API applications (dcim, ipam, circuits) to their
+    specific endpoints, wrapping each endpoint in EndpointWrapper.
+    
+    Following Gemini's architectural guidance for robust error handling
+    and comprehensive debugging visibility.
+    """
+    
+    def __init__(self, app, client: 'NetBoxClient'):
+        """
+        Initialize AppWrapper with pynetbox app and client reference.
+        
+        Args:
+            app: pynetbox.core.app.App instance (e.g., dcim, ipam)
+            client: NetBoxClient instance for access to config, cache, logging
+        """
+        self._app = app
+        self._client = client
+        self._app_name = getattr(app, 'name', 'unknown')
+        
+        logger.debug(f"AppWrapper initialized for app '{self._app_name}'")
+    
+    def __getattr__(self, name: str):
+        """
+        Navigate from app to endpoint with comprehensive error handling.
+        
+        Implements Gemini's robust error handling pattern with try/except
+        and detailed debugging logs for troubleshooting __getattr__ chain.
+        
+        Args:
+            name: Endpoint name (e.g., 'devices', 'manufacturers', 'sites')
+            
+        Returns:
+            EndpointWrapper instance for the requested endpoint
+            
+        Raises:
+            AttributeError: If the endpoint doesn't exist on the app
+        """
+        logger.debug(f"AppWrapper.__getattr__('{name}') on app '{self._app_name}'")
+        
+        try:
+            # Attempt to get the endpoint from the pynetbox app
+            endpoint = getattr(self._app, name)
+            
+            # More strict validation: check if it's actually a pynetbox Endpoint class
+            # pynetbox endpoints have specific attributes and behaviors
+            if (hasattr(endpoint, 'filter') and hasattr(endpoint, 'get') and hasattr(endpoint, 'all') and
+                hasattr(endpoint, 'name') and hasattr(endpoint, 'api') and
+                str(type(endpoint)) == "<class 'pynetbox.core.endpoint.Endpoint'>"):
+                
+                logger.debug(f"Found valid endpoint '{name}' on app '{self._app_name}'")
+                logger.debug(f"Returning EndpointWrapper for '{self._app_name}.{name}'")
+                
+                # Return wrapped endpoint with app name for proper object type construction
+                return EndpointWrapper(endpoint, self._client, app_name=self._app_name)
+            else:
+                logger.debug(f"Object '{name}' on app '{self._app_name}' is not a valid pynetbox Endpoint")
+                logger.debug(f"Object type: {type(endpoint)}")
+                
+        except AttributeError:
+            # Log the attempt for debugging
+            logger.debug(f"Endpoint '{name}' not found on app '{self._app_name}'")
+        
+        # If we reach here, the endpoint doesn't exist or isn't valid
+        raise AttributeError(
+            f"NetBox API application '{self._app_name}' has no endpoint named '{name}'. "
+            f"Available endpoints can be discovered through the NetBox API documentation."
+        )
+
+
 class NetBoxClient:
     """
     NetBox API client with safety-first design for read/write operations.
@@ -423,7 +820,51 @@ class NetBoxClient:
             self._connection_status = ConnectionStatus(connected=False, error=error_msg)
             raise NetBoxError(error_msg)
     
-    # READ-ONLY OPERATIONS
+    def __getattr__(self, name: str):
+        """
+        Dynamic proxy to NetBox API applications with comprehensive routing.
+        
+        This method implements Gemini's dynamic client architecture, providing
+        100% NetBox API coverage by routing app requests to AppWrapper instances.
+        
+        Implements the "Entrypoint" role in the three-component architecture:
+        NetBoxClient → AppWrapper → EndpointWrapper
+        
+        Args:
+            name: NetBox API application name (e.g., 'dcim', 'ipam', 'circuits')
+            
+        Returns:
+            AppWrapper instance for the requested application
+            
+        Raises:
+            AttributeError: If the application doesn't exist in the NetBox API
+        """
+        logger.debug(f"NetBoxClient.__getattr__('{name}') -> routing to AppWrapper")
+        
+        try:
+            # Attempt to get the app from the pynetbox API
+            app = getattr(self.api, name)
+            
+            # Validate that it's actually a pynetbox App
+            if hasattr(app, 'name') and hasattr(app, 'models') and str(type(app)) == "<class 'pynetbox.core.app.App'>":
+                logger.debug(f"Found valid NetBox API app '{name}'")
+                logger.debug(f"Returning AppWrapper for '{name}'")
+                
+                # Return wrapped app for navigation to endpoints
+                return AppWrapper(app, self)
+            else:
+                logger.debug(f"Object '{name}' is not a valid pynetbox App")
+                
+        except AttributeError:
+            logger.debug(f"NetBox API application '{name}' not found")
+        
+        # If we reach here, the app doesn't exist or isn't valid
+        raise AttributeError(
+            f"NetBox API has no application named '{name}'. "
+            f"Available applications include: dcim, ipam, circuits, extras, tenancy, users, virtualization, wireless"
+        )
+    
+    # READ-ONLY OPERATIONS (DEPRECATED - Will be removed in Issue #21)
     
     def get_device(self, name: str, site: Optional[str] = None, bypass_cache: bool = False) -> Optional[Any]:
         """
