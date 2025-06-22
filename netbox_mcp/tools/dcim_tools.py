@@ -857,3 +857,277 @@ def netbox_get_rack_elevation(
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+# ========================================
+# HIGH-LEVEL DEVICE PROVISIONING TOOLS
+# ========================================
+
+@mcp_tool(category="dcim")
+def netbox_provision_new_device(
+    client: NetBoxClient,
+    device_name: str,
+    site_name: str,
+    rack_name: str,
+    device_model: str,
+    role_name: str,
+    position: int,
+    status: str = "active",
+    face: str = "front",
+    tenant: Optional[str] = None,
+    platform: Optional[str] = None,
+    serial: Optional[str] = None,
+    asset_tag: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Provision a complete new device in a rack with a single function call.
+    
+    This high-level function reduces 5-6 potential API calls and complex validations 
+    into one single, logical function. Essential for data center provisioning workflows.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name for the new device
+        site_name: Name of the site where the rack is located
+        rack_name: Name of the rack to place the device in
+        device_model: Device model name or slug (will be resolved to device_type)
+        role_name: Device role name or slug
+        position: Rack position (1-based, from bottom)
+        status: Device status (active, offline, planned, staged, failed, inventory, decommissioning)
+        face: Rack face (front, rear)
+        tenant: Optional tenant name or slug
+        platform: Optional platform name or slug
+        serial: Optional serial number
+        asset_tag: Optional asset tag
+        description: Optional description
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Complete device provisioning result with all resolved information
+        
+    Example:
+        netbox_provision_new_device(
+            device_name="sw-floor3-001", 
+            site_name="Main DC", 
+            rack_name="R-12", 
+            device_model="C9300-24T", 
+            role_name="Access Switch", 
+            position=42, 
+            confirm=True
+        )
+    """
+    try:
+        if not all([device_name, site_name, rack_name, device_model, role_name]):
+            return {
+                "success": False,
+                "error": "device_name, site_name, rack_name, device_model, and role_name are required",
+                "error_type": "ValidationError"
+            }
+        
+        if not (1 <= position <= 100):
+            return {
+                "success": False,
+                "error": "Position must be between 1 and 100",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Provisioning device: {device_name} in {site_name}/{rack_name} at position {position}")
+        
+        # Step 1: Find the site
+        logger.debug(f"Looking up site: {site_name}")
+        sites = client.dcim.sites.filter(name=site_name)
+        if not sites:
+            sites = client.dcim.sites.filter(slug=site_name)
+        if not sites:
+            return {
+                "success": False,
+                "error": f"Site '{site_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        site = sites[0]
+        site_id = site["id"]
+        logger.debug(f"Found site: {site['name']} (ID: {site_id})")
+        
+        # Step 2: Find the rack within that site
+        logger.debug(f"Looking up rack: {rack_name} in site {site['name']}")
+        racks = client.dcim.racks.filter(site_id=site_id, name=rack_name)
+        if not racks:
+            return {
+                "success": False,
+                "error": f"Rack '{rack_name}' not found in site '{site['name']}'",
+                "error_type": "NotFoundError"
+            }
+        rack = racks[0]
+        rack_id = rack["id"]
+        logger.debug(f"Found rack: {rack['name']} (ID: {rack_id})")
+        
+        # Step 3: Find the device type
+        logger.debug(f"Looking up device type: {device_model}")
+        device_types = client.dcim.device_types.filter(model=device_model)
+        if not device_types:
+            device_types = client.dcim.device_types.filter(slug=device_model)
+        if not device_types:
+            return {
+                "success": False,
+                "error": f"Device type '{device_model}' not found",
+                "error_type": "NotFoundError"
+            }
+        device_type = device_types[0]
+        device_type_id = device_type["id"]
+        logger.debug(f"Found device type: {device_type['model']} (ID: {device_type_id})")
+        
+        # Step 4: Find the device role
+        logger.debug(f"Looking up device role: {role_name}")
+        roles = client.dcim.device_roles.filter(name=role_name)
+        if not roles:
+            roles = client.dcim.device_roles.filter(slug=role_name)
+        if not roles:
+            return {
+                "success": False,
+                "error": f"Device role '{role_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        role = roles[0]
+        role_id = role["id"]
+        logger.debug(f"Found device role: {role['name']} (ID: {role_id})")
+        
+        # Step 5: Validate rack position availability
+        logger.debug(f"Validating position {position} availability in rack {rack['name']}")
+        
+        # Check if position is within rack height
+        if position > rack["u_height"]:
+            return {
+                "success": False,
+                "error": f"Position {position} exceeds rack height of {rack['u_height']}U",
+                "error_type": "ValidationError"
+            }
+        
+        # Check if position is already occupied
+        existing_devices = client.dcim.devices.filter(rack_id=rack_id, position=position)
+        if existing_devices:
+            return {
+                "success": False,
+                "error": f"Position {position} is already occupied by device '{existing_devices[0]['name']}'",
+                "error_type": "ConflictError"
+            }
+        
+        # Check if device extends beyond rack height
+        device_u_height = int(device_type.get("u_height", 1))
+        if position + device_u_height - 1 > rack["u_height"]:
+            return {
+                "success": False,
+                "error": f"Device height ({device_u_height}U) at position {position} would exceed rack height of {rack['u_height']}U",
+                "error_type": "ValidationError"
+            }
+        
+        # Check for overlapping devices
+        for check_pos in range(position, position + int(device_u_height)):
+            overlapping = client.dcim.devices.filter(rack_id=rack_id, position=check_pos)
+            if overlapping:
+                return {
+                    "success": False,
+                    "error": f"Device would overlap with existing device '{overlapping[0]['name']}' at position {check_pos}",
+                    "error_type": "ConflictError"
+                }
+        
+        # Step 6: Resolve optional foreign keys
+        tenant_id = None
+        tenant_name = None
+        if tenant:
+            logger.debug(f"Looking up tenant: {tenant}")
+            tenants = client.tenancy.tenants.filter(name=tenant)
+            if not tenants:
+                tenants = client.tenancy.tenants.filter(slug=tenant)
+            if tenants:
+                tenant_id = tenants[0]["id"]
+                tenant_name = tenants[0]["name"]
+                logger.debug(f"Found tenant: {tenant_name} (ID: {tenant_id})")
+            else:
+                logger.warning(f"Tenant '{tenant}' not found, proceeding without tenant assignment")
+        
+        platform_id = None
+        platform_name = None
+        if platform:
+            logger.debug(f"Looking up platform: {platform}")
+            platforms = client.dcim.platforms.filter(name=platform)
+            if not platforms:
+                platforms = client.dcim.platforms.filter(slug=platform)
+            if platforms:
+                platform_id = platforms[0]["id"]
+                platform_name = platforms[0]["name"]
+                logger.debug(f"Found platform: {platform_name} (ID: {platform_id})")
+            else:
+                logger.warning(f"Platform '{platform}' not found, proceeding without platform assignment")
+        
+        # Step 7: Assemble the complete payload
+        device_data = {
+            "name": device_name,
+            "device_type": device_type_id,
+            "role": role_id,
+            "site": site_id,
+            "rack": rack_id,
+            "position": position,
+            "face": face,
+            "status": status
+        }
+        
+        # Add optional fields
+        if tenant_id:
+            device_data["tenant"] = tenant_id
+        if platform_id:
+            device_data["platform"] = platform_id
+        if serial:
+            device_data["serial"] = serial
+        if asset_tag:
+            device_data["asset_tag"] = asset_tag
+        if description:
+            device_data["description"] = description
+        
+        # Step 8: Create the device
+        if not confirm:
+            # Dry run mode - return what would be created without actually creating
+            logger.info(f"DRY RUN: Would create device with data: {device_data}")
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "device",
+                "device": {"name": device_name, "dry_run": True, "would_create": device_data},
+                "resolved_references": {
+                    "site": {"name": site["name"], "id": site_id},
+                    "rack": {"name": rack["name"], "id": rack_id, "position": position},
+                    "device_type": {"model": device_type["model"], "id": device_type_id, "u_height": device_u_height},
+                    "role": {"name": role["name"], "id": role_id},
+                    "tenant": {"name": tenant_name, "id": tenant_id} if tenant_id else None,
+                    "platform": {"name": platform_name, "id": platform_id} if platform_id else None
+                },
+                "dry_run": True
+            }
+        
+        logger.info(f"Creating device with data: {device_data}")
+        result = client.dcim.devices.create(confirm=confirm, **device_data)
+        
+        return {
+            "success": True,
+            "action": "provisioned",
+            "object_type": "device",
+            "device": result,
+            "resolved_references": {
+                "site": {"name": site["name"], "id": site_id},
+                "rack": {"name": rack["name"], "id": rack_id, "position": position},
+                "device_type": {"model": device_type["model"], "id": device_type_id, "u_height": device_u_height},
+                "role": {"name": role["name"], "id": role_id},
+                "tenant": {"name": tenant_name, "id": tenant_id} if tenant_id else None,
+                "platform": {"name": platform_name, "id": platform_id} if platform_id else None
+            },
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to provision device {device_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
