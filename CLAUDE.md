@@ -575,15 +575,86 @@ def netbox_find_next_available_ip(
 **Revolutionary Value:**
 This function transforms traditional multi-step IP allocation workflows (discover → reserve → assign) into intelligent single-call operations, essential for automated network provisioning and LLM-driven infrastructure management.
 
+### ✅ Issue #31 COMPLETED - Capacity Planning Reports
+
+**Enterprise-grade capacity analysis tool** that transforms raw NetBox data into actionable capacity planning insights:
+
+#### ✅ `netbox_get_prefix_utilization` - Comprehensive Prefix Utilization Reports
+
+**Function Signature:**
+```python
+def netbox_get_prefix_utilization(
+    client: NetBoxClient,
+    prefix: str,
+    include_child_prefixes: bool = True,
+    include_detailed_breakdown: bool = False,
+    tenant: Optional[str] = None,
+    vrf: Optional[str] = None
+) -> Dict[str, Any]
+```
+
+**Capacity Analysis Workflow:**
+1. **Prefix Discovery**: Find and validate target network prefix with multi-tenant filtering
+2. **Utilization Calculation**: Advanced IPv4/IPv6 address space analysis with network/broadcast exclusion
+3. **Assignment Analysis**: Categorize IP assignments (interface, device, unassigned) with detailed breakdown
+4. **Status Distribution**: Analyze IP status patterns (active, reserved, deprecated, etc.)
+5. **Child Prefix Analysis**: Hierarchical subnet analysis with recursive utilization mapping
+6. **Capacity Planning**: Growth projections with intelligent recommendations
+7. **Report Generation**: Human-readable capacity reports with actionable insights
+
+**Multi-Mode Analysis:**
+- **Basic Analysis**: Core utilization metrics and status distribution
+- **Hierarchical Analysis**: Child prefix analysis with subnet utilization mapping
+- **Detailed Breakdown**: Complete IP allocation inventory with assignment details
+- **Multi-Tenant Analysis**: Tenant and VRF-aware filtering for complex environments
+
+**Enterprise Features:**
+- ✅ **Intelligent Network Analysis**: Python ipaddress module for accurate IPv4/IPv6 calculations
+- ✅ **Hierarchical Subnet Mapping**: Recursive child prefix discovery and utilization analysis
+- ✅ **Assignment Classification**: Automatic categorization of interface vs device assignments
+- ✅ **Growth Projections**: Linear capacity forecasting with 3, 6, and 12-month projections
+- ✅ **Smart Recommendations**: Automated capacity planning insights and expansion guidance
+- ✅ **Multi-Tenant Support**: Tenant and VRF filtering for complex enterprise environments
+- ✅ **Status Analysis**: Comprehensive IP status distribution and utilization patterns
+
+**Testing & Validation:**
+- ✅ **Live Integration Testing**: Validated against NetBox 4.2.9 with real prefix data
+- ✅ **Complete Test Suite**: Basic analysis, detailed breakdown, error handling, parameter validation
+- ✅ **Capacity Planning Testing**: Growth projections and recommendation generation confirmed
+- ✅ **Multi-Mode Testing**: All analysis modes validated with comprehensive scenarios
+
+**Test Results:**
+```
+✅ Basic utilization analysis: PASSED - 2.36% utilization (6/254 addresses)
+✅ Detailed analysis with child prefixes: PASSED - Complete breakdown with assignment classification
+✅ Capacity planning insights: PASSED - Growth projections for 3, 6, 12 months
+✅ Error handling: PASSED - Proper validation for non-existent prefixes
+✅ Parameter validation: PASSED - Empty prefix rejection working
+✅ Invalid format handling: PASSED - Malformed prefix detection confirmed
+📱 Web UI Verification: https://zwqg2756.cloud.netboxapp.com/ipam/prefixes/?q=10.99.0.0/24
+```
+
+**Sample Analysis:**
+```
+📊 Prefix Analysis: 10.99.0.0/24
+📈 Utilization: 2.36% (6/254 addresses) - Status: healthy
+🔗 Assignment Breakdown: 0 interface, 0 device, 6 unassigned
+📋 Status Distribution: 4 reserved, 2 active
+🔮 Growth Projections: 3 months: 3.07%, 6 months: 3.78%, 12 months: 5.20%
+```
+
+**Enterprise Value:**
+Essential for network capacity planning, growth forecasting, and infrastructure optimization. Transforms complex multi-step analysis into comprehensive single-call reports perfect for automated capacity management and executive reporting.
+
 ### 🎯 Current Status: v0.9.0 Development
 
-**Milestone Progress**: 6/13 high-level tools completed (46% complete)
+**Milestone Progress**: 7/13 high-level tools completed (54% complete)
 
 **Remaining High-Level Tools (Issues #30-37):**
 
 **IPAM Tools (4 tools):**
-- #30: `netbox_find_next_available_ip` - Atomic IP reservation
-- #31: `netbox_get_prefix_utilization` - Capacity planning reports
+- ✅ #30: `netbox_find_next_available_ip` - Atomic IP reservation
+- ✅ #31: `netbox_get_prefix_utilization` - Capacity planning reports
 - #32: `netbox_provision_vlan_with_prefix` - Coordinated VLAN/prefix creation
 - #33: `netbox_find_duplicate_ips` - Network auditing and conflict detection
 

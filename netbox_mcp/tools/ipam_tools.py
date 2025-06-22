@@ -781,6 +781,293 @@ def netbox_find_next_available_ip(
         }
 
 
+@mcp_tool(category="ipam")
+def netbox_get_prefix_utilization(
+    client: NetBoxClient,
+    prefix: str,
+    include_child_prefixes: bool = True,
+    include_detailed_breakdown: bool = False,
+    tenant: Optional[str] = None,
+    vrf: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get comprehensive prefix utilization report for capacity planning.
+    
+    This enterprise-grade function provides detailed analysis of IP address usage
+    within a prefix, including child prefix analysis, utilization trends, and
+    capacity planning insights essential for network growth planning.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        prefix: Network prefix to analyze (e.g., "10.0.0.0/16")
+        include_child_prefixes: Include child/subnet analysis
+        include_detailed_breakdown: Include detailed IP allocation breakdown
+        tenant: Optional tenant filter for multi-tenant environments
+        vrf: Optional VRF filter for VRF-aware analysis
+        
+    Returns:
+        Comprehensive utilization report with capacity planning insights
+        
+    Examples:
+        # Basic prefix utilization
+        netbox_get_prefix_utilization(prefix="10.0.0.0/16")
+        
+        # Detailed analysis with child prefixes
+        netbox_get_prefix_utilization(
+            prefix="10.0.0.0/16",
+            include_child_prefixes=True,
+            include_detailed_breakdown=True
+        )
+        
+        # Multi-tenant analysis
+        netbox_get_prefix_utilization(
+            prefix="10.0.0.0/16",
+            tenant="customer-a",
+            vrf="customer-a-vrf"
+        )
+    """
+    try:
+        if not prefix:
+            return {
+                "success": False,
+                "error": "prefix is required",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Analyzing prefix utilization: {prefix}")
+        
+        # Step 1: Find and validate the prefix
+        logger.debug(f"Looking up prefix: {prefix}")
+        filters = {"prefix": prefix}
+        if tenant:
+            filters["tenant"] = tenant
+        if vrf:
+            filters["vrf"] = vrf
+        
+        prefixes = client.ipam.prefixes.filter(**filters)
+        
+        if not prefixes:
+            return {
+                "success": False,
+                "error": f"Prefix '{prefix}' not found in NetBox",
+                "error_type": "NotFoundError"
+            }
+        
+        prefix_obj = prefixes[0]
+        prefix_id = prefix_obj["id"]
+        logger.debug(f"Found prefix: {prefix_obj['prefix']} (ID: {prefix_id})")
+        
+        # Step 2: Calculate basic utilization metrics
+        import ipaddress
+        try:
+            network = ipaddress.ip_network(prefix, strict=False)
+            total_hosts = network.num_addresses
+            if network.version == 4:
+                # IPv4: exclude network and broadcast addresses
+                if network.prefixlen < 31:
+                    total_hosts -= 2
+            logger.debug(f"Network analysis: {network}, Total hosts: {total_hosts}")
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid prefix format: {e}",
+                "error_type": "ValidationError"
+            }
+        
+        # Step 3: Get all IP addresses within this prefix
+        logger.debug("Retrieving IP addresses within prefix")
+        ip_filters = {"parent": prefix}
+        if tenant:
+            ip_filters["tenant"] = tenant
+        if vrf:
+            ip_filters["vrf"] = vrf
+        
+        allocated_ips = client.ipam.ip_addresses.filter(**ip_filters)
+        allocated_count = len(allocated_ips)
+        
+        # Step 4: Analyze IP status distribution
+        status_breakdown = {}
+        interface_assignments = 0
+        device_assignments = 0
+        
+        for ip in allocated_ips:
+            status = ip.get("status", {})
+            if isinstance(status, dict):
+                status_value = status.get("value", "unknown")
+            else:
+                status_value = str(status)
+            
+            status_breakdown[status_value] = status_breakdown.get(status_value, 0) + 1
+            
+            # Check for assignments
+            if ip.get("assigned_object"):
+                assigned_obj = ip["assigned_object"]
+                if isinstance(assigned_obj, dict):
+                    obj_type = assigned_obj.get("object_type", "")
+                    if "interface" in obj_type.lower():
+                        interface_assignments += 1
+                    elif "device" in obj_type.lower():
+                        device_assignments += 1
+        
+        # Step 5: Calculate utilization metrics
+        available_count = total_hosts - allocated_count
+        utilization_percent = (allocated_count / total_hosts * 100) if total_hosts > 0 else 0
+        
+        # Step 6: Analyze child prefixes if requested
+        child_prefixes = []
+        child_prefix_usage = 0
+        
+        if include_child_prefixes:
+            logger.debug("Analyzing child prefixes")
+            try:
+                # Find child prefixes (longer prefix lengths within this prefix)
+                child_filters = {"within": prefix}
+                if tenant:
+                    child_filters["tenant"] = tenant
+                if vrf:
+                    child_filters["vrf"] = vrf
+                
+                child_prefixes_raw = client.ipam.prefixes.filter(**child_filters)
+                
+                for child in child_prefixes_raw:
+                    if child["id"] != prefix_id:  # Exclude the parent prefix itself
+                        child_prefix = child["prefix"]
+                        try:
+                            child_network = ipaddress.ip_network(child_prefix, strict=False)
+                            child_total = child_network.num_addresses
+                            if child_network.version == 4 and child_network.prefixlen < 31:
+                                child_total -= 2
+                            
+                            # Get IPs in child prefix
+                            child_ips = client.ipam.ip_addresses.filter(parent=child_prefix)
+                            child_allocated = len(child_ips)
+                            child_utilization = (child_allocated / child_total * 100) if child_total > 0 else 0
+                            
+                            child_prefixes.append({
+                                "prefix": child_prefix,
+                                "total_addresses": child_total,
+                                "allocated_addresses": child_allocated,
+                                "utilization_percent": round(child_utilization, 2),
+                                "status": child.get("status", {}),
+                                "description": child.get("description", "")
+                            })
+                            
+                            child_prefix_usage += child_total
+                            
+                        except ValueError:
+                            logger.warning(f"Invalid child prefix format: {child_prefix}")
+                            continue
+                
+                # Sort child prefixes by utilization (highest first)
+                child_prefixes.sort(key=lambda x: x["utilization_percent"], reverse=True)
+                
+            except Exception as e:
+                logger.warning(f"Failed to analyze child prefixes: {e}")
+        
+        # Step 7: Calculate capacity planning insights
+        # Determine if this is a critically utilized prefix
+        utilization_status = "healthy"
+        if utilization_percent >= 90:
+            utilization_status = "critical"
+        elif utilization_percent >= 75:
+            utilization_status = "warning"
+        elif utilization_percent >= 50:
+            utilization_status = "moderate"
+        
+        # Calculate growth projections
+        growth_projections = []
+        if allocated_count > 0:
+            # Simple linear projections
+            for months in [3, 6, 12]:
+                # Assume current rate continues (very basic projection)
+                projected_usage = allocated_count * (1 + (months * 0.1))  # 10% growth per month
+                projected_percent = (projected_usage / total_hosts * 100) if total_hosts > 0 else 0
+                growth_projections.append({
+                    "months": months,
+                    "projected_usage": min(int(projected_usage), total_hosts),
+                    "projected_percent": min(round(projected_percent, 2), 100.0)
+                })
+        
+        # Step 8: Build comprehensive report
+        result = {
+            "success": True,
+            "prefix": prefix,
+            "prefix_id": prefix_id,
+            "total_addresses": total_hosts,
+            "allocated_addresses": allocated_count,
+            "available_addresses": available_count,
+            "utilization_percent": round(utilization_percent, 2),
+            "utilization_status": utilization_status,
+            "assignments": {
+                "interface_assignments": interface_assignments,
+                "device_assignments": device_assignments,
+                "unassigned_ips": allocated_count - interface_assignments - device_assignments
+            },
+            "status_breakdown": status_breakdown,
+            "analysis_metadata": {
+                "prefix_object": prefix_obj,
+                "analysis_timestamp": client._get_current_timestamp() if hasattr(client, '_get_current_timestamp') else "unknown",
+                "filters_applied": {
+                    "tenant": tenant,
+                    "vrf": vrf
+                }
+            }
+        }
+        
+        if include_child_prefixes:
+            result["child_prefixes"] = {
+                "count": len(child_prefixes),
+                "total_child_addresses": child_prefix_usage,
+                "child_utilization_percent": round((child_prefix_usage / total_hosts * 100), 2) if total_hosts > 0 else 0,
+                "prefixes": child_prefixes
+            }
+        
+        if growth_projections:
+            result["capacity_planning"] = {
+                "growth_projections": growth_projections,
+                "recommendations": []
+            }
+            
+            # Add capacity recommendations
+            if utilization_percent >= 75:
+                result["capacity_planning"]["recommendations"].append("Consider expanding prefix or implementing subnetting")
+            if utilization_percent >= 90:
+                result["capacity_planning"]["recommendations"].append("URGENT: Immediate capacity expansion required")
+            if len(child_prefixes) > 10:
+                result["capacity_planning"]["recommendations"].append("Consider prefix consolidation or hierarchical organization")
+        
+        if include_detailed_breakdown:
+            # Include detailed IP allocation information
+            detailed_ips = []
+            for ip in allocated_ips[:100]:  # Limit to first 100 for performance
+                ip_detail = {
+                    "address": ip["address"],
+                    "status": ip.get("status", {}),
+                    "description": ip.get("description", ""),
+                    "assigned_object": ip.get("assigned_object", {}),
+                    "tenant": ip.get("tenant", {}),
+                    "created": ip.get("created", "")
+                }
+                detailed_ips.append(ip_detail)
+            
+            result["detailed_breakdown"] = {
+                "sample_size": len(detailed_ips),
+                "total_ips": allocated_count,
+                "ip_details": detailed_ips
+            }
+        
+        logger.info(f"✅ Prefix utilization analysis complete: {utilization_percent:.2f}% ({allocated_count}/{total_hosts})")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to analyze prefix utilization for {prefix}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 # ========================================
 # VRF MANAGEMENT TOOLS  
 # ========================================
