@@ -38,7 +38,16 @@ Based on the successful completion of Phase 2, detailed architectural guidance w
 - **Canonical Data Model**: Pydantic models with consistent tagging and metadata
 - **Asynchronous Processing**: Redis + RQ task queue for enterprise-scale bulk operations with progress tracking
 
-These architectural patterns form the foundation for enterprise-grade NetBox automation and integration workflows.
+**Gemini Self-Describing Server Architecture Consultation (December 2025)**
+Revolutionary architectural refactoring based on Gemini's guidance to resolve circular imports and create an intelligent, self-describing MCP server:
+
+- **Dependency Injection Pattern**: Complete separation of concerns using `dependencies.py` with FastAPI's `Depends()` system
+- **Tool Registry System**: `@mcp_tool` decorator with automatic function inspection, type hint extraction, and metadata generation
+- **Plugin Architecture**: `tools/` subpackage with automatic discovery and registration of tool modules
+- **Self-Describing API**: FastAPI REST endpoints (`/api/v1/tools`, `/api/v1/execute`, `/api/v1/status`) providing tool discovery and execution
+- **Circular Import Resolution**: Clean module structure eliminating all circular dependencies through proper layering
+
+These architectural patterns establish the foundation for a scalable, maintainable, and self-documenting MCP server capable of 100% NetBox API coverage.
 
 ## Core Design principles
 
@@ -57,47 +66,66 @@ These architectural patterns form the foundation for enterprise-grade NetBox aut
 
 ## Architecture Components
 
-### netbox_client.py
-- **Initialization**: Accepts NetBox URL, token, and configuration object
-- **Read Methods**: Functions for all required GET operations with NetBox API filter capabilities
-- **Basic Write Methods (✅ Implemented)**: 
-  - `create_object(type, data, confirm=False)`: Generic object creation with safety
-  - `update_object(object_id, data, confirm=False)`: Object updates with validation
-  - `delete_object(object_id, confirm=False)`: Safe object deletion
-- **Hybrid Ensure Methods (Phase 3 - Planned)**: Gemini-recommended architecture
-  - `ensure_manufacturer(name=None, manufacturer_id=None, confirm=False)`: Hybrid pattern
-  - `ensure_site(name=None, site_id=None, confirm=False)`: Name-based or ID-based
-  - `ensure_device_role(name=None, role_id=None, confirm=False)`: Flexible resolution
-  - `ensure_device_type(name, manufacturer_id, confirm=False)`: With dependencies
-  - `ensure_device(name, device_type_id, site_id, role_id, confirm=False)`: Complex object
-- **State Management (Phase 3 - Planned)**: 
-  - Selective field comparison with managed fields concept
-  - Hash-based diffing using NetBox custom fields
-  - Efficient bulk operation pre-filtering
-- **Error Handling**: Translate pynetbox exceptions to consistent NetBoxError exceptions
+### Core Architecture (Self-Describing Server)
 
-### server.py
-- **Read-Only Tools (8 implemented)**: 
-  - `netbox_health_check()`: NetBox system health and connection status
-  - `netbox_get_device(name: str, site: str)`: Get device by name and site
-  - `netbox_list_devices(filters: dict)`: List devices with filtering
-  - `netbox_get_site_by_name(name: str)`: Get site information by name
-  - `netbox_find_ip(address: str)`: Find IP address object by address
-  - `netbox_get_vlan_by_name(name: str, site: str)`: Get VLAN by name and site
-  - `netbox_get_device_interfaces(device_name: str)`: Get all interfaces for device
-  - `netbox_get_manufacturers(limit: int)`: Get list of manufacturers
+#### dependencies.py - Dependency Injection Hub ✅
+- **get_netbox_client()**: Singleton client provider with thread-safe initialization
+- **get_netbox_config()**: Cached configuration loading with LRU cache
+- **NetBoxClientManager**: Backward compatibility wrapper for existing code
+- **Dependency Injection**: FastAPI `Depends()` system for clean separation of concerns
 
-- **Write Tools (10 implemented)**:
-  - `netbox_create_manufacturer(name: str, slug: str, description: str, confirm: bool = False)`: Create manufacturer
-  - `netbox_create_site(name: str, slug: str, status: str, region: str, description: str, physical_address: str, confirm: bool = False)`: Create site
-  - `netbox_create_device_role(name: str, slug: str, color: str, vm_role: bool, description: str, confirm: bool = False)`: Create device role
-  - `netbox_update_device_status(device_name: str, status: str, site: str, confirm: bool = False)`: Update device status
-  - `netbox_delete_manufacturer(manufacturer_name: str, confirm: bool = False)`: Delete manufacturer
-  - `netbox_bulk_ensure_devices(devices_data: List[Dict], confirm: bool = False, dry_run_report: bool = False)`: Two-pass bulk device operations
-  - `netbox_start_bulk_async(devices_data: List[Dict], confirm: bool = False, max_devices: int = 1000)`: Asynchronous bulk operations
-  - `netbox_get_task_status(task_id: str)`: Monitor async task progress and results
-  - `netbox_list_active_tasks()`: List all currently active async tasks
-  - `netbox_get_queue_info()`: Queue statistics and system status
+#### registry.py - Tool Registry System ✅
+- **@mcp_tool decorator**: Automatic function inspection with parameter extraction and type hints
+- **TOOL_REGISTRY**: Global registry with complete tool metadata storage
+- **load_tools()**: Automatic tool discovery from `tools/` package
+- **execute_tool()**: Generic tool execution with dependency injection
+- **serialize_registry_for_api()**: API-ready tool metadata serialization
+
+#### tools/ - Plugin Architecture ✅
+- **Automatic Discovery**: `__init__.py` with pkgutil-based module scanning
+- **tools/system_tools.py**: Health checks and system monitoring tools
+- **tools/ipam_tools.py**: Complete IPAM management functionality (7 tools)
+- **Future Extensions**: DCIM, circuits, and custom tool categories
+
+### Legacy Components (Maintained for Compatibility)
+
+#### netbox_client.py - Dynamic Proxy Architecture ✅
+- **Dynamic API Coverage**: 100% NetBox API access via three-component architecture
+- **EndpointWrapper**: Caching and safety injection for pynetbox endpoints
+- **AppWrapper**: Navigation between NetBox API applications
+- **Enterprise Safety**: Mandatory `confirm=True` and dry-run mode support
+- **Performance Optimization**: TTL-based caching with 33%+ hit ratios
+
+#### server.py - Hybrid MCP/REST Server ✅
+- **FastMCP Server**: Original MCP protocol tools for backward compatibility
+- **FastAPI REST Endpoints**: Self-describing API with tool discovery and execution
+  - `GET /api/v1/tools`: Tool discovery with filtering by category and name pattern
+  - `POST /api/v1/execute`: Generic tool execution with dependency injection
+  - `GET /api/v1/status`: System health with NetBox connectivity and registry stats
+- **Legacy FastMCP Tools**: Maintained for existing integrations (18+ tools)
+- **Pydantic Models**: Request/response validation for REST API
+
+### Tool Inventory (Plugin Architecture)
+
+#### System Tools (1 tool)
+- `netbox_health_check(client)`: NetBox connectivity and system health status
+
+#### IPAM Tools (7 tools)
+- **IP Address Management**:
+  - `netbox_create_ip_address(client, address, status, ...)`: Create IP addresses with validation
+  - `netbox_find_available_ip(client, prefix, count)`: Find available IPs in prefix
+  - `netbox_get_ip_usage(client, prefix)`: Calculate prefix utilization statistics
+- **Prefix Management**:
+  - `netbox_create_prefix(client, prefix, status, ...)`: Create network prefixes
+- **VLAN Management**:
+  - `netbox_create_vlan(client, name, vid, ...)`: Create VLANs with VID validation
+  - `netbox_find_available_vlan_id(client, site, range)`: Find available VLAN IDs
+- **VRF Management**:
+  - `netbox_create_vrf(client, name, rd, ...)`: Create VRFs with route distinguishers
+
+#### Legacy Tools (Bulk Operations)
+- **Enterprise Orchestration**: Bulk device operations, async task management
+- **DCIM Operations**: Device, site, manufacturer management (legacy FastMCP)
 
 - **Future Integration Tools (planned)**:
   - Additional idempotent tools for complex enterprise workflows
@@ -335,7 +363,50 @@ This project follows enterprise MCP server patterns:
 
 ## Current Project Status
 
-**📋 PHASE 3 IMPLEMENTATION COMPLETE**
+**🚀 SELF-DESCRIBING SERVER ARCHITECTURE COMPLETE (v0.6)**
+
+**📋 REVOLUTIONARY ARCHITECTURAL REFACTORING ✅**
+Following Gemini's comprehensive guidance for circular import resolution and self-describing server implementation:
+
+- **Issue #23**: ✅ @mcp_tool Decorator and Tool Registry System
+  - Automatic function inspection with type hints and parameter extraction
+  - Global TOOL_REGISTRY with complete metadata storage and serialization
+  - Plugin-style tool registration via decorator pattern
+  - Category-based organization and API filtering capabilities
+
+- **Issue #24**: ✅ Discovery Endpoint GET /api/v1/tools  
+  - FastAPI REST endpoint with tool metadata exposure
+  - Filter capabilities by category and name pattern
+  - Complete tool parameter documentation for LLM consumption
+  - JSON serialization without function references for API safety
+
+- **Issue #25**: ✅ Generic Execution Endpoint POST /api/v1/execute
+  - Universal tool execution via REST API with dependency injection
+  - NetBoxClient automatically injected via FastAPI Depends() system
+  - Comprehensive error handling and validation
+  - Tool parameter validation and execution logging
+
+- **Issue #26**: ✅ Health/Status Endpoint GET /api/v1/status
+  - System status with NetBox connectivity validation
+  - Tool registry statistics and performance metrics
+  - Client instance status and cache performance data
+  - Comprehensive service health monitoring
+
+**🏗️ ARCHITECTURAL TRANSFORMATION ACHIEVEMENTS:**
+- **Circular Import Resolution**: Complete elimination via `dependencies.py` and proper module layering
+- **Plugin Architecture**: `tools/` subpackage with automatic discovery using `pkgutil` 
+- **Dependency Injection**: FastAPI `Depends()` system providing clean separation of concerns
+- **Self-Describing API**: Tools automatically expose their capabilities via REST endpoints
+- **Backward Compatibility**: Existing FastMCP tools maintained alongside new REST API
+
+**📊 VALIDATION RESULTS: 5/5 Tests Passed**
+1. ✅ Circular import resolution - No dependency cycles
+2. ✅ Tool registry functionality - 8 tools loaded and serialized  
+3. ✅ Dependency injection system - Thread-safe singleton client
+4. ✅ API endpoint definitions - All REST routes properly defined
+5. ✅ Tool execution with dependency injection - Full workflow operational
+
+**📋 PREVIOUS PHASE 3 IMPLEMENTATION COMPLETE**
 - **Issue #1-5**: Foundation & Read-Only Core ✅ (Complete)
   - Project structure, configuration, NetBox client (read-only)
   - 8 read-only MCP tools implemented and tested

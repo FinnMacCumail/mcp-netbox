@@ -67,6 +67,7 @@ class ConnectionStatus:
     django_version: Optional[str] = None
     plugins: Optional[Dict[str, str]] = None
     response_time_ms: Optional[float] = None
+    cache_stats: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 

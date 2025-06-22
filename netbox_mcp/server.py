@@ -9,8 +9,13 @@ Version: 0.1.0
 """
 
 from mcp.server.fastmcp import FastMCP
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from .client import NetBoxClient, ConnectionStatus, NetBoxBulkOrchestrator
 from .config import load_config, NetBoxConfig
+from .registry import mcp_tool, TOOL_REGISTRY, load_tools, serialize_registry_for_api, execute_tool
+from .dependencies import NetBoxClientManager, get_netbox_client  # Use new dependency system
 from .exceptions import (
     NetBoxError,
     NetBoxConnectionError,
@@ -34,50 +39,159 @@ from typing import Dict, List, Optional, Any, Union
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Load all tools via the new registry system
+# This replaces the problematic circular import
+load_tools()
+logger.info(f"Tool registry initialized with {len(TOOL_REGISTRY)} tools")
+
 # Initialize FastMCP server
 mcp = FastMCP("NetBox", description="Read/Write MCP server for NetBox network documentation and IPAM")
 
-# --- GEMINI'S FIX: SINGLETON CLIENT MANAGER ---
-class NetBoxClientManager:
+# Initialize FastAPI server for self-describing endpoints
+api_app = FastAPI(
+    title="NetBox MCP API",
+    description="Self-describing REST API for NetBox Management & Control Plane",
+    version="0.1.0"
+)
+
+# Pydantic models for API requests
+class ExecutionRequest(BaseModel):
+    tool_name: str
+    parameters: Dict[str, Any] = {}
+
+class ToolFilter(BaseModel):
+    category: Optional[str] = None
+    name_pattern: Optional[str] = None
+
+# === SELF-DESCRIBING API ENDPOINTS ===
+
+@api_app.get("/api/v1/tools", response_model=List[Dict[str, Any]])
+async def get_tools(
+    category: Optional[str] = None,
+    name_pattern: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """
-    Singleton manager for NetBoxClient following Gemini's architectural guidance.
-    Ensures exactly one client instance exists application-wide.
+    Discovery endpoint: List all available MCP tools.
+    
+    Query Parameters:
+        category: Filter tools by category (system, ipam, dcim, etc.)
+        name_pattern: Filter tools by name pattern (partial match)
+        
+    Returns:
+        List of tool metadata with parameters, descriptions, and categories
     """
-    _instance = None
-    _client = None
-    _lock = threading.Lock()
+    try:
+        tools = serialize_registry_for_api()
+        
+        # Apply filters
+        if category:
+            tools = [tool for tool in tools if tool.get("category") == category]
+        
+        if name_pattern:
+            tools = [tool for tool in tools if name_pattern.lower() in tool.get("name", "").lower()]
+        
+        logger.info(f"Tools discovery request: {len(tools)} tools returned (category={category}, pattern={name_pattern})")
+        return tools
+        
+    except Exception as e:
+        logger.error(f"Error in tools discovery: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@api_app.post("/api/v1/execute")
+async def execute_mcp_tool(
+    request: ExecutionRequest,
+    client: NetBoxClient = Depends(get_netbox_client)
+) -> Dict[str, Any]:
+    """
+    Generic execution endpoint: Execute any registered MCP tool.
     
-    @classmethod
-    def initialize(cls, config: NetBoxConfig) -> None:
-        """Initialize the shared client instance (called once at startup)."""
-        with cls._lock:
-            if cls._client is None:
-                cls._client = NetBoxClient(config)
-                logger.info(f"SINGLETON: NetBoxClient initialized with instance ID: {id(cls._client)}")
-            else:
-                logger.warning("SINGLETON: Client already initialized, ignoring duplicate initialization")
+    Request Body:
+        tool_name: Name of the tool to execute
+        parameters: Dictionary of tool parameters
+        
+    Returns:
+        Tool execution result
+    """
+    try:
+        logger.info(f"Executing tool: {request.tool_name} with parameters: {request.parameters}")
+        
+        # Execute tool with dependency injection
+        result = execute_tool(request.tool_name, client, **request.parameters)
+        
+        return {
+            "success": True,
+            "tool_name": request.tool_name,
+            "result": result
+        }
+        
+    except ValueError as e:
+        # Tool not found
+        logger.warning(f"Tool not found: {request.tool_name}")
+        raise HTTPException(status_code=404, detail=str(e))
+        
+    except Exception as e:
+        logger.error(f"Tool execution failed for {request.tool_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
+
+
+@api_app.get("/api/v1/status")
+async def get_system_status(
+    client: NetBoxClient = Depends(get_netbox_client)
+) -> Dict[str, Any]:
+    """
+    Health/Status endpoint: Get MCP system status and NetBox connectivity.
     
-    @classmethod 
-    def get_client(cls) -> NetBoxClient:
-        """Get the shared client instance."""
-        with cls._lock:
-            if cls._client is None:
-                raise NetBoxError("NetBoxClient not initialized. Call NetBoxClientManager.initialize() first.")
-            logger.debug(f"SINGLETON: Returning client instance ID: {id(cls._client)}")
-            return cls._client
-    
-    @classmethod
-    def reset(cls) -> None:
-        """Reset client (for testing purposes only)."""
-        with cls._lock:
-            cls._client = None
-            logger.info("SINGLETON: Client reset")
+    Returns:
+        System status including NetBox connection, tool registry stats, and performance metrics
+    """
+    try:
+        # Get NetBox health status
+        netbox_status = client.health_check()
+        
+        # Get tool registry statistics
+        from .registry import get_registry_stats
+        registry_stats = get_registry_stats()
+        
+        # Get client status
+        from .dependencies import get_client_status
+        client_status = get_client_status()
+        
+        return {
+            "service": "NetBox MCP",
+            "version": "0.1.0",
+            "status": "healthy" if netbox_status.connected else "degraded",
+            "netbox": {
+                "connected": netbox_status.connected,
+                "version": netbox_status.version,
+                "python_version": netbox_status.python_version,
+                "django_version": netbox_status.django_version,
+                "response_time_ms": netbox_status.response_time_ms,
+                "plugins": netbox_status.plugins
+            },
+            "tool_registry": registry_stats,
+            "client": client_status,
+            "cache_stats": netbox_status.cache_stats if hasattr(netbox_status, 'cache_stats') else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Status check failed: {e}")
+        return {
+            "service": "NetBox MCP",
+            "version": "0.1.0", 
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+# NetBoxClientManager is now imported from dependencies.py
 
 
 @mcp.tool()
-def netbox_health_check() -> Dict[str, Any]:
+def netbox_health_check_legacy() -> Dict[str, Any]:
     """
-    Get NetBox system health status and connection information.
+    Legacy health check for FastMCP compatibility.
+    New API should use /api/v1/status endpoint or the dependency injection version.
 
     Returns:
         Health status information containing:
