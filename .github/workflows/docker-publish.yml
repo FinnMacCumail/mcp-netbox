@@ -95,18 +95,18 @@ jobs:
             -p 8080:8080 \
             ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:latest
           
-          echo "Waiting for container to start and health probe to respond..."
+          echo "Waiting for container to start and liveness probe to respond..."
           ATTEMPTS=0
           MAX_ATTEMPTS=6 # 60 seconds should be sufficient
-          until curl -sf http://localhost:8080/health > /dev/null || [ $ATTEMPTS -eq $MAX_ATTEMPTS ]; do
+          until curl -sf http://localhost:8080/healthz > /dev/null || [ $ATTEMPTS -eq $MAX_ATTEMPTS ]; do
             ATTEMPTS=$((ATTEMPTS+1))
-            echo "Attempt $ATTEMPTS/$MAX_ATTEMPTS: Waiting for health probe..."
+            echo "Attempt $ATTEMPTS/$MAX_ATTEMPTS: Waiting for liveness probe..."
             sleep 10
           done
 
-          echo "Final check on the health probe:"
-          if curl -sf http://localhost:8080/health; then
-            echo "✅ Health probe (/health) is responding with 200 OK."
+          echo "Final check on the liveness probe:"
+          if curl -sf http://localhost:8080/healthz; then
+            echo "✅ Liveness probe (/healthz) is responding with 200 OK."
             echo "Container has started successfully."
           else
             echo "❌ Health probe failed to respond correctly."
