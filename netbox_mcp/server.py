@@ -1741,13 +1741,17 @@ def initialize_server():
         NetBoxClientManager.initialize(config)
         logger.info("NetBox client initialized successfully via singleton manager")
         
-        # Test connection
+        # Test connection (graceful degradation if NetBox is unavailable)
         client = NetBoxClientManager.get_client()
-        status = client.health_check()
-        if status.connected:
-            logger.info(f"✅ Connected to NetBox {status.version} (response time: {status.response_time_ms:.1f}ms)")
-        else:
-            logger.error(f"❌ Failed to connect to NetBox: {status.error}")
+        try:
+            status = client.health_check()
+            if status.connected:
+                logger.info(f"✅ Connected to NetBox {status.version} (response time: {status.response_time_ms:.1f}ms)")
+            else:
+                logger.warning(f"⚠️ NetBox connection degraded: {status.error}")
+        except Exception as e:
+            logger.warning(f"⚠️ NetBox connection failed during startup, running in degraded mode: {e}")
+            # Continue startup - health server should still start for liveness probes
         
         # Initialize async task manager (optional)
         try:
