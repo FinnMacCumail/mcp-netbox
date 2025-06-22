@@ -135,13 +135,23 @@ def netbox_get_device(name: str, site: Optional[str] = None) -> Dict[str, Any]:
     try:
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_get_device using client instance ID: {id(client)}")
-        device = client.get_device(name, site)
         
-        if device is None:
+        # Build filter parameters for dynamic API
+        filters = {"name": name}
+        if site:
+            filters["site"] = site
+        
+        # Use dynamic API: client.dcim.devices.filter()
+        devices = client.dcim.devices.filter(**filters)
+        
+        if not devices:
             return {
                 "found": False,
                 "message": f"Device '{name}' not found" + (f" at site '{site}'" if site else "")
             }
+        
+        # Return first matching device
+        device = devices[0]
         
         return {
             "found": True,
@@ -203,7 +213,16 @@ def netbox_list_devices(
         
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_list_devices using client instance ID: {id(client)}")
-        devices = client.list_devices(filters=filters if filters else None, limit=limit)
+        
+        # Use dynamic API: client.dcim.devices.filter() or all()
+        if filters:
+            devices = client.dcim.devices.filter(**filters)
+        else:
+            devices = client.dcim.devices.all()
+        
+        # Apply limit if specified
+        if limit and len(devices) > limit:
+            devices = devices[:limit]
         
         return {
             "count": len(devices),
@@ -252,13 +271,18 @@ def netbox_get_site_by_name(name: str) -> Dict[str, Any]:
     try:
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_get_site_by_name using client instance ID: {id(client)}")
-        site = client.get_site_by_name(name)
         
-        if site is None:
+        # Use dynamic API: client.dcim.sites.filter()
+        sites = client.dcim.sites.filter(name=name)
+        
+        if not sites:
             return {
                 "found": False,
                 "message": f"Site '{name}' not found"
             }
+        
+        # Return first matching site
+        site = sites[0]
         
         return {
             "found": True,
@@ -304,13 +328,18 @@ def netbox_find_ip(address: str) -> Dict[str, Any]:
     try:
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_find_ip using client instance ID: {id(client)}")
-        ip = client.get_ip_address(address)
         
-        if ip is None:
+        # Use dynamic API: client.ipam.ip_addresses.filter()
+        ip_addresses = client.ipam.ip_addresses.filter(address=address)
+        
+        if not ip_addresses:
             return {
                 "found": False,
                 "message": f"IP address '{address}' not found"
             }
+        
+        # Return first matching IP address
+        ip = ip_addresses[0]
         
         return {
             "found": True,
@@ -357,13 +386,23 @@ def netbox_get_vlan_by_name(name: str, site: Optional[str] = None) -> Dict[str, 
     try:
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_get_vlan_by_name using client instance ID: {id(client)}")
-        vlan = client.get_vlan_by_name(name, site)
         
-        if vlan is None:
+        # Build filter parameters for dynamic API
+        filters = {"name": name}
+        if site:
+            filters["site"] = site
+        
+        # Use dynamic API: client.ipam.vlans.filter()
+        vlans = client.ipam.vlans.filter(**filters)
+        
+        if not vlans:
             return {
                 "found": False,
                 "message": f"VLAN '{name}' not found" + (f" at site '{site}'" if site else "")
             }
+        
+        # Return first matching VLAN
+        vlan = vlans[0]
         
         return {
             "found": True,
@@ -409,7 +448,24 @@ def netbox_get_device_interfaces(device_name: str) -> Dict[str, Any]:
     try:
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_get_device_interfaces using client instance ID: {id(client)}")
-        interfaces = client.get_device_interfaces(device_name)
+        
+        # First find the device using dynamic API
+        devices = client.dcim.devices.filter(name=device_name)
+        
+        if not devices:
+            return {
+                "device_name": device_name,
+                "interface_count": 0,
+                "interfaces": [],
+                "error": f"Device '{device_name}' not found",
+                "error_type": "DeviceNotFound"
+            }
+        
+        # Get device ID for interface filtering
+        device_id = devices[0]["id"]
+        
+        # Use dynamic API: client.dcim.interfaces.filter()
+        interfaces = client.dcim.interfaces.filter(device_id=device_id)
         
         return {
             "device_name": device_name,
@@ -417,15 +473,6 @@ def netbox_get_device_interfaces(device_name: str) -> Dict[str, Any]:
             "interfaces": interfaces
         }
         
-    except NetBoxNotFoundError as e:
-        logger.error(f"Device not found: {device_name}")
-        return {
-            "device_name": device_name,
-            "interface_count": 0,
-            "interfaces": [],
-            "error": str(e),
-            "error_type": "DeviceNotFound"
-        }
     except NetBoxError as e:
         logger.error(f"NetBox error getting interfaces for {device_name}: {e}")
         return {
@@ -468,7 +515,13 @@ def netbox_get_manufacturers(limit: Optional[int] = None) -> Dict[str, Any]:
     try:
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_get_manufacturers using client instance ID: {id(client)}")
-        manufacturers = client.get_manufacturers(limit=limit)
+        
+        # Use dynamic API: client.dcim.manufacturers.all()
+        manufacturers = client.dcim.manufacturers.all()
+        
+        # Apply limit if specified
+        if limit and len(manufacturers) > limit:
+            manufacturers = manufacturers[:limit]
         
         return {
             "count": len(manufacturers),
@@ -535,10 +588,10 @@ def netbox_create_manufacturer(
         if description:
             data["description"] = description
         
-        # Execute create operation (includes safety checks)
+        # Execute create operation using dynamic API
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_create_manufacturer using client instance ID: {id(client)}")
-        result = client.create_object("manufacturers", data, confirm=confirm)
+        result = client.dcim.manufacturers.create(confirm=confirm, **data)
         
         return {
             "success": True,
@@ -630,10 +683,10 @@ def netbox_create_site(
         if physical_address:
             data["physical_address"] = physical_address
         
-        # Execute create operation (includes safety checks)
+        # Execute create operation using dynamic API
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_create_site using client instance ID: {id(client)}")
-        result = client.create_object("sites", data, confirm=confirm)
+        result = client.dcim.sites.create(confirm=confirm, **data)
         
         return {
             "success": True,
@@ -720,10 +773,10 @@ def netbox_create_device_role(
         if description:
             data["description"] = description
         
-        # Execute create operation (includes safety checks)
+        # Execute create operation using dynamic API
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_create_device_role using client instance ID: {id(client)}")
-        result = client.create_object("device_roles", data, confirm=confirm)
+        result = client.dcim.device_roles.create(confirm=confirm, **data)
         
         return {
             "success": True,
@@ -795,19 +848,28 @@ def netbox_update_device_status(
         if not confirm:
             raise NetBoxConfirmationError("Write operation 'update_device_status' requires confirm=True parameter")
         
-        # Then find the device
+        # Then find the device using dynamic API
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_update_device_status using client instance ID: {id(client)}")
-        device = client.get_device(device_name, site)
-        if not device:
+        
+        # Build filter parameters
+        filters = {"name": device_name}
+        if site:
+            filters["site"] = site
+        
+        devices = client.dcim.devices.filter(**filters)
+        if not devices:
             return {
                 "success": False,
                 "error": f"Device '{device_name}' not found" + (f" at site '{site}'" if site else ""),
                 "error_type": "DeviceNotFound"
             }
         
-        # Execute update operation (includes safety checks)
-        result = client.update_object("devices", device["id"], {"status": status}, confirm=confirm)
+        device = devices[0]
+        device_id = device["id"]
+        
+        # Execute update operation using dynamic API
+        result = client.dcim.devices.update(device_id, confirm=confirm, status=status)
         
         return {
             "success": True,
@@ -885,10 +947,12 @@ def netbox_delete_manufacturer(
         if not confirm:
             raise NetBoxConfirmationError("Write operation 'delete_manufacturer' requires confirm=True parameter")
         
-        # Then find the manufacturer
+        # Then find the manufacturer using dynamic API
         client = NetBoxClientManager.get_client()
         logger.info(f"TOOL EXECUTION: netbox_delete_manufacturer using client instance ID: {id(client)}")
-        manufacturers = client.get_manufacturers()
+        
+        # Use dynamic API to find manufacturer
+        manufacturers = client.dcim.manufacturers.filter(name__icontains=manufacturer_name)
         manufacturer = None
         for mfg in manufacturers:
             if mfg["name"].lower() == manufacturer_name.lower():
@@ -902,8 +966,8 @@ def netbox_delete_manufacturer(
                 "error_type": "ManufacturerNotFound"
             }
         
-        # Execute delete operation (includes safety checks)
-        result = client.delete_object("manufacturers", manufacturer["id"], confirm=confirm)
+        # Execute delete operation using dynamic API
+        result = client.dcim.manufacturers.delete(manufacturer["id"], confirm=confirm)
         
         return {
             "success": True,
@@ -1010,7 +1074,8 @@ def netbox_bulk_ensure_devices(
                 }
         
         # Initialize stateless orchestrator
-        orchestrator = NetBoxBulkOrchestrator(netbox_client)
+        client = NetBoxClientManager.get_client()
+        orchestrator = NetBoxBulkOrchestrator(client)
         batch_id = orchestrator.generate_batch_id()
         
         logger.info(f"Starting bulk device operation with batch ID: {batch_id}")
@@ -1475,29 +1540,21 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             elif self.path == '/readyz':
                 # Readiness check - test NetBox connection
                 try:
-                    if netbox_client:
-                        status = NetBoxClientManager.get_client().health_check()
-                        if status.connected:
-                            self.send_response(200)
-                            response = {
-                                "status": "OK",
-                                "netbox_connected": True,
-                                "netbox_version": status.version,
-                                "response_time_ms": status.response_time_ms
-                            }
-                        else:
-                            self.send_response(503)
-                            response = {
-                                "status": "Service Unavailable",
-                                "netbox_connected": False,
-                                "error": status.error
-                            }
+                    status = NetBoxClientManager.get_client().health_check()
+                    if status.connected:
+                        self.send_response(200)
+                        response = {
+                            "status": "OK",
+                            "netbox_connected": True,
+                            "netbox_version": status.version,
+                            "response_time_ms": status.response_time_ms
+                        }
                     else:
                         self.send_response(503)
                         response = {
                             "status": "Service Unavailable",
                             "netbox_connected": False,
-                            "error": "NetBox client not initialized"
+                            "error": status.error
                         }
                 except Exception as e:
                     self.send_response(503)
