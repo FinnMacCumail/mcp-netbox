@@ -1,68 +1,70 @@
-# Stage 1: Build stage with development tools
-# Use latest Python 3.12 for better security patches
-FROM python:3.12-slim-bookworm AS builder
+# =================================================================
+# STAGE 1: De "Builder" - Installeert dependencies en compileert
+# =================================================================
+# Gebruik een volledige Python image die de nodige build-tools bevat
+FROM python:3.11 AS builder
 
-# Update packages and install build dependencies with security updates
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    build-essential \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+# Voorkom interactieve prompts tijdens apt-installaties
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Set the working directory. All subsequent commands will be executed here.
 WORKDIR /app
 
-# Copy dependency definitions first.
-# By doing this separately, Docker can cache this layer if dependencies don't change.
-COPY pyproject.toml README.md ./
+# --- Optimaliseer APT & Caching ---
+# Voer apt-get update en install in één RUN-commando uit om caching te optimaliseren.
+# Gebruik NOOIT 'apt-get upgrade'. Installeer alleen wat strikt noodzakelijk is.
+# Ruim de apt-cache direct op in dezelfde laag om de image-grootte te beperken.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install latest secure versions of build tools
-RUN pip install --no-cache-dir --upgrade \
-    pip>=24.0 \
-    setuptools>=75.0.0 \
-    wheel>=0.44.0
+# --- Optimaliseer PIP & Caching ---
+# Kopieer éérst alleen de dependency-bestanden.
+# Zolang deze bestanden niet wijzigen, wordt de langzame 'pip install'-laag
+# uit de cache gehaald, zelfs als je je eigen code aanpast.
+COPY requirements.txt pyproject.toml ./
 
-# Install project dependencies.
-# This installs packages in the system site-packages, which is cleaner for the next stage.
-RUN pip install --no-cache-dir .
+# Installeer de Python dependencies. --no-cache-dir verkleint de layer size.
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code.
+# Installeer het project zelf in development mode
+RUN pip install --no-cache-dir -e .
+
+# =================================================================
+# STAGE 2: De "Final Image" - Lichtgewicht en Productie-klaar
+# =================================================================
+# Start vanaf een minimale, schone en veilige 'slim' image.
+FROM python:3.11-slim
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Kopieer alleen de geïnstalleerde packages uit de 'builder' stage.
+# De build-tools en andere ballast blijven achter.
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Kopieer nu pas de applicatiecode. Dit is de laag die het vaakst verandert
+# en staat daarom bewust als een van de laatste stappen.
 COPY . .
 
-# Stage 2: Production runtime image
-FROM python:3.12-slim-bookworm AS runtime
+# Maak een niet-root gebruiker aan om de applicatie te draaien.
+# Dit is een cruciale security best practice.
+RUN useradd --create-home --uid 1000 appuser
+USER appuser
 
-# Create a non-root user for extra security.
-RUN useradd --create-home --shell /bin/bash --uid 1000 netbox
-
-# Set the working directory in the new user's home directory.
-WORKDIR /home/netbox/app
-
-# Copy installed packages and required application code from the builder stage.
-# This is the essence of a multi-stage build: only the result is carried forward.
-COPY --from=builder --chown=netbox:netbox /app /home/netbox/app
-COPY --from=builder --chown=netbox:netbox /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-COPY --from=builder --chown=netbox:netbox /usr/local/bin /usr/local/bin
-
-# Install only essential runtime dependencies with security updates
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Switch to the non-root user.
-USER netbox
-
-# Expose the port on which the application runs.
+# Expose port 8080
 EXPOSE 8080
 
-# Configure the health check for Docker container orchestration
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/readyz || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
-# Set environment variables.
-ENV PATH="/home/netbox/.local/bin:${PATH}"
+# Environment variables
 ENV PYTHONUNBUFFERED=1
 
-# The command to start the server.
+# Commando om de applicatie te starten
 CMD ["python", "main.py"]
