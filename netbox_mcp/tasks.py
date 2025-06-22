@@ -271,14 +271,19 @@ def execute_bulk_device_operation(
         })
         
         # Initialize NetBox client and orchestrator
+        # NOTE: Async tasks run in separate worker processes and cannot share cache
+        # with the main application singleton. Cache is disabled for async tasks.
         netbox_config = NetBoxConfig(
             url=config["netbox_url"],
             token=config["netbox_token"],
             timeout=config.get("timeout", 30),
             verify_ssl=config.get("verify_ssl", True)
         )
+        # Disable cache for async tasks to prevent conflicts with main application cache
+        netbox_config.cache.enabled = False
         
         netbox_client = NetBoxClient(netbox_config)
+        logger.info(f"ASYNC TASK: NetBoxClient created with cache disabled (ID: {id(netbox_client)})")
         orchestrator = NetBoxBulkOrchestrator(netbox_client)
         batch_id = orchestrator.generate_batch_id()
         

@@ -57,31 +57,33 @@ class SafetyConfig:
 
 @dataclass
 class CacheTTLConfig:
-    """TTL configuration for different data types."""
+    """
+    TTL configuration following Gemini's caching strategy.
     
-    # Core NetBox operations
-    devices: int = 300                      # Device lists and lookups
-    sites: int = 3600                       # Site information (rarely changes)
-    manufacturers: int = 7200               # Manufacturer data (very stable)
-    device_types: int = 7200               # Device types (very stable)
-    device_roles: int = 7200               # Device roles (very stable)
+    TTLs range from static (long TTL) to dynamic (short TTL) based on 
+    how frequently the data changes in typical NetBox deployments.
+    """
     
-    # IPAM operations
-    ip_addresses: int = 600                 # IP address data
-    prefixes: int = 1800                   # Network prefixes
-    vlans: int = 1800                      # VLAN information
+    # Priority 1: Static objects (high cache value, low risk)
+    manufacturers: int = 86400              # 1 day - manufacturers rarely change
+    device_types: int = 86400               # 1 day - device types rarely change  
+    sites: int = 3600                       # 1 hour - sites change occasionally
+    device_roles: int = 86400               # 1 day - device roles rarely change
     
-    # Relationships and complex queries
-    device_interfaces: int = 600            # Device interface data
-    device_connections: int = 600           # Device connection data
-    topology_data: int = 3600              # Network topology analysis
+    # Priority 2: Semi-static objects
+    devices: int = 300                      # 5 minutes - devices change more frequently
     
-    # System and status
-    status: int = 60                       # NetBox status information
-    health: int = 60                       # Health check data
+    # Priority 3: Dynamic objects (conservative TTL)
+    ip_addresses: int = 60                  # 1 minute - IP addresses very dynamic
+    device_interfaces: int = 60             # 1 minute - interfaces change frequently
+    vlans: int = 300                        # 5 minutes - VLANs moderately dynamic
     
-    # Default TTL for unlisted operations
-    default: int = 300
+    # System status (always fresh)
+    status: int = 30                        # 30 seconds - status should be fresh
+    health: int = 30                        # 30 seconds - health should be fresh
+    
+    # Default for unlisted operations (conservative)
+    default: int = 300                      # 5 minutes default
 
 
 @dataclass

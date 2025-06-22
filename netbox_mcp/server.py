@@ -30,16 +30,48 @@ import json
 from functools import partial
 from typing import Dict, List, Optional, Any, Union
 
-# Global configuration and client
-config: Optional[NetBoxConfig] = None
-netbox_client: Optional[NetBoxClient] = None
-
 # Configure logging (will be updated from config)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
 mcp = FastMCP("NetBox", description="Read/Write MCP server for NetBox network documentation and IPAM")
+
+# --- GEMINI'S FIX: SINGLETON CLIENT MANAGER ---
+class NetBoxClientManager:
+    """
+    Singleton manager for NetBoxClient following Gemini's architectural guidance.
+    Ensures exactly one client instance exists application-wide.
+    """
+    _instance = None
+    _client = None
+    _lock = threading.Lock()
+    
+    @classmethod
+    def initialize(cls, config: NetBoxConfig) -> None:
+        """Initialize the shared client instance (called once at startup)."""
+        with cls._lock:
+            if cls._client is None:
+                cls._client = NetBoxClient(config)
+                logger.info(f"SINGLETON: NetBoxClient initialized with instance ID: {id(cls._client)}")
+            else:
+                logger.warning("SINGLETON: Client already initialized, ignoring duplicate initialization")
+    
+    @classmethod 
+    def get_client(cls) -> NetBoxClient:
+        """Get the shared client instance."""
+        with cls._lock:
+            if cls._client is None:
+                raise NetBoxError("NetBoxClient not initialized. Call NetBoxClientManager.initialize() first.")
+            logger.debug(f"SINGLETON: Returning client instance ID: {id(cls._client)}")
+            return cls._client
+    
+    @classmethod
+    def reset(cls) -> None:
+        """Reset client (for testing purposes only)."""
+        with cls._lock:
+            cls._client = None
+            logger.info("SINGLETON: Client reset")
 
 
 @mcp.tool()
@@ -58,7 +90,9 @@ def netbox_health_check() -> Dict[str, Any]:
         - error: Error message if connection failed
     """
     try:
-        status = netbox_client.health_check()
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_health_check using client instance ID: {id(client)}")
+        status = client.health_check()
         return {
             "connected": status.connected,
             "version": status.version,
@@ -99,7 +133,9 @@ def netbox_get_device(name: str, site: Optional[str] = None) -> Dict[str, Any]:
         netbox_get_device("switch-01", "datacenter-1")
     """
     try:
-        device = netbox_client.get_device(name, site)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_get_device using client instance ID: {id(client)}")
+        device = client.get_device(name, site)
         
         if device is None:
             return {
@@ -165,7 +201,9 @@ def netbox_list_devices(
         if status:
             filters['status'] = status
         
-        devices = netbox_client.list_devices(filters=filters if filters else None, limit=limit)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_list_devices using client instance ID: {id(client)}")
+        devices = client.list_devices(filters=filters if filters else None, limit=limit)
         
         return {
             "count": len(devices),
@@ -212,7 +250,9 @@ def netbox_get_site_by_name(name: str) -> Dict[str, Any]:
         netbox_get_site_by_name("branch-office-nyc")
     """
     try:
-        site = netbox_client.get_site_by_name(name)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_get_site_by_name using client instance ID: {id(client)}")
+        site = client.get_site_by_name(name)
         
         if site is None:
             return {
@@ -262,7 +302,9 @@ def netbox_find_ip(address: str) -> Dict[str, Any]:
         netbox_find_ip("10.0.0.1/24")
     """
     try:
-        ip = netbox_client.get_ip_address(address)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_find_ip using client instance ID: {id(client)}")
+        ip = client.get_ip_address(address)
         
         if ip is None:
             return {
@@ -313,7 +355,9 @@ def netbox_get_vlan_by_name(name: str, site: Optional[str] = None) -> Dict[str, 
         netbox_get_vlan_by_name("Management", "datacenter-1")
     """
     try:
-        vlan = netbox_client.get_vlan_by_name(name, site)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_get_vlan_by_name using client instance ID: {id(client)}")
+        vlan = client.get_vlan_by_name(name, site)
         
         if vlan is None:
             return {
@@ -363,7 +407,9 @@ def netbox_get_device_interfaces(device_name: str) -> Dict[str, Any]:
         netbox_get_device_interfaces("router-core-01")
     """
     try:
-        interfaces = netbox_client.get_device_interfaces(device_name)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_get_device_interfaces using client instance ID: {id(client)}")
+        interfaces = client.get_device_interfaces(device_name)
         
         return {
             "device_name": device_name,
@@ -420,7 +466,9 @@ def netbox_get_manufacturers(limit: Optional[int] = None) -> Dict[str, Any]:
         netbox_get_manufacturers(limit=10)
     """
     try:
-        manufacturers = netbox_client.get_manufacturers(limit=limit)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_get_manufacturers using client instance ID: {id(client)}")
+        manufacturers = client.get_manufacturers(limit=limit)
         
         return {
             "count": len(manufacturers),
@@ -488,7 +536,9 @@ def netbox_create_manufacturer(
             data["description"] = description
         
         # Execute create operation (includes safety checks)
-        result = netbox_client.create_object("manufacturers", data, confirm=confirm)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_create_manufacturer using client instance ID: {id(client)}")
+        result = client.create_object("manufacturers", data, confirm=confirm)
         
         return {
             "success": True,
@@ -581,7 +631,9 @@ def netbox_create_site(
             data["physical_address"] = physical_address
         
         # Execute create operation (includes safety checks)
-        result = netbox_client.create_object("sites", data, confirm=confirm)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_create_site using client instance ID: {id(client)}")
+        result = client.create_object("sites", data, confirm=confirm)
         
         return {
             "success": True,
@@ -669,7 +721,9 @@ def netbox_create_device_role(
             data["description"] = description
         
         # Execute create operation (includes safety checks)
-        result = netbox_client.create_object("device_roles", data, confirm=confirm)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_create_device_role using client instance ID: {id(client)}")
+        result = client.create_object("device_roles", data, confirm=confirm)
         
         return {
             "success": True,
@@ -742,7 +796,9 @@ def netbox_update_device_status(
             raise NetBoxConfirmationError("Write operation 'update_device_status' requires confirm=True parameter")
         
         # Then find the device
-        device = netbox_client.get_device(device_name, site)
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_update_device_status using client instance ID: {id(client)}")
+        device = client.get_device(device_name, site)
         if not device:
             return {
                 "success": False,
@@ -751,7 +807,7 @@ def netbox_update_device_status(
             }
         
         # Execute update operation (includes safety checks)
-        result = netbox_client.update_object("devices", device["id"], {"status": status}, confirm=confirm)
+        result = client.update_object("devices", device["id"], {"status": status}, confirm=confirm)
         
         return {
             "success": True,
@@ -830,7 +886,9 @@ def netbox_delete_manufacturer(
             raise NetBoxConfirmationError("Write operation 'delete_manufacturer' requires confirm=True parameter")
         
         # Then find the manufacturer
-        manufacturers = netbox_client.get_manufacturers()
+        client = NetBoxClientManager.get_client()
+        logger.info(f"TOOL EXECUTION: netbox_delete_manufacturer using client instance ID: {id(client)}")
+        manufacturers = client.get_manufacturers()
         manufacturer = None
         for mfg in manufacturers:
             if mfg["name"].lower() == manufacturer_name.lower():
@@ -845,7 +903,7 @@ def netbox_delete_manufacturer(
             }
         
         # Execute delete operation (includes safety checks)
-        result = netbox_client.delete_object("manufacturers", manufacturer["id"], confirm=confirm)
+        result = client.delete_object("manufacturers", manufacturer["id"], confirm=confirm)
         
         return {
             "success": True,
@@ -976,7 +1034,7 @@ def netbox_bulk_ensure_devices(
                 "dry_run_mode": True,
                 "safety_checks": {
                     "confirm_required": not confirm,
-                    "global_dry_run": netbox_client.config.safety.dry_run_mode
+                    "global_dry_run": NetBoxClientManager.get_client().config.safety.dry_run_mode
                 }
             }
             
@@ -1068,7 +1126,7 @@ def netbox_bulk_ensure_devices(
             },
             "detailed_results": total_results,
             "operation_report": operation_report,
-            "dry_run": netbox_client.config.safety.dry_run_mode
+            "dry_run": NetBoxClientManager.get_client().config.safety.dry_run_mode
         }
         
     except Exception as e:
@@ -1163,11 +1221,11 @@ def netbox_start_bulk_async(
         # Prepare task configuration
         task_config = {
             "confirm": confirm,
-            "netbox_url": netbox_client.config.url,
-            "netbox_token": netbox_client.config.token,
-            "timeout": netbox_client.config.timeout,
-            "verify_ssl": netbox_client.config.verify_ssl,
-            "dry_run_mode": netbox_client.config.safety.dry_run_mode
+            "netbox_url": NetBoxClientManager.get_client().config.url,
+            "netbox_token": NetBoxClientManager.get_client().config.token,
+            "timeout": NetBoxClientManager.get_client().config.timeout,
+            "verify_ssl": NetBoxClientManager.get_client().config.verify_ssl,
+            "dry_run_mode": NetBoxClientManager.get_client().config.safety.dry_run_mode
         }
         
         # Queue the async operation
@@ -1418,7 +1476,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 # Readiness check - test NetBox connection
                 try:
                     if netbox_client:
-                        status = netbox_client.health_check()
+                        status = NetBoxClientManager.get_client().health_check()
                         if status.connected:
                             self.send_response(200)
                             response = {
@@ -1492,8 +1550,6 @@ def start_health_server(port: int):
 
 def initialize_server():
     """Initialize the NetBox MCP server with configuration and client."""
-    global config, netbox_client
-    
     try:
         # Load configuration
         config = load_config()
@@ -1510,12 +1566,13 @@ def initialize_server():
         if not config.safety.enable_write_operations:
             logger.info("🔒 Write operations are DISABLED - server is read-only")
         
-        # Initialize NetBox client
-        netbox_client = NetBoxClient(config)
-        logger.info("NetBox client initialized successfully")
+        # Initialize NetBox client using Gemini's singleton pattern
+        NetBoxClientManager.initialize(config)
+        logger.info("NetBox client initialized successfully via singleton manager")
         
         # Test connection
-        status = netbox_client.health_check()
+        client = NetBoxClientManager.get_client()
+        status = client.health_check()
         if status.connected:
             logger.info(f"✅ Connected to NetBox {status.version} (response time: {status.response_time_ms:.1f}ms)")
         else:

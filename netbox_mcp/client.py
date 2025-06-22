@@ -10,12 +10,14 @@ Safety-first design with built-in confirmation mechanisms for write operations.
 
 import logging
 import time
+import hashlib
 from typing import Dict, List, Optional, Any, Union
 from dataclasses import dataclass
 
 import pynetbox
 import requests
 from requests.exceptions import ConnectionError, Timeout, RequestException
+from cachetools import TTLCache
 
 from .config import NetBoxConfig
 from .exceptions import (
@@ -45,6 +47,232 @@ class ConnectionStatus:
     error: Optional[str] = None
 
 
+class CacheManager:
+    """
+    Cache manager implementing Gemini's caching strategy.
+    
+    Provides TTL-based caching with configurable TTLs per object type,
+    standardized cache key generation, and comprehensive metrics tracking.
+    """
+    
+    def __init__(self, config: NetBoxConfig):
+        """Initialize cache with configuration."""
+        self.config = config
+        self.enabled = config.cache.enabled
+        
+        # --- GEMINI'S FIX ---
+        # Always initialize self.caches as empty dictionary to prevent AttributeError
+        self.caches = {}
+        self.default_cache = None
+        self.stats = {
+            "hits": 0,
+            "misses": 0,
+            "evictions": 0,
+            "invalidations": 0
+        }
+        
+        # Add thread safety lock
+        import threading
+        self.lock = threading.Lock()
+        
+        if self.enabled:
+            logger.info("Cache is enabled. Initializing per-type TTL caches.")
+            
+            # Create TTL caches for each object type with specific TTLs
+            object_types = [
+                ("dcim.manufacturer", config.cache.ttl.manufacturers),
+                ("dcim.site", config.cache.ttl.sites),
+                ("dcim.device_role", config.cache.ttl.device_roles),
+                ("dcim.device_type", config.cache.ttl.device_types),
+                ("dcim.device", config.cache.ttl.devices)
+            ]
+            
+            for obj_type, ttl in object_types:
+                self.caches[obj_type] = TTLCache(maxsize=config.cache.max_items // len(object_types), ttl=ttl)
+            
+            # Default cache for other object types
+            self.default_cache = TTLCache(maxsize=config.cache.max_items // 4, ttl=config.cache.ttl.default)
+            
+            logger.info(f"Cache initialized: enabled={self.enabled}, max_items={config.cache.max_items}, caches={len(self.caches)}")
+        else:
+            logger.info("Cache disabled by configuration")
+    
+    def generate_cache_key(self, object_type: str, **kwargs) -> str:
+        """
+        Generate standardized cache key following Gemini's schema.
+        
+        Format: "<object_type>:<param1>=<value1>:<param2>=<value2>"
+        Parameters are sorted alphabetically for consistency.
+        
+        Args:
+            object_type: NetBox object type (e.g., "dcim.device", "dcim.manufacturer")
+            **kwargs: Filter parameters for the query
+            
+        Returns:
+            Standardized cache key string
+        """
+        if not kwargs:
+            return object_type
+        
+        # Sort parameters for consistent key generation
+        sorted_params = sorted(kwargs.items())
+        param_str = ":".join(f"{k}={v}" for k, v in sorted_params if v is not None)
+        
+        return f"{object_type}:{param_str}" if param_str else object_type
+    
+    def get_ttl_for_object_type(self, object_type: str) -> int:
+        """Get TTL for specific object type from configuration."""
+        type_mapping = {
+            "dcim.manufacturer": self.config.cache.ttl.manufacturers,
+            "dcim.site": self.config.cache.ttl.sites,
+            "dcim.devicerole": self.config.cache.ttl.device_roles,
+            "dcim.devicetype": self.config.cache.ttl.device_types,
+            "dcim.device": self.config.cache.ttl.devices,
+            "ipam.ipaddress": self.config.cache.ttl.ip_addresses,
+            "dcim.interface": self.config.cache.ttl.device_interfaces,
+            "ipam.vlan": self.config.cache.ttl.vlans,
+            "status": self.config.cache.ttl.status,
+            "health": self.config.cache.ttl.health
+        }
+        
+        return type_mapping.get(object_type, self.config.cache.ttl.default)
+    
+    def get(self, cache_key: str, object_type: str) -> Optional[Any]:
+        """Get item from cache with metrics tracking."""
+        if not self.enabled:
+            return None
+        
+        try:
+            # Thread-safe cache access
+            with self.lock:
+                # Get appropriate cache for object type
+                cache = self.caches.get(object_type, self.default_cache)
+                if cache is None:
+                    self.stats["misses"] += 1
+                    return None
+                
+                # Check if item exists and is not expired
+                if cache_key in cache:
+                    self.stats["hits"] += 1
+                    logger.debug(f"Cache HIT: {cache_key}")
+                    return cache[cache_key]
+                else:
+                    self.stats["misses"] += 1
+                    logger.debug(f"Cache MISS: {cache_key}")
+                    return None
+                
+        except Exception as e:
+            logger.warning(f"Cache get error for key {cache_key}: {e}")
+            return None
+    
+    def set(self, cache_key: str, value: Any, object_type: str) -> None:
+        """Set item in cache with object-specific TTL."""
+        if not self.enabled:
+            logger.debug(f"Cache SET SKIPPED: cache disabled")
+            return
+        
+        try:
+            # Thread-safe cache access
+            with self.lock:
+                # Get appropriate cache for object type
+                cache = self.caches.get(object_type) if self.caches else None
+                
+                if cache is None:
+                    # Try default cache as fallback
+                    cache = self.default_cache
+                
+                if cache is None:
+                    logger.warning(f"Cache SET FAILED: no cache found for object_type {object_type}")
+                    logger.debug(f"Available cache types: {list(self.caches.keys()) if self.caches else 'No caches dict'}")
+                    return
+                
+                logger.debug(f"Cache SET ATTEMPT: {cache_key} in {object_type} cache (size before: {len(cache)})")
+                
+                # Store in appropriate TTL cache
+                cache[cache_key] = value
+                
+                logger.debug(f"Cache SET SUCCESS: {cache_key} in {object_type} cache (size after: {len(cache)})")
+                
+                # Get TTL for logging
+                ttl = self.get_ttl_for_object_type(object_type)
+                logger.info(f"Cache SET: {cache_key} (TTL: {ttl}s)")
+            
+        except Exception as e:
+            logger.error(f"Cache set error for key {cache_key}: {e}", exc_info=True)
+    
+    def invalidate_pattern(self, pattern: str) -> int:
+        """
+        Invalidate cache entries matching pattern.
+        
+        Args:
+            pattern: Pattern to match (e.g., "dcim.device" to invalidate all devices)
+            
+        Returns:
+            Number of entries invalidated
+        """
+        if not self.enabled:
+            return 0
+        
+        try:
+            total_invalidated = 0
+            
+            # Thread-safe cache access
+            with self.lock:
+                # Check all cache instances
+                all_caches = list(self.caches.values())
+                if self.default_cache:
+                    all_caches.append(self.default_cache)
+                
+                for cache in all_caches:
+                    keys_to_remove = [key for key in cache.keys() if pattern in key]
+                    
+                    for key in keys_to_remove:
+                        del cache[key]
+                        self.stats["invalidations"] += 1
+                        total_invalidated += 1
+            
+            logger.debug(f"Cache invalidated {total_invalidated} entries matching pattern: {pattern}")
+            return total_invalidated
+            
+        except Exception as e:
+            logger.warning(f"Cache invalidation error for pattern {pattern}: {e}")
+            return 0
+    
+    def clear(self) -> None:
+        """Clear entire cache."""
+        if self.enabled:
+            with self.lock:
+                for cache in self.caches.values():
+                    cache.clear()
+                if self.default_cache:
+                    self.default_cache.clear()
+                # Reset stats
+                self.stats.update({"hits": 0, "misses": 0, "evictions": 0, "invalidations": 0})
+            logger.info("Cache cleared")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get cache statistics."""
+        if not self.enabled:
+            return {"enabled": False}
+        
+        with self.lock:
+            total_requests = self.stats["hits"] + self.stats["misses"]
+            hit_ratio = (self.stats["hits"] / total_requests * 100) if total_requests > 0 else 0
+            
+            # Calculate total cache size across all caches
+            total_size = sum(len(cache) for cache in self.caches.values())
+            if self.default_cache:
+                total_size += len(self.default_cache)
+            
+            return {
+                "enabled": True,
+                "size": total_size,
+                "max_size": self.config.cache.max_items,
+                "hit_ratio_percent": round(hit_ratio, 2),
+                **self.stats.copy()  # Return copy to avoid external modifications
+            }
+
+
 class NetBoxClient:
     """
     NetBox API client with safety-first design for read/write operations.
@@ -68,6 +296,13 @@ class NetBoxClient:
         self._api = None
         self._connection_status = None
         self._last_health_check = 0
+        
+        # Add instance tracking for debugging
+        self.instance_id = id(self)
+        logger.info(f"INITIALIZING new NetBoxClient instance with ID: {self.instance_id}")
+        
+        # Initialize cache manager following Gemini's strategy
+        self.cache = CacheManager(config)
         
         logger.info(f"Initializing NetBox client for {config.url}")
         
@@ -190,18 +425,32 @@ class NetBoxClient:
     
     # READ-ONLY OPERATIONS
     
-    def get_device(self, name: str, site: Optional[str] = None) -> Optional[Any]:
+    def get_device(self, name: str, site: Optional[str] = None, bypass_cache: bool = False) -> Optional[Any]:
         """
-        Get device by name and optionally site.
+        Get device by name and optionally site with caching support.
         
         Args:
             name: Device name
             site: Site name (optional for additional filtering)
+            bypass_cache: Skip cache for dry-run operations
             
         Returns:
             Raw pynetbox device object or None if not found
         """
         try:
+            # Generate cache key following Gemini's standardized format
+            cache_filters = {'name': name}
+            if site:
+                cache_filters['site'] = site
+            
+            cache_key = self.cache.generate_cache_key("dcim.device", **cache_filters)
+            
+            # Check cache first (unless bypassed for dry-run)
+            if not bypass_cache:
+                cached_device = self.cache.get(cache_key, "dcim.device")
+                if cached_device is not None:
+                    return cached_device
+            
             logger.debug(f"Getting device: {name}" + (f" at site {site}" if site else ""))
             
             # Build filter parameters
@@ -220,6 +469,11 @@ class NetBoxClient:
             
             device = devices[0]
             logger.debug(f"Device found: {device.name} (ID: {device.id})")
+            
+            # Cache the result
+            if not bypass_cache:
+                self.cache.set(cache_key, device, "dcim.device")
+            
             return device
             
         except Exception as e:
@@ -280,17 +534,27 @@ class NetBoxClient:
             logger.error(error_msg)
             raise NetBoxError(error_msg, {"filters": filters, "limit": limit})
     
-    def get_site_by_name(self, name: str) -> Optional[Any]:
+    def get_site_by_name(self, name: str, bypass_cache: bool = False) -> Optional[Any]:
         """
-        Get site by name.
+        Get site by name with caching support.
         
         Args:
             name: Site name
+            bypass_cache: Skip cache for dry-run operations
             
         Returns:
             Raw pynetbox site object or None if not found
         """
         try:
+            # Generate cache key for site
+            cache_key = self.cache.generate_cache_key("dcim.site", name=name)
+            
+            # Check cache first (unless bypassed)
+            if not bypass_cache:
+                cached_site = self.cache.get(cache_key, "dcim.site")
+                if cached_site is not None:
+                    return cached_site
+            
             logger.debug(f"Getting site: {name}")
             
             sites = list(self.api.dcim.sites.filter(name=name))
@@ -304,6 +568,11 @@ class NetBoxClient:
             
             site = sites[0]
             logger.debug(f"Site found: {site.name} (ID: {site.id})")
+            
+            # Cache the result
+            if not bypass_cache:
+                self.cache.set(cache_key, site, "dcim.site")
+            
             return site
             
         except Exception as e:
@@ -576,6 +845,52 @@ class NetBoxClient:
             logger.error(error_msg)
             raise NetBoxError(error_msg, {"limit": limit})
     
+    def get_manufacturer_by_name(self, name: str, bypass_cache: bool = False) -> Optional[Any]:
+        """
+        Get manufacturer by name with caching support.
+        
+        Args:
+            name: Manufacturer name
+            bypass_cache: Skip cache for dry-run operations
+            
+        Returns:
+            Raw pynetbox manufacturer object or None if not found
+        """
+        try:
+            # Generate cache key for manufacturer
+            cache_key = self.cache.generate_cache_key("dcim.manufacturer", name=name)
+            
+            # Check cache first (unless bypassed)
+            if not bypass_cache:
+                cached_manufacturer = self.cache.get(cache_key, "dcim.manufacturer")
+                if cached_manufacturer is not None:
+                    return cached_manufacturer
+            
+            logger.debug(f"Getting manufacturer: {name}")
+            
+            manufacturers = list(self.api.dcim.manufacturers.filter(name=name))
+            
+            if not manufacturers:
+                logger.debug(f"Manufacturer not found: {name}")
+                return None
+            
+            if len(manufacturers) > 1:
+                logger.warning(f"Multiple manufacturers found with name {name}, returning first")
+            
+            manufacturer = manufacturers[0]
+            logger.debug(f"Manufacturer found: {manufacturer.name} (ID: {manufacturer.id})")
+            
+            # Cache the result
+            if not bypass_cache:
+                self.cache.set(cache_key, manufacturer, "dcim.manufacturer")
+            
+            return manufacturer
+            
+        except Exception as e:
+            error_msg = f"Failed to get manufacturer {name}: {e}"
+            logger.error(error_msg)
+            raise NetBoxError(error_msg, {"manufacturer_name": name})
+    
     # =====================================================================
     # WRITE OPERATIONS - SAFETY CRITICAL SECTION
     # =====================================================================
@@ -684,6 +999,9 @@ class NetBoxClient:
             # Log successful operation
             self._log_write_operation(operation, object_type, data, result)
             
+            # Cache invalidation for object creation
+            self.cache.invalidate_pattern(f"dcim.{object_type.rstrip('s')}")
+            
             logger.info(f"✅ Successfully created {object_type} with ID: {result.id}")
             return result_dict
             
@@ -766,6 +1084,9 @@ class NetBoxClient:
             # Log successful operation  
             self._log_write_operation(operation, object_type, data, existing_obj)
             
+            # Cache invalidation for object update
+            self.cache.invalidate_pattern(f"dcim.{object_type.rstrip('s')}")
+            
             logger.info(f"✅ Successfully updated {object_type} ID {object_id}")
             return result_dict
             
@@ -841,6 +1162,9 @@ class NetBoxClient:
             
             # Log successful operation
             self._log_write_operation(operation, object_type, object_data, result)
+            
+            # Cache invalidation for object deletion
+            self.cache.invalidate_pattern(f"dcim.{object_type.rstrip('s')}")
             
             logger.info(f"✅ Successfully deleted {object_type} ID {object_id}")
             return result
@@ -1079,7 +1403,7 @@ class NetBoxClient:
         updated_state = desired_state.copy()
         updated_state["custom_fields"] = {
             **desired_state.get("custom_fields", {}),
-            **metadata
+            **internal_metadata
         }
         
         logger.debug(f"Prepared metadata for {object_type} {operation}: hash={new_hash[:8]}...")
@@ -1208,6 +1532,9 @@ class NetBoxClient:
                         logger.info(f"Updating manufacturer '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
                         result = self.update_object("manufacturers", existing_obj.id, update_data, confirm=True)
                         
+                        # Cache invalidation for manufacturer update
+                        self.cache.invalidate_pattern("dcim.manufacturer")
+                        
                         return {
                             "success": True,
                             "action": "updated",
@@ -1249,6 +1576,9 @@ class NetBoxClient:
                     create_data = self._prepare_metadata_update(create_data, "manufacturers", "create")
                     
                     result = self.create_object("manufacturers", create_data, confirm=True)
+                    
+                    # Cache invalidation for manufacturer creation
+                    self.cache.invalidate_pattern("dcim.manufacturer")
                     
                     return {
                         "success": True,
@@ -1398,6 +1728,9 @@ class NetBoxClient:
                         logger.info(f"Updating site '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
                         result = self.update_object("sites", existing_obj.id, update_data, confirm=True)
                         
+                        # Cache invalidation for site update
+                        self.cache.invalidate_pattern("dcim.site")
+                        
                         return {
                             "success": True,
                             "action": "updated",
@@ -1443,6 +1776,9 @@ class NetBoxClient:
                     create_data = self._prepare_metadata_update(create_data, "sites", "create")
                     
                     result = self.create_object("sites", create_data, confirm=True)
+                    
+                    # Cache invalidation for site creation
+                    self.cache.invalidate_pattern("dcim.site")
                     
                     return {
                         "success": True,
@@ -1586,6 +1922,9 @@ class NetBoxClient:
                         logger.info(f"Updating device role '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
                         result = self.update_object("device_roles", existing_obj.id, update_data, confirm=True)
                         
+                        # Cache invalidation for device role update
+                        self.cache.invalidate_pattern("dcim.device_role")
+                        
                         return {
                             "success": True,
                             "action": "updated",
@@ -1627,6 +1966,9 @@ class NetBoxClient:
                     create_data = self._prepare_metadata_update(create_data, "device_roles", "create")
                     
                     result = self.create_object("device_roles", create_data, confirm=True)
+                    
+                    # Cache invalidation for device role creation
+                    self.cache.invalidate_pattern("dcim.device_role")
                     
                     return {
                         "success": True,
@@ -1782,6 +2124,9 @@ class NetBoxClient:
                         logger.info(f"Updating device type '{name}' - managed fields changed: {[f['field'] for f in comparison['updated_fields']]}")
                         result = self.update_object("device_types", existing_obj.id, update_data, confirm=True)
                         
+                        # Cache invalidation for device type update
+                        self.cache.invalidate_pattern("dcim.device_type")
+                        
                         return {
                             "success": True,
                             "action": "updated",
@@ -1825,6 +2170,9 @@ class NetBoxClient:
                     create_data = self._prepare_metadata_update(create_data, "device_types", "create", batch_id)
                     
                     result = self.create_object("device_types", create_data, confirm=True)
+                    
+                    # Cache invalidation for device type creation
+                    self.cache.invalidate_pattern("dcim.device_type")
                     
                     return {
                         "success": True,
@@ -1987,6 +2335,9 @@ class NetBoxClient:
                             confirm=confirm
                         )
                         
+                        # Cache invalidation for device update
+                        self.cache.invalidate_pattern("dcim.device") 
+                        
                         return {
                             "success": True,
                             "action": "updated",
@@ -2043,6 +2394,9 @@ class NetBoxClient:
                     data=create_data,
                     confirm=confirm
                 )
+                
+                # Cache invalidation for device creation
+                self.cache.invalidate_pattern("dcim.device")
                 
                 return {
                     "success": True,
