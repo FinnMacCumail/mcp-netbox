@@ -9,4 +9,5 @@ IP addresses, prefixes, VLANs, and high-level automation workflows.
 from . import addresses
 from . import prefixes  
 from . import vlans
+from . import enterprise
 # TODO: Import other IPAM modules as they are migrated
