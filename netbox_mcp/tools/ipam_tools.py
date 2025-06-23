@@ -1462,6 +1462,380 @@ def netbox_provision_vlan_with_prefix(
         }
 
 
+@mcp_tool(category="ipam")
+def netbox_find_duplicate_ips(
+    client: NetBoxClient,
+    vrf: Optional[str] = None,
+    tenant: Optional[str] = None,
+    include_severity_analysis: bool = True,
+    include_resolution_recommendations: bool = True,
+    limit: int = 1000
+) -> Dict[str, Any]:
+    """
+    Find duplicate IP addresses in NetBox for network auditing and data quality assurance.
+    
+    This enterprise-grade auditing tool identifies IP address conflicts across NetBox,
+    providing detailed analysis including assignment context, conflict severity assessment,
+    and resolution recommendations. Essential for maintaining data integrity and 
+    troubleshooting network configuration issues.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        vrf: Optional VRF name to limit search scope
+        tenant: Optional tenant name to filter IP addresses
+        include_severity_analysis: Include conflict severity assessment
+        include_resolution_recommendations: Include resolution recommendations
+        limit: Maximum number of IP addresses to analyze (default: 1000, max: 10000)
+        
+    Returns:
+        Comprehensive duplicate IP report with conflict analysis and recommendations
+        
+    Examples:
+        # Find all duplicate IPs across NetBox
+        netbox_find_duplicate_ips()
+        
+        # VRF-scoped duplicate detection
+        netbox_find_duplicate_ips(vrf="production-vrf")
+        
+        # Multi-tenant duplicate analysis
+        netbox_find_duplicate_ips(
+            tenant="customer-a",
+            include_severity_analysis=True,
+            include_resolution_recommendations=True
+        )
+        
+        # Bulk analysis with custom limit
+        netbox_find_duplicate_ips(limit=5000)
+    """
+    try:
+        if limit > 10000:
+            return {
+                "success": False,
+                "error": "Limit cannot exceed 10000 for performance reasons",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Starting duplicate IP analysis (limit: {limit})")
+        
+        # Step 1: Build filters for IP address collection
+        ip_filters = {}
+        resolved_refs = {}
+        
+        if vrf:
+            logger.debug(f"Looking up VRF: {vrf}")
+            vrfs = client.ipam.vrfs.filter(name=vrf)
+            if not vrfs:
+                vrfs = client.ipam.vrfs.filter(rd=vrf)  # Try route distinguisher
+            if vrfs:
+                vrf_obj = vrfs[0]
+                ip_filters["vrf_id"] = vrf_obj["id"]
+                resolved_refs["vrf"] = {
+                    "id": vrf_obj["id"],
+                    "name": vrf_obj["name"],
+                    "rd": vrf_obj.get("rd", "")
+                }
+                logger.debug(f"Found VRF: {vrf_obj['name']} (ID: {vrf_obj['id']})")
+            else:
+                return {
+                    "success": False,
+                    "error": f"VRF '{vrf}' not found",
+                    "error_type": "NotFoundError"
+                }
+        
+        if tenant:
+            logger.debug(f"Looking up tenant: {tenant}")
+            tenants = client.tenancy.tenants.filter(name=tenant)
+            if not tenants:
+                tenants = client.tenancy.tenants.filter(slug=tenant)
+            if tenants:
+                tenant_obj = tenants[0]
+                ip_filters["tenant_id"] = tenant_obj["id"]
+                resolved_refs["tenant"] = {
+                    "id": tenant_obj["id"],
+                    "name": tenant_obj["name"],
+                    "slug": tenant_obj["slug"]
+                }
+                logger.debug(f"Found tenant: {tenant_obj['name']} (ID: {tenant_obj['id']})")
+            else:
+                logger.warning(f"Tenant '{tenant}' not found, proceeding without tenant filter")
+        
+        # Step 2: Retrieve all IP addresses with filters
+        logger.debug(f"Retrieving IP addresses with filters: {ip_filters}")
+        try:
+            # Get IPs with pagination support
+            all_ips = []
+            offset = 0
+            batch_size = min(500, limit)  # Process in batches
+            
+            while len(all_ips) < limit:
+                remaining = limit - len(all_ips)
+                current_limit = min(batch_size, remaining)
+                
+                # Apply filters with pagination
+                current_filters = ip_filters.copy()
+                current_filters["limit"] = current_limit
+                current_filters["offset"] = offset
+                
+                batch_ips = client.ipam.ip_addresses.filter(**current_filters)
+                
+                if not batch_ips:
+                    break  # No more IPs available
+                
+                all_ips.extend(batch_ips)
+                offset += len(batch_ips)
+                
+                if len(batch_ips) < current_limit:
+                    break  # Last batch
+                
+                logger.debug(f"Retrieved {len(all_ips)} IPs so far...")
+            
+            logger.info(f"Retrieved {len(all_ips)} IP addresses for analysis")
+            
+        except Exception as e:
+            logger.error(f"Failed to retrieve IP addresses: {e}")
+            return {
+                "success": False,
+                "error": f"Failed to retrieve IP addresses: {str(e)}",
+                "error_type": "NetBoxAPIError"
+            }
+        
+        if not all_ips:
+            return {
+                "success": True,
+                "duplicates_found": 0,
+                "total_ips_analyzed": 0,
+                "duplicates": [],
+                "analysis_scope": {
+                    "vrf_filter": vrf,
+                    "tenant_filter": tenant,
+                    "resolved_references": resolved_refs
+                },
+                "message": "No IP addresses found matching the specified criteria"
+            }
+        
+        # Step 3: Client-side duplicate detection using Python
+        logger.debug("Performing client-side duplicate analysis...")
+        
+        import ipaddress
+        from collections import defaultdict
+        
+        # Dictionary to track IP addresses (without prefix length)
+        ip_tracker = defaultdict(list)
+        ipv4_count = 0
+        ipv6_count = 0
+        assignment_stats = {
+            "interface_assignments": 0,
+            "device_assignments": 0,
+            "unassigned": 0,
+            "other_assignments": 0
+        }
+        
+        # Process each IP address
+        for ip_obj in all_ips:
+            ip_address_str = ip_obj.get("address", "")
+            if not ip_address_str:
+                continue
+            
+            try:
+                # Parse IP address to separate IP from prefix length
+                ip_interface = ipaddress.ip_interface(ip_address_str)
+                ip_only = str(ip_interface.ip)  # Just the IP without prefix length
+                
+                # Track IP version statistics
+                if ip_interface.version == 4:
+                    ipv4_count += 1
+                else:
+                    ipv6_count += 1
+                
+                # Track assignment statistics
+                assigned_obj = ip_obj.get("assigned_object")
+                if assigned_obj:
+                    if isinstance(assigned_obj, dict):
+                        obj_type = assigned_obj.get("object_type", "").lower()
+                        if "interface" in obj_type:
+                            assignment_stats["interface_assignments"] += 1
+                        elif "device" in obj_type:
+                            assignment_stats["device_assignments"] += 1
+                        else:
+                            assignment_stats["other_assignments"] += 1
+                    else:
+                        assignment_stats["other_assignments"] += 1
+                else:
+                    assignment_stats["unassigned"] += 1
+                
+                # Add to tracker with full context
+                ip_context = {
+                    "id": ip_obj.get("id"),
+                    "full_address": ip_address_str,
+                    "ip_only": ip_only,
+                    "prefix_length": ip_interface.network.prefixlen,
+                    "status": ip_obj.get("status", {}),
+                    "assigned_object": assigned_obj,
+                    "description": ip_obj.get("description", ""),
+                    "created": ip_obj.get("created", ""),
+                    "last_updated": ip_obj.get("last_updated", ""),
+                    "tenant": ip_obj.get("tenant", {}),
+                    "vrf": ip_obj.get("vrf", {}),
+                    "url": ip_obj.get("url", "")
+                }
+                
+                ip_tracker[ip_only].append(ip_context)
+                
+            except ValueError as e:
+                logger.warning(f"Invalid IP address format: {ip_address_str} - {e}")
+                continue
+        
+        # Step 4: Identify duplicates (IPs that appear more than once)
+        duplicates = []
+        duplicate_ips_count = 0
+        
+        for ip_only, occurrences in ip_tracker.items():
+            if len(occurrences) > 1:
+                duplicate_ips_count += 1
+                
+                # Step 5: Severity analysis if requested
+                severity_info = {}
+                if include_severity_analysis:
+                    # Analyze severity based on various factors
+                    prefixes = set(occ["prefix_length"] for occ in occurrences)
+                    statuses = set(
+                        occ["status"].get("value", "unknown") if isinstance(occ["status"], dict) 
+                        else str(occ["status"]) 
+                        for occ in occurrences
+                    )
+                    
+                    # Determine conflict severity
+                    severity = "low"
+                    risk_factors = []
+                    
+                    if len(prefixes) > 1:
+                        severity = "medium"
+                        risk_factors.append("Different subnet masks")
+                    
+                    active_assignments = [occ for occ in occurrences if occ["assigned_object"]]
+                    if len(active_assignments) > 1:
+                        severity = "high"
+                        risk_factors.append("Multiple active assignments")
+                    
+                    if "active" in statuses:
+                        if len([occ for occ in occurrences if 
+                               isinstance(occ["status"], dict) and 
+                               occ["status"].get("value") == "active"]) > 1:
+                            severity = "critical"
+                            risk_factors.append("Multiple active status IPs")
+                    
+                    # Check for same-device conflicts
+                    device_names = set()
+                    for occ in occurrences:
+                        if occ["assigned_object"] and isinstance(occ["assigned_object"], dict):
+                            assigned_obj = occ["assigned_object"]
+                            if "device" in str(assigned_obj).lower():
+                                device_names.add(assigned_obj.get("name", "unknown"))
+                    
+                    if len(device_names) > 1:
+                        severity = "critical"
+                        risk_factors.append("Assigned to multiple devices")
+                    elif len(device_names) == 1:
+                        risk_factors.append("Multiple assignments on same device")
+                    
+                    severity_info = {
+                        "severity": severity,
+                        "risk_factors": risk_factors,
+                        "unique_prefixes": len(prefixes),
+                        "unique_statuses": len(statuses),
+                        "active_assignments": len(active_assignments),
+                        "affected_devices": len(device_names)
+                    }
+                
+                # Step 6: Resolution recommendations if requested
+                recommendations = []
+                if include_resolution_recommendations:
+                    if severity_info.get("severity") == "critical":
+                        recommendations.append("URGENT: Immediate action required to resolve IP conflict")
+                        recommendations.append("Review and consolidate duplicate assignments")
+                    
+                    if len(active_assignments) > 1:
+                        recommendations.append("Deactivate redundant IP assignments")
+                        recommendations.append("Verify network configuration on affected devices")
+                    
+                    if "Multiple active assignments" in risk_factors:
+                        recommendations.append("Change status of duplicate IPs to 'reserved' or 'deprecated'")
+                    
+                    if "Different subnet masks" in risk_factors:
+                        recommendations.append("Standardize prefix lengths for consistent subnetting")
+                    
+                    # Add general recommendations
+                    recommendations.append("Document IP assignment rationale")
+                    recommendations.append("Implement IP allocation policies to prevent future conflicts")
+                
+                duplicate_entry = {
+                    "ip_address": ip_only,
+                    "occurrence_count": len(occurrences),
+                    "occurrences": occurrences,
+                    "severity_analysis": severity_info,
+                    "resolution_recommendations": recommendations
+                }
+                
+                duplicates.append(duplicate_entry)
+        
+        # Step 7: Sort duplicates by severity and occurrence count
+        def sort_key(duplicate):
+            severity_order = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+            severity = duplicate.get("severity_analysis", {}).get("severity", "low")
+            return (severity_order.get(severity, 0), duplicate["occurrence_count"])
+        
+        duplicates.sort(key=sort_key, reverse=True)
+        
+        # Step 8: Build comprehensive analysis report
+        total_conflicts = sum(dup["occurrence_count"] for dup in duplicates)
+        
+        result = {
+            "success": True,
+            "duplicates_found": duplicate_ips_count,
+            "total_ip_conflicts": total_conflicts,
+            "total_ips_analyzed": len(all_ips),
+            "duplicates": duplicates,
+            "analysis_scope": {
+                "vrf_filter": vrf,
+                "tenant_filter": tenant,
+                "resolved_references": resolved_refs,
+                "analysis_limit": limit
+            },
+            "statistics": {
+                "ipv4_addresses": ipv4_count,
+                "ipv6_addresses": ipv6_count,
+                "assignment_breakdown": assignment_stats,
+                "duplicate_rate": round((duplicate_ips_count / len(all_ips) * 100), 2) if all_ips else 0
+            },
+            "analysis_metadata": {
+                "analysis_timestamp": client._get_current_timestamp() if hasattr(client, '_get_current_timestamp') else "unknown",
+                "include_severity_analysis": include_severity_analysis,
+                "include_resolution_recommendations": include_resolution_recommendations,
+                "batch_processing": len(all_ips) > 500
+            }
+        }
+        
+        # Add severity summary
+        if include_severity_analysis and duplicates:
+            severity_summary = defaultdict(int)
+            for dup in duplicates:
+                severity = dup.get("severity_analysis", {}).get("severity", "unknown")
+                severity_summary[severity] += 1
+            
+            result["severity_summary"] = dict(severity_summary)
+        
+        logger.info(f"✅ Duplicate IP analysis complete: {duplicate_ips_count} duplicate IPs found ({total_conflicts} total conflicts)")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to analyze duplicate IPs: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 # ========================================
 # VRF MANAGEMENT TOOLS  
 # ========================================
