@@ -27,6 +27,7 @@ def load_all_tools() -> List[str]:
     
     This function scans the tools/ directory for Python modules and imports
     them, which triggers the @mcp_tool decorator registration.
+    Supports both flat files and domain subdirectories.
     
     Returns:
         List[str]: Names of successfully loaded tool modules
@@ -39,15 +40,36 @@ def load_all_tools() -> List[str]:
     try:
         # Iterate through all modules in this package
         for finder, module_name, ispkg in pkgutil.iter_modules(package_path, prefix=__name__ + '.'):
-            if not ispkg and not module_name.endswith('.__init__'):
-                try:
-                    # Import the module, which will trigger @mcp_tool registrations
+            try:
+                if ispkg:
+                    # This is a subdirectory (domain package) - import it to trigger __init__.py
                     importlib.import_module(module_name)
                     loaded_modules.append(module_name)
-                    logger.info(f"Successfully loaded tool module: {module_name}")
-                except Exception as e:
-                    logger.error(f"Failed to load tool module {module_name}: {e}")
-                    # Continue loading other modules even if one fails
+                    logger.info(f"Successfully loaded domain package: {module_name}")
+                    
+                    # Also load all modules within the domain package
+                    domain_package = importlib.import_module(module_name)
+                    if hasattr(domain_package, '__path__'):
+                        for domain_finder, domain_module_name, domain_ispkg in pkgutil.iter_modules(
+                            domain_package.__path__, prefix=module_name + '.'
+                        ):
+                            if not domain_ispkg and not domain_module_name.endswith('.__init__'):
+                                try:
+                                    importlib.import_module(domain_module_name)
+                                    loaded_modules.append(domain_module_name)
+                                    logger.info(f"Successfully loaded domain module: {domain_module_name}")
+                                except Exception as e:
+                                    logger.error(f"Failed to load domain module {domain_module_name}: {e}")
+                                    
+                elif not module_name.endswith('.__init__'):
+                    # This is a flat module file - import it directly
+                    importlib.import_module(module_name)
+                    loaded_modules.append(module_name)
+                    logger.info(f"Successfully loaded flat module: {module_name}")
+                    
+            except Exception as e:
+                logger.error(f"Failed to load module {module_name}: {e}")
+                # Continue loading other modules even if one fails
     
     except Exception as e:
         logger.error(f"Error during tool discovery: {e}")
