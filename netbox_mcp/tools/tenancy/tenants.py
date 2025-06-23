@@ -397,7 +397,95 @@ def netbox_onboard_new_tenant(
         }
 
 
-# TODO: Implement remaining tenant management tools:
-# - netbox_create_tenant_group
-# - netbox_assign_resources_to_tenant  
-# - netbox_get_tenant_resource_report
+@mcp_tool(category="tenancy")
+def netbox_create_tenant_group(
+    client: NetBoxClient,
+    group_name: str,
+    parent_group: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create a new tenant group in NetBox with hierarchical organization support.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        group_name: Name of the tenant group
+        parent_group: Optional parent group name for hierarchical structure
+        description: Optional description of the group
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Created tenant group information or error details
+        
+    Example:
+        netbox_create_tenant_group("Enterprise-Customers", description="Large enterprise customers", confirm=True)
+    """
+    try:
+        if not group_name:
+            return {
+                "success": False,
+                "error": "group_name is required",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Creating tenant group: {group_name}")
+        
+        # Check if group already exists
+        existing_groups = client.tenancy.tenant_groups.filter(name=group_name)
+        if existing_groups:
+            return {
+                "success": False,
+                "error": f"Tenant group '{group_name}' already exists",
+                "error_type": "ConflictError",
+                "existing_group": existing_groups[0]
+            }
+        
+        # Build group data with slug generation
+        # Generate slug from group name
+        group_slug = re.sub(r'[^a-zA-Z0-9-_]', '-', group_name.lower())
+        group_slug = re.sub(r'-+', '-', group_slug).strip('-')
+        
+        group_data = {
+            "name": group_name,
+            "slug": group_slug
+        }
+        
+        if description:
+            group_data["description"] = description
+        
+        # Resolve parent group if specified
+        if parent_group:
+            logger.debug(f"Looking up parent group: {parent_group}")
+            parent_groups = client.tenancy.tenant_groups.filter(name=parent_group)
+            if not parent_groups:
+                parent_groups = client.tenancy.tenant_groups.filter(slug=parent_group)
+            
+            if parent_groups:
+                group_data["parent"] = parent_groups[0]["id"]
+                logger.debug(f"Found parent group: {parent_groups[0]['name']} (ID: {parent_groups[0]['id']})")
+            else:
+                return {
+                    "success": False,
+                    "error": f"Parent group '{parent_group}' not found",
+                    "error_type": "NotFoundError"
+                }
+        
+        # Use dynamic API with safety
+        result = client.tenancy.tenant_groups.create(confirm=confirm, **group_data)
+        
+        return {
+            "success": True,
+            "action": "created",
+            "object_type": "tenant_group",
+            "tenant_group": result,
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create tenant group {group_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
