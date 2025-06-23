@@ -10,4 +10,5 @@ from . import sites
 from . import racks
 from . import manufacturers
 from . import device_roles
+from . import device_types
 # TODO: Import other DCIM modules as they are migrated
