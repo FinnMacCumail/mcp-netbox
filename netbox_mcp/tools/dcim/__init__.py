@@ -9,4 +9,5 @@ devices, racks, sites, cables, interfaces, modules, and power infrastructure.
 from . import sites
 from . import racks
 from . import manufacturers
+from . import device_roles
 # TODO: Import other DCIM modules as they are migrated
