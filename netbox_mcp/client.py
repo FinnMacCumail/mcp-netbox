@@ -406,37 +406,46 @@ class EndpointWrapper:
             return result.serialize()
         return result
     
-    def filter(self, *args, **kwargs) -> list:
+    def filter(self, *args, no_cache=False, **kwargs) -> list:
         """
-        Wrapped filter() method with comprehensive caching.
+        Wrapped filter() method with comprehensive caching and optional cache bypass.
         
         Implements Gemini's caching strategy with cache lookup → API call → cache storage.
         Uses *args, **kwargs for universal pynetbox parameter compatibility.
         
         Args:
             *args: Positional arguments for pynetbox filter()
+            no_cache: If True, bypass cache and force fresh API call (for conflict detection)
             **kwargs: Keyword arguments for pynetbox filter()
             
         Returns:
             List of serialized objects from cache or API
         """
-        # Generate cache key from filter parameters
-        cache_key = self.cache.generate_cache_key(self._obj_type, **kwargs)
+        # Generate cache key from filter parameters (excluding no_cache)
+        filter_kwargs = {k: v for k, v in kwargs.items() if k != 'no_cache'}
+        cache_key = self.cache.generate_cache_key(self._obj_type, **filter_kwargs)
         
-        # Check cache first
-        cached_result = self.cache.get(cache_key, self._obj_type)
-        if cached_result is not None:
-            logger.debug(f"CACHE HIT for {self._obj_type} with key: {cache_key}")
-            return cached_result
+        # Check cache first (unless bypassing cache)
+        if not no_cache:
+            cached_result = self.cache.get(cache_key, self._obj_type)
+            if cached_result is not None:
+                logger.debug(f"CACHE HIT for {self._obj_type} with key: {cache_key}")
+                return cached_result
+        else:
+            logger.debug(f"CACHE BYPASS requested for {self._obj_type} - forcing fresh API call")
         
-        # Cache miss: fetch from API
-        logger.debug(f"CACHE MISS for {self._obj_type}. Fetching from API with params: {kwargs}")
-        live_result = list(self._endpoint.filter(*args, **kwargs))
+        # Cache miss or bypass: fetch from API
+        if no_cache:
+            logger.debug(f"CACHE BYPASS for {self._obj_type}. Fetching fresh from API with params: {filter_kwargs}")
+        else:
+            logger.debug(f"CACHE MISS for {self._obj_type}. Fetching from API with params: {filter_kwargs}")
+        
+        live_result = list(self._endpoint.filter(*args, **filter_kwargs))
         
         # Serialize for caching (Gemini's obj.serialize() strategy)
         serialized_result = self._serialize_result(live_result)
         
-        # Store in cache
+        # Store in cache (always store, even for no_cache requests to benefit subsequent calls)
         self.cache.set(cache_key, serialized_result, self._obj_type)
         logger.debug(f"Cached {len(serialized_result)} objects for {self._obj_type}")
         

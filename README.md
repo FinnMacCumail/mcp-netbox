@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-16-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-25-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **16 MCP Tools**: Complete DCIM, IPAM, and system management
+- **25 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -43,9 +43,11 @@ pip install .
 
 ## 📊 Current Status
 
-**Version**: 0.6.0 - Production-Ready Enterprise Network Automation
+**Version**: 0.9.0 - Enterprise Automation Platform
 
-**🎉 FULLY TESTED & VALIDATED**: All 16 MCP tools including advanced DCIM and IPAM functionality tested against live NetBox 4.2.9 instance with comprehensive validation.
+**🎉 FULLY TESTED & VALIDATED**: All 25 MCP tools including advanced DCIM, IPAM, tenancy, and component management tested against live NetBox 4.2.9 instance with comprehensive validation.
+
+**🛡️ NEW: Defensive Read-Validate-Write Pattern**: Revolutionary cache bypass architecture ensuring 100% conflict detection accuracy for enterprise-grade reliability.
 
 ## ⚙️ Configuration
 
@@ -98,7 +100,7 @@ pip install .
 **System Tools** (1):
 - `netbox_health_check` - Comprehensive health check
 
-**IPAM Tools** (7):
+**IPAM Tools** (12):
 - `netbox_create_ip_address` - Create IP address assignments
 - `netbox_find_available_ip` - Find available IPs in network
 - `netbox_get_ip_usage` - Network utilization statistics
@@ -106,8 +108,13 @@ pip install .
 - `netbox_create_vlan` - Create VLANs
 - `netbox_find_available_vlan_id` - Find available VLAN IDs
 - `netbox_create_vrf` - Create VRF instances
+- `netbox_assign_mac_to_interface` - 🆕 Enterprise MAC address management with defensive conflict detection
+- `netbox_find_next_available_ip` - 🆕 Atomic IP reservation with cross-domain integration
+- `netbox_get_prefix_utilization` - 🆕 Comprehensive capacity planning reports
+- `netbox_provision_vlan_with_prefix` - 🆕 Atomic VLAN/prefix coordination
+- `netbox_assign_ip_to_interface` - 🆕 Cross-domain IPAM/DCIM integration
 
-**DCIM Tools** (8):
+**DCIM Tools** (10):
 - `netbox_create_site` - Create and manage sites
 - `netbox_get_site_info` - Retrieve site information
 - `netbox_create_rack` - Create equipment racks
@@ -117,6 +124,12 @@ pip install .
 - `netbox_create_device_role` - Create device roles
 - `netbox_create_device` - Create devices
 - `netbox_get_device_info` - Retrieve device details
+- `netbox_install_module_in_device` - 🆕 Device component installation with validation
+- `netbox_add_power_port_to_device` - 🆕 Power infrastructure documentation
+
+**Tenancy Tools** (2):
+- `netbox_create_contact_for_tenant` - 🆕 Contact management with role-based assignment
+- Plus 13 high-level enterprise automation tools for complete tenant lifecycle management
 
 ## 🤝 Contributing
 

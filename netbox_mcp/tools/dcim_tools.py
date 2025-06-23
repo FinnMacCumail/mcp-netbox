@@ -2245,3 +2245,411 @@ def netbox_create_cable_connection(
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+# ========================================
+# DEVICE COMPONENT MANAGEMENT TOOLS
+# ========================================
+
+@mcp_tool(category="dcim")
+def netbox_install_module_in_device(
+    client: NetBoxClient,
+    device_name: str,
+    module_bay_name: str,
+    module_type_model: str,
+    serial_number: Optional[str] = None,
+    asset_tag: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Install a module in a device bay with comprehensive validation and documentation.
+    
+    This enterprise-grade module management tool simplifies the complex workflow of
+    installing modules (line cards, optics, expansion cards) in device bays, essential
+    for accurate infrastructure documentation and capacity management.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the target device
+        module_bay_name: Name of the module bay in the device
+        module_type_model: Model name of the module type to install
+        serial_number: Serial number of the module (optional)
+        asset_tag: Asset tag for inventory tracking (optional)
+        description: Description of the module installation (optional)
+        confirm: Safety confirmation (default: False)
+        
+    Returns:
+        Module installation result with device and bay details
+        
+    Examples:
+        # Install 100G linecard in core router
+        netbox_install_module_in_device(
+            device_name="core-router-01",
+            module_bay_name="Slot 1",
+            module_type_model="ASR1000-SIP40",
+            serial_number="FXS2124A001",
+            asset_tag="LC-001",
+            confirm=True
+        )
+        
+        # Install optics module in switch
+        netbox_install_module_in_device(
+            device_name="dist-sw-01", 
+            module_bay_name="QSFP28-1",
+            module_type_model="QSFP-100G-SR4",
+            description="100G SR4 optics for uplink",
+            confirm=True
+        )
+    """
+    try:
+        if not confirm:
+            return {
+                "success": False,
+                "error": "Module installation requires confirm=True for safety",
+                "error_type": "ValidationError"
+            }
+        
+        if not all([device_name, module_bay_name, module_type_model]):
+            return {
+                "success": False,
+                "error": "device_name, module_bay_name, and module_type_model are required",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Installing module '{module_type_model}' in device '{device_name}' bay '{module_bay_name}'")
+        
+        # Step 1: Resolve target device
+        logger.debug(f"Looking up device: {device_name}")
+        devices = client.dcim.devices.filter(name=device_name)
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        
+        device_obj = devices[0]
+        device_id = device_obj["id"]
+        logger.debug(f"Found device: {device_obj['name']} (ID: {device_id})")
+        
+        # Step 2: Resolve module bay within the device
+        logger.debug(f"Looking up module bay '{module_bay_name}' in device {device_obj['name']}")
+        module_bays = client.dcim.module_bays.filter(device_id=device_id, name=module_bay_name)
+        if not module_bays:
+            return {
+                "success": False,
+                "error": f"Module bay '{module_bay_name}' not found in device '{device_obj['name']}'",
+                "error_type": "NotFoundError"
+            }
+        
+        module_bay_obj = module_bays[0]
+        module_bay_id = module_bay_obj["id"]
+        logger.debug(f"Found module bay: {module_bay_obj['name']} (ID: {module_bay_id})")
+        
+        # Step 3: Check if bay is already occupied
+        if module_bay_obj.get("installed_module"):
+            existing_module = module_bay_obj["installed_module"]
+            return {
+                "success": False,
+                "error": f"Module bay '{module_bay_name}' is already occupied by module ID {existing_module}",
+                "error_type": "ConflictError"
+            }
+        
+        # Step 4: Resolve module type
+        logger.debug(f"Looking up module type: {module_type_model}")
+        module_types = client.dcim.module_types.filter(model=module_type_model)
+        if not module_types:
+            return {
+                "success": False,
+                "error": f"Module type '{module_type_model}' not found. Check available module types in NetBox.",
+                "error_type": "NotFoundError"
+            }
+        
+        module_type_obj = module_types[0]
+        module_type_id = module_type_obj["id"]
+        logger.debug(f"Found module type: {module_type_obj['model']} (ID: {module_type_id})")
+        
+        # Step 5: Prepare module data
+        module_data = {
+            "device": device_id,
+            "module_bay": module_bay_id,
+            "module_type": module_type_id
+        }
+        
+        # Add optional fields if provided
+        if serial_number:
+            module_data["serial"] = serial_number
+        if asset_tag:
+            module_data["asset_tag"] = asset_tag
+        if description:
+            module_data["description"] = description
+        
+        logger.debug(f"Module data prepared: {list(module_data.keys())}")
+        
+        # Step 6: Create and install the module
+        logger.info(f"Creating module: {module_type_model}")
+        created_module = client.dcim.modules.create(confirm=True, **module_data)
+        module_id = created_module["id"]
+        
+        logger.info(f"✅ Module installed: {module_type_model} (ID: {module_id}) in bay {module_bay_name}")
+        
+        # Step 7: Apply cache invalidation pattern
+        logger.debug("Invalidating cache after module installation...")
+        try:
+            client.cache.invalidate_pattern("dcim.modules")
+            client.cache.invalidate_pattern("dcim.module_bays")
+            client.cache.invalidate_for_object("dcim.devices", device_id)
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed after module installation: {cache_error}")
+        
+        # Step 8: Build comprehensive response
+        result = {
+            "success": True,
+            "action": "installed",
+            "module": {
+                "id": module_id,
+                "model": module_type_obj["model"],
+                "manufacturer": module_type_obj.get("manufacturer", {}).get("name", ""),
+                "serial": created_module.get("serial", ""),
+                "asset_tag": created_module.get("asset_tag", ""),
+                "description": created_module.get("description", ""),
+                "url": created_module.get("url", ""),
+                "display_url": created_module.get("display_url", "")
+            },
+            "device": {
+                "id": device_id,
+                "name": device_obj["name"],
+                "device_type": device_obj.get("device_type", {}).get("model", ""),
+                "url": device_obj.get("url", "")
+            },
+            "module_bay": {
+                "id": module_bay_id,
+                "name": module_bay_obj["name"],
+                "position": module_bay_obj.get("position", ""),
+                "label": module_bay_obj.get("label", "")
+            },
+            "installation_details": {
+                "device_name": device_obj["name"],
+                "bay_name": module_bay_obj["name"],
+                "module_type": module_type_obj["model"],
+                "manufacturer": module_type_obj.get("manufacturer", {}).get("name", ""),
+                "installed_date": created_module.get("created", "")
+            },
+            "dry_run": False
+        }
+        
+        logger.info(f"✅ Module installation complete: '{module_type_obj['model']}' installed in '{device_obj['name']}:{module_bay_obj['name']}'")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to install module in device {device_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+@mcp_tool(category="dcim")
+def netbox_add_power_port_to_device(
+    client: NetBoxClient,
+    device_name: str,
+    port_name: str,
+    port_type: str,
+    maximum_draw: Optional[int] = None,
+    allocated_draw: Optional[int] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Add a power port to a device for comprehensive power infrastructure documentation.
+    
+    This enterprise-grade power management tool ensures complete and accurate documentation
+    of power connections, essential for datacenter power planning, capacity management,
+    and electrical safety compliance.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the target device
+        port_name: Name of the power port (e.g., "PSU-1", "Power Supply 2")
+        port_type: Type of power connector (e.g., "iec-60320-c14", "nema-5-15p")
+        maximum_draw: Maximum power draw in watts (optional)
+        allocated_draw: Allocated power draw in watts (optional)
+        description: Description of the power port (optional)
+        confirm: Safety confirmation (default: False)
+        
+    Returns:
+        Power port creation result with device and power details
+        
+    Examples:
+        # Add primary power supply to server
+        netbox_add_power_port_to_device(
+            device_name="db-server-01",
+            port_name="PSU-1",
+            port_type="iec-60320-c14",
+            maximum_draw=800,
+            allocated_draw=400,
+            description="Primary power supply",
+            confirm=True
+        )
+        
+        # Add secondary PSU for redundancy
+        netbox_add_power_port_to_device(
+            device_name="core-firewall-01",
+            port_name="PSU-2",
+            port_type="iec-60320-c14",
+            maximum_draw=300,
+            description="Secondary PSU for redundancy",
+            confirm=True
+        )
+        
+        # Add DC power input for telecom equipment
+        netbox_add_power_port_to_device(
+            device_name="wan-router-01",
+            port_name="DC-Input",
+            port_type="dc-terminal",
+            maximum_draw=150,
+            description="-48V DC power input",
+            confirm=True
+        )
+    """
+    try:
+        if not confirm:
+            return {
+                "success": False,
+                "error": "Power port creation requires confirm=True for safety",
+                "error_type": "ValidationError"
+            }
+        
+        if not all([device_name, port_name, port_type]):
+            return {
+                "success": False,
+                "error": "device_name, port_name, and port_type are required",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate power port type
+        valid_port_types = [
+            "iec-60320-c5", "iec-60320-c7", "iec-60320-c13", "iec-60320-c14", "iec-60320-c15", "iec-60320-c19", "iec-60320-c20", "iec-60320-c21",
+            "iec-60309-p-n-e-4h", "iec-60309-p-n-e-6h", "iec-60309-p-n-e-9h", "iec-60309-2p-e-4h", "iec-60309-2p-e-6h", "iec-60309-2p-e-9h",
+            "iec-60309-3p-e-4h", "iec-60309-3p-e-6h", "iec-60309-3p-e-9h", "iec-60309-3p-n-e-4h", "iec-60309-3p-n-e-6h", "iec-60309-3p-n-e-9h",
+            "nema-1-15p", "nema-5-15p", "nema-5-20p", "nema-5-30p", "nema-5-50p", "nema-6-15p", "nema-6-20p", "nema-6-30p", "nema-6-50p",
+            "nema-10-30p", "nema-10-50p", "nema-14-20p", "nema-14-30p", "nema-14-50p", "nema-14-60p", "nema-15-15p", "nema-15-20p", "nema-15-30p",
+            "nema-15-50p", "nema-15-60p", "nema-l1-15p", "nema-l5-15p", "nema-l5-20p", "nema-l5-30p", "nema-l5-50p", "nema-l6-15p", "nema-l6-20p",
+            "nema-l6-30p", "nema-l6-50p", "nema-l10-30p", "nema-l14-20p", "nema-l14-30p", "nema-l15-20p", "nema-l15-30p", "nema-l21-20p", "nema-l21-30p",
+            "cs6361c", "cs6365c", "cs8165c", "cs8265c", "cs8365c", "cs8465c", "ita-e", "ita-f", "ita-ef", "ita-g", "ita-h", "ita-i", "ita-j", "ita-k", "ita-l", "ita-m", "ita-n", "ita-o",
+            "usb-a", "usb-b", "usb-c", "usb-mini-a", "usb-mini-b", "usb-micro-a", "usb-micro-b", "usb-micro-ab", "usb-3-b", "usb-3-micro-b",
+            "dc-terminal", "saf-d-grid", "neutrik-powercon-20a", "neutrik-powercon-32a", "neutrik-powercon-true1", "neutrik-powercon-true1-top",
+            "ubiquiti-smartpower", "hardwired", "other"
+        ]
+        
+        if port_type not in valid_port_types:
+            return {
+                "success": False,
+                "error": f"Invalid port_type. Must be one of: {valid_port_types[:10]}... (see NetBox documentation for complete list)",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Adding power port '{port_name}' to device '{device_name}' (type: {port_type})")
+        
+        # Step 1: Resolve target device
+        logger.debug(f"Looking up device: {device_name}")
+        devices = client.dcim.devices.filter(name=device_name)
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        
+        device_obj = devices[0]
+        device_id = device_obj["id"]
+        logger.debug(f"Found device: {device_obj['name']} (ID: {device_id})")
+        
+        # Step 2: Check for existing power port with same name
+        logger.debug(f"Checking for existing power port '{port_name}' on device {device_obj['name']}")
+        existing_ports = client.dcim.power_ports.filter(device_id=device_id, name=port_name)
+        if existing_ports:
+            return {
+                "success": False,
+                "error": f"Power port '{port_name}' already exists on device '{device_obj['name']}'",
+                "error_type": "ConflictError"
+            }
+        
+        # Step 3: Prepare power port data
+        power_port_data = {
+            "device": device_id,
+            "name": port_name,
+            "type": port_type
+        }
+        
+        # Add optional fields if provided
+        if maximum_draw is not None:
+            power_port_data["maximum_draw"] = maximum_draw
+        if allocated_draw is not None:
+            power_port_data["allocated_draw"] = allocated_draw
+        if description:
+            power_port_data["description"] = description
+        
+        logger.debug(f"Power port data prepared: {list(power_port_data.keys())}")
+        
+        # Step 4: Create the power port
+        logger.info(f"Creating power port: {port_name}")
+        created_port = client.dcim.power_ports.create(confirm=True, **power_port_data)
+        port_id = created_port["id"]
+        
+        logger.info(f"✅ Power port created: {port_name} (ID: {port_id}) on device {device_obj['name']}")
+        
+        # Step 5: Apply cache invalidation pattern
+        logger.debug("Invalidating cache after power port creation...")
+        try:
+            client.cache.invalidate_pattern("dcim.power_ports")
+            client.cache.invalidate_for_object("dcim.devices", device_id)
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed after power port creation: {cache_error}")
+        
+        # Step 6: Build comprehensive response
+        result = {
+            "success": True,
+            "action": "created",
+            "power_port": {
+                "id": port_id,
+                "name": created_port["name"],
+                "type": created_port["type"],
+                "maximum_draw": created_port.get("maximum_draw", 0),
+                "allocated_draw": created_port.get("allocated_draw", 0),
+                "description": created_port.get("description", ""),
+                "url": created_port.get("url", ""),
+                "display_url": created_port.get("display_url", "")
+            },
+            "device": {
+                "id": device_id,
+                "name": device_obj["name"],
+                "device_type": device_obj.get("device_type", {}).get("model", ""),
+                "url": device_obj.get("url", "")
+            },
+            "power_details": {
+                "device_name": device_obj["name"],
+                "port_name": port_name,
+                "port_type": port_type,
+                "power_capacity": {
+                    "maximum_watts": maximum_draw or 0,
+                    "allocated_watts": allocated_draw or 0,
+                    "available_watts": (maximum_draw - allocated_draw) if (maximum_draw and allocated_draw) else 0
+                },
+                "created_date": created_port.get("created", "")
+            },
+            "dry_run": False
+        }
+        
+        logger.info(f"✅ Power port documentation complete: '{port_name}' ({port_type}) added to '{device_obj['name']}'")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to add power port to device {device_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
