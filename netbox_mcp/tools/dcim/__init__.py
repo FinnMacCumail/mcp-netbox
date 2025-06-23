@@ -13,4 +13,5 @@ from . import device_roles
 from . import device_types
 from . import devices
 from . import interfaces
+from . import modules
 # TODO: Import other DCIM modules as they are migrated
