@@ -110,6 +110,4 @@ autonomous_*.sh
 autonomous_*.txt
 autonomous_logs/
 
-# Documentation drafts and temporary files  
-DESIGN.md
-ROADMAP.md
+# Documentation drafts and temporary files
