@@ -101,7 +101,15 @@ test_*.py
 *_demo.py
 *_test.py
 
-# Documentation drafts and temporary files
+# Test outputs and debug files
+test_outputs/
+*.json
+debug_*.py
+setup_test_data.py
+autonomous_*.sh
+autonomous_*.txt
+autonomous_logs/
+
+# Documentation drafts and temporary files  
 DESIGN.md
 ROADMAP.md
-CLAUDE.md

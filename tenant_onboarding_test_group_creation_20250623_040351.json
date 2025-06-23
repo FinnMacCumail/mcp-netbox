@@ -1,5 +1,0 @@
-{
-  "success": false,
-  "error": "Failed to create tenancy.tenant-groups: The request failed with code 400 Bad Request: {'slug': ['This field is required.']}",
-  "error_type": "NetBoxError"
-}
