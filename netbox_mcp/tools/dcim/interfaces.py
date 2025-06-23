@@ -1,25 +1,430 @@
 #!/usr/bin/env python3
 """
-DCIM Interface Management Tools
+DCIM Interface and Cable Management Tools
 
-TODO: High-level tools for managing NetBox device interfaces, interface connections,
-and interface configuration will be implemented here.
-
-Current integration points:
-- MAC address assignment (from ipam_tools.py)
-- IP address assignment (cross-domain integration)
-
-Future capabilities:
-- Interface configuration management
-- VLAN assignment to interfaces
-- Interface utilization monitoring
-- Bulk interface operations
-- Interface cable management
+High-level tools for managing NetBox interfaces, cables, and physical connections
+with comprehensive enterprise-grade functionality.
 """
 
-# TODO: Implement interface management tools
+from typing import Dict, List, Optional, Any
+import logging
+from ...registry import mcp_tool
+from ...client import NetBoxClient
+
+logger = logging.getLogger(__name__)
+
+
+@mcp_tool(category="dcim")
+def netbox_assign_ip_to_interface(
+    client: NetBoxClient,
+    device_name: str,
+    interface_name: str,
+    ip_address: str,
+    status: str = "active",
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Assign an IP address to a device interface with cross-domain IPAM/DCIM integration.
+    
+    This revolutionary function bridges NetBox's IPAM and DCIM domains by enabling 
+    direct IP assignment to device interfaces. Essential for automated network 
+    configuration and infrastructure provisioning workflows.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the device
+        interface_name: Name of the interface on the device
+        ip_address: IP address with CIDR notation (e.g., "10.100.0.1/24")
+        status: IP address status (active, reserved, deprecated, dhcp)
+        description: Optional description for the IP address
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Cross-domain assignment result with comprehensive status information
+        
+    Example:
+        netbox_assign_ip_to_interface(
+            device_name="sw-core-01", 
+            interface_name="Vlan100", 
+            ip_address="10.100.0.1/24", 
+            confirm=True
+        )
+    """
+    try:
+        if not all([device_name, interface_name, ip_address]):
+            return {
+                "success": False,
+                "error": "device_name, interface_name, and ip_address are required",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate IP address format
+        import ipaddress
+        try:
+            ip_obj = ipaddress.ip_interface(ip_address)
+            validated_ip = str(ip_obj)
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Invalid IP address format '{ip_address}': {e}",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Assigning IP {validated_ip} to interface {device_name}:{interface_name}")
+        
+        # Step 1: Find the device
+        logger.debug(f"Looking up device: {device_name}")
+        devices = client.dcim.devices.filter(name=device_name)
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        device = devices[0]
+        device_id = device["id"]
+        logger.debug(f"Found device: {device['name']} (ID: {device_id})")
+        
+        # Step 2: Find the interface on the device
+        logger.debug(f"Looking up interface: {interface_name} on device {device['name']}")
+        interfaces = client.dcim.interfaces.filter(device_id=device_id, name=interface_name)
+        if not interfaces:
+            return {
+                "success": False,
+                "error": f"Interface '{interface_name}' not found on device '{device_name}'",
+                "error_type": "NotFoundError"
+            }
+        interface = interfaces[0]
+        interface_id = interface["id"]
+        logger.debug(f"Found interface: {interface['name']} (ID: {interface_id})")
+        
+        # Step 3: Check for existing IP assignment conflicts
+        logger.debug(f"Checking for IP conflicts: {validated_ip}")
+        existing_ips = client.ipam.ip_addresses.filter(address=validated_ip)
+        for existing_ip in existing_ips:
+            if existing_ip.get("assigned_object_id") and existing_ip.get("assigned_object_type") == "dcim.interface":
+                return {
+                    "success": False,
+                    "error": f"IP address {validated_ip} is already assigned to another interface",
+                    "error_type": "ConflictError"
+                }
+        
+        if not confirm:
+            # Dry run mode - return what would be assigned without actually assigning
+            logger.info(f"DRY RUN: Would assign IP {validated_ip} to interface {device_name}:{interface_name}")
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "ip_assignment",
+                "assignment": {
+                    "device": {"name": device["name"], "id": device_id},
+                    "interface": {"name": interface["name"], "id": interface_id},
+                    "ip_address": validated_ip,
+                    "status": status,
+                    "dry_run": True
+                },
+                "dry_run": True
+            }
+        
+        # Step 4: Create or update IP address with interface assignment
+        # NetBox 4.2.9 pattern: Create IP first, then assign to interface
+        ip_data = {
+            "address": validated_ip,
+            "status": status,
+            "assigned_object_type": "dcim.interface",
+            "assigned_object_id": interface_id
+        }
+        
+        if description:
+            ip_data["description"] = description
+        
+        # Try to create the IP address with assignment
+        logger.info(f"Creating IP address {validated_ip} with interface assignment")
+        result = client.ipam.ip_addresses.create(confirm=True, **ip_data)
+        
+        # Invalidate cache for interface and IP data consistency
+        try:
+            client.cache.invalidate_for_object("dcim.interfaces", interface_id)
+            client.cache.invalidate_pattern("ipam.ip_addresses")
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed: {cache_error}")
+        
+        return {
+            "success": True,
+            "action": "assigned",
+            "object_type": "ip_assignment",
+            "ip_address": result,
+            "assignment": {
+                "device": {"name": device["name"], "id": device_id},
+                "interface": {"name": interface["name"], "id": interface_id},
+                "ip_address": validated_ip,
+                "status": status
+            },
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to assign IP {ip_address} to interface {device_name}:{interface_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+@mcp_tool(category="dcim")
+def netbox_create_cable_connection(
+    client: NetBoxClient,
+    device_a_name: str,
+    interface_a_name: str,
+    device_b_name: str,
+    interface_b_name: str,
+    cable_type: str = "cat6",
+    cable_status: str = "connected",
+    cable_length: Optional[int] = None,
+    cable_length_unit: str = "m",
+    label: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create a physical cable connection between two device interfaces.
+    
+    This enterprise-grade cable management tool handles the complete workflow of 
+    documenting physical cable connections with comprehensive validation, conflict 
+    detection, and cache invalidation to ensure data consistency.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_a_name: Name of the first device
+        interface_a_name: Name of the interface on device A
+        device_b_name: Name of the second device
+        interface_b_name: Name of the interface on device B
+        cable_type: Type of cable (cat5e, cat6, cat6a, cat7, cat8, mmf, smf, dac-active, dac-passive, coaxial, power)
+        cable_status: Cable status (planned, installed, connected, decommissioning)
+        cable_length: Optional cable length
+        cable_length_unit: Length unit (mm, cm, m, km, in, ft, mi)
+        label: Optional cable label
+        description: Optional description
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Cable creation result with comprehensive termination information
+        
+    Example:
+        netbox_create_cable_connection(
+            device_a_name="sw-access-01",
+            interface_a_name="GigabitEthernet1/0/1",
+            device_b_name="sw-core-01", 
+            interface_b_name="GigabitEthernet1/1",
+            cable_type="cat6",
+            cable_length=15,
+            confirm=True
+        )
+    """
+    try:
+        if not all([device_a_name, interface_a_name, device_b_name, interface_b_name]):
+            return {
+                "success": False,
+                "error": "Both device names and interface names are required",
+                "error_type": "ValidationError"
+            }
+        
+        # Prevent self-connection
+        if device_a_name == device_b_name and interface_a_name == interface_b_name:
+            return {
+                "success": False,
+                "error": "Cannot connect an interface to itself",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate cable type
+        valid_cable_types = [
+            "cat3", "cat5", "cat5e", "cat6", "cat6a", "cat7", "cat8",
+            "dac-active", "dac-passive", "mrj21-trunk", "coaxial", 
+            "mmf", "mmf-om1", "mmf-om2", "mmf-om3", "mmf-om4", "mmf-om5",
+            "smf", "smf-os1", "smf-os2", "aoc", "power", "usb"
+        ]
+        
+        if cable_type not in valid_cable_types:
+            return {
+                "success": False,
+                "error": f"Invalid cable_type '{cable_type}'. Valid types: {valid_cable_types}",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate cable status
+        valid_statuses = ["planned", "installed", "connected", "decommissioning"]
+        if cable_status not in valid_statuses:
+            return {
+                "success": False,
+                "error": f"Invalid cable_status '{cable_status}'. Valid statuses: {valid_statuses}",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate length unit
+        valid_units = ["mm", "cm", "m", "km", "in", "ft", "mi"]
+        if cable_length_unit not in valid_units:
+            return {
+                "success": False,
+                "error": f"Invalid cable_length_unit '{cable_length_unit}'. Valid units: {valid_units}",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Creating cable connection: {device_a_name}:{interface_a_name} <-> {device_b_name}:{interface_b_name}")
+        
+        # Step 1: Find device A and its interface
+        logger.debug(f"Looking up device A: {device_a_name}")
+        devices_a = client.dcim.devices.filter(name=device_a_name)
+        if not devices_a:
+            return {
+                "success": False,
+                "error": f"Device A '{device_a_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        device_a = devices_a[0]
+        device_a_id = device_a["id"]
+        
+        logger.debug(f"Looking up interface A: {interface_a_name} on device {device_a['name']}")
+        interfaces_a = client.dcim.interfaces.filter(device_id=device_a_id, name=interface_a_name)
+        if not interfaces_a:
+            return {
+                "success": False,
+                "error": f"Interface A '{interface_a_name}' not found on device '{device_a_name}'",
+                "error_type": "NotFoundError"
+            }
+        interface_a = interfaces_a[0]
+        interface_a_id = interface_a["id"]
+        
+        # Step 2: Find device B and its interface
+        logger.debug(f"Looking up device B: {device_b_name}")
+        devices_b = client.dcim.devices.filter(name=device_b_name)
+        if not devices_b:
+            return {
+                "success": False,
+                "error": f"Device B '{device_b_name}' not found",
+                "error_type": "NotFoundError"
+            }
+        device_b = devices_b[0]
+        device_b_id = device_b["id"]
+        
+        logger.debug(f"Looking up interface B: {interface_b_name} on device {device_b['name']}")
+        interfaces_b = client.dcim.interfaces.filter(device_id=device_b_id, name=interface_b_name)
+        if not interfaces_b:
+            return {
+                "success": False,
+                "error": f"Interface B '{interface_b_name}' not found on device '{device_b_name}'",
+                "error_type": "NotFoundError"
+            }
+        interface_b = interfaces_b[0]
+        interface_b_id = interface_b["id"]
+        
+        # Step 3: Check for existing cable connections (conflict detection)
+        logger.debug("Checking for existing cable connections...")
+        
+        # Check interface A
+        if interface_a.get("cable"):
+            return {
+                "success": False,
+                "error": f"Interface A '{device_a_name}:{interface_a_name}' already has a cable connection",
+                "error_type": "ConflictError"
+            }
+        
+        # Check interface B
+        if interface_b.get("cable"):
+            return {
+                "success": False,
+                "error": f"Interface B '{device_b_name}:{interface_b_name}' already has a cable connection",
+                "error_type": "ConflictError"
+            }
+        
+        if not confirm:
+            # Dry run mode - return what would be created without actually creating
+            logger.info(f"DRY RUN: Would create cable connection between {device_a_name}:{interface_a_name} and {device_b_name}:{interface_b_name}")
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "cable",
+                "cable": {
+                    "termination_a": {"device": device_a["name"], "interface": interface_a["name"]},
+                    "termination_b": {"device": device_b["name"], "interface": interface_b["name"]},
+                    "type": cable_type,
+                    "status": cable_status,
+                    "length": cable_length,
+                    "length_unit": cable_length_unit,
+                    "label": label,
+                    "dry_run": True
+                },
+                "dry_run": True
+            }
+        
+        # Step 4: Create the cable with terminations
+        cable_data = {
+            "termination_a_type": "dcim.interface",
+            "termination_a_id": interface_a_id,
+            "termination_b_type": "dcim.interface", 
+            "termination_b_id": interface_b_id,
+            "type": cable_type,
+            "status": cable_status
+        }
+        
+        if cable_length is not None:
+            cable_data["length"] = cable_length
+            cable_data["length_unit"] = cable_length_unit
+        if label:
+            cable_data["label"] = label
+        if description:
+            cable_data["description"] = description
+        
+        logger.info(f"Creating cable with data: {cable_data}")
+        result = client.dcim.cables.create(confirm=True, **cable_data)
+        
+        # Step 5: Cache invalidation for data consistency (Issue #29 pattern)
+        try:
+            client.cache.invalidate_for_object("dcim.interfaces", interface_a_id)
+            client.cache.invalidate_for_object("dcim.interfaces", interface_b_id)
+            client.cache.invalidate_pattern("dcim.cables")
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed: {cache_error}")
+        
+        return {
+            "success": True,
+            "action": "created",
+            "object_type": "cable",
+            "cable": result,
+            "terminations": {
+                "termination_a": {
+                    "device": {"name": device_a["name"], "id": device_a_id},
+                    "interface": {"name": interface_a["name"], "id": interface_a_id}
+                },
+                "termination_b": {
+                    "device": {"name": device_b["name"], "id": device_b_id},
+                    "interface": {"name": interface_b["name"], "id": interface_b_id}
+                }
+            },
+            "cable_specs": {
+                "type": cable_type,
+                "status": cable_status,
+                "length": f"{cable_length}{cable_length_unit}" if cable_length else None,
+                "label": label
+            },
+            "dry_run": result.get("dry_run", False)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create cable connection: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+# TODO: Implement additional interface management tools:
 # - netbox_configure_interface_settings
-# - netbox_assign_vlan_to_interface
+# - netbox_assign_vlan_to_interface  
 # - netbox_monitor_interface_utilization
 # - netbox_bulk_interface_operations
-# - netbox_connect_interfaces
+# - netbox_disconnect_interfaces
+# - netbox_get_interface_connections
