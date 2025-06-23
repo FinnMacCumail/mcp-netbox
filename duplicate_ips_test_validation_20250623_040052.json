@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "duplicates_found": 0,
+  "total_ip_conflicts": 0,
+  "total_ips_analyzed": 8,
+  "duplicates": [],
+  "analysis_scope": {
+    "vrf_filter": null,
+    "tenant_filter": null,
+    "resolved_references": {},
+    "analysis_limit": 100
+  },
+  "statistics": {
+    "ipv4_addresses": 8,
+    "ipv6_addresses": 0,
+    "assignment_breakdown": {
+      "interface_assignments": 0,
+      "device_assignments": 0,
+      "unassigned": 4,
+      "other_assignments": 4
+    },
+    "duplicate_rate": 0.0
+  },
+  "analysis_metadata": {
+    "analysis_timestamp": "unknown",
+    "include_severity_analysis": false,
+    "include_resolution_recommendations": false,
+    "batch_processing": false
+  }
+}

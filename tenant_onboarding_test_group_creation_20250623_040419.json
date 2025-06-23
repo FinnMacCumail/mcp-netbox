@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "action": "created",
+  "object_type": "tenant_group",
+  "tenant_group": {
+    "id": 1,
+    "url": "https://zwqg2756.cloud.netboxapp.com/api/tenancy/tenant-groups/1/",
+    "display_url": "https://zwqg2756.cloud.netboxapp.com/tenancy/tenant-groups/1/",
+    "display": "Test-Group-20250623_040419",
+    "name": "Test-Group-20250623_040419",
+    "slug": "test-group-20250623_040419",
+    "parent": null,
+    "description": "Test tenant group for onboarding validation",
+    "tags": [],
+    "custom_fields": {},
+    "created": "2025-06-23T02:04:19.572494Z",
+    "last_updated": "2025-06-23T02:04:19.572508Z",
+    "tenant_count": 0,
+    "_depth": 0
+  },
+  "dry_run": false
+}

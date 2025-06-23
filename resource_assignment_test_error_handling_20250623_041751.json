@@ -1,0 +1,18 @@
+[
+  {
+    "test": "Non-existent tenant",
+    "status": "passed"
+  },
+  {
+    "test": "Invalid assignment mode",
+    "status": "passed"
+  },
+  {
+    "test": "Empty resources list",
+    "status": "passed"
+  },
+  {
+    "test": "Invalid resource type",
+    "status": "passed"
+  }
+]

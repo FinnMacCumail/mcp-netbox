@@ -1,0 +1,34 @@
+{
+  "success": true,
+  "action": "onboarded",
+  "tenant": {
+    "id": 4,
+    "name": "Customer-20250623_040445",
+    "slug": "customer-20250623_040445",
+    "status": "unknown",
+    "description": "Test customer with group assignment",
+    "comments": "Contact: John Doe\nEmail: john.doe@customer.com\nPhone: +1-555-0123",
+    "url": "https://zwqg2756.cloud.netboxapp.com/api/tenancy/tenants/4/",
+    "display_url": "https://zwqg2756.cloud.netboxapp.com/tenancy/tenants/4/"
+  },
+  "categorization": {
+    "tenant_group_assigned": true,
+    "group_auto_created": false,
+    "tags_applied": 0
+  },
+  "contact_information": {
+    "contact_name": "John Doe",
+    "contact_email": "john.doe@customer.com",
+    "contact_phone": "+1-555-0123",
+    "contact_address": null,
+    "stored_in_comments": false
+  },
+  "resolved_references": {
+    "tenant_group": {
+      "id": 4,
+      "name": "Customer-Group-20250623_040445",
+      "slug": "customer-group-20250623_040445"
+    }
+  },
+  "dry_run": false
+}

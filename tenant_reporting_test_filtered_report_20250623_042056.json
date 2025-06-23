@@ -1,0 +1,73 @@
+{
+  "success": true,
+  "action": "generated",
+  "report_type": "tenant_resource_report",
+  "tenant": {
+    "id": 18,
+    "name": "Filter-Test-Tenant-20250623_042054",
+    "slug": "filter-test-tenant-20250623_042054",
+    "description": "Test tenant for filtered reporting",
+    "url": "https://zwqg2756.cloud.netboxapp.com/api/tenancy/tenants/18/",
+    "display_url": "https://zwqg2756.cloud.netboxapp.com/tenancy/tenants/18/"
+  },
+  "filters_applied": {
+    "site": "MCP Test Site",
+    "status": null,
+    "details_included": true,
+    "utilization_included": true
+  },
+  "summary": {
+    "total_resources": 0,
+    "resource_types_found": 0,
+    "resource_breakdown": {
+      "devices": 0,
+      "racks": 0,
+      "sites": 0,
+      "prefixes": 0,
+      "vlans": 0,
+      "ip_addresses": 0,
+      "circuits": 0,
+      "clusters": 0
+    },
+    "report_timestamp": null,
+    "export_format": "detailed"
+  },
+  "resources": {
+    "devices": [],
+    "racks": [],
+    "sites": [],
+    "prefixes": [],
+    "vlans": [],
+    "ip_addresses": [],
+    "circuits": [],
+    "clusters": []
+  },
+  "utilization_statistics": {
+    "devices": {
+      "total_devices": 0,
+      "by_status": {},
+      "by_role": {},
+      "by_site": {}
+    },
+    "ip_addresses": {
+      "total_ips": 0,
+      "by_status": {},
+      "assigned_vs_unassigned": {
+        "assigned": 0,
+        "unassigned": 0
+      }
+    },
+    "prefixes": {
+      "total_prefixes": 0,
+      "by_status": {},
+      "total_ip_space": 0
+    },
+    "vlans": {
+      "total_vlans": 0,
+      "by_status": {},
+      "vid_ranges": []
+    }
+  },
+  "export_format": "detailed",
+  "detailed_report": true
+}

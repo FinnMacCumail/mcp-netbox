@@ -1,0 +1,60 @@
+{
+  "success": true,
+  "action": "assigned",
+  "operation": "assign",
+  "tenant": {
+    "name": "Multi-Resource-Tenant-20250623_041748",
+    "id": 13
+  },
+  "summary": {
+    "total_resources": 3,
+    "successful_assignments": 3,
+    "failed_assignments": 0,
+    "success_rate": 100.0
+  },
+  "assignment_results": [
+    {
+      "resource_index": 1,
+      "type": "prefix",
+      "identifier": "10.99.0.0/24",
+      "identifier_field": "prefix",
+      "resource_id": 1,
+      "success": true,
+      "operation": "Assigned to tenant Multi-Resource-Tenant-20250623_041748",
+      "updated_resource": {
+        "id": 1,
+        "name": "",
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/ipam/prefixes/1/"
+      }
+    },
+    {
+      "resource_index": 2,
+      "type": "site",
+      "identifier": "MCP Test Site",
+      "identifier_field": "name",
+      "resource_id": 21,
+      "success": true,
+      "operation": "Assigned to tenant Multi-Resource-Tenant-20250623_041748",
+      "updated_resource": {
+        "id": 21,
+        "name": "MCP Test Site",
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/sites/21/"
+      }
+    },
+    {
+      "resource_index": 3,
+      "type": "device",
+      "identifier": "test-sw-20250622-183126",
+      "identifier_field": "name",
+      "resource_id": 11,
+      "success": true,
+      "operation": "Assigned to tenant Multi-Resource-Tenant-20250623_041748",
+      "updated_resource": {
+        "id": 11,
+        "name": "test-sw-20250622-183126",
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/dcim/devices/11/"
+      }
+    }
+  ],
+  "dry_run": false
+}

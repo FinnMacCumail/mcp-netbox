@@ -1,0 +1,171 @@
+{
+  "test_suite": "netbox_onboard_new_tenant",
+  "timestamp": "2025-06-23T04:06:38.056576",
+  "summary": {
+    "total_tests": 6,
+    "successful_tests": 5,
+    "success_rate": "83.3%"
+  },
+  "detailed_results": {
+    "basic_onboarding": {
+      "success": true,
+      "action": "onboarded",
+      "tenant": {
+        "id": 5,
+        "name": "Test-Tenant-20250623_040636",
+        "slug": "test-tenant-20250623_040636",
+        "status": "unknown",
+        "description": "Test tenant for onboarding validation",
+        "comments": "",
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/tenancy/tenants/5/",
+        "display_url": "https://zwqg2756.cloud.netboxapp.com/tenancy/tenants/5/"
+      },
+      "categorization": {
+        "tenant_group_assigned": false,
+        "group_auto_created": false,
+        "tags_applied": 0
+      },
+      "contact_information": {
+        "contact_name": null,
+        "contact_email": null,
+        "contact_phone": null,
+        "contact_address": null,
+        "stored_in_comments": false
+      },
+      "resolved_references": {},
+      "dry_run": false
+    },
+    "group_creation": {
+      "success": true,
+      "action": "created",
+      "object_type": "tenant_group",
+      "tenant_group": {
+        "id": 5,
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/tenancy/tenant-groups/5/",
+        "display_url": "https://zwqg2756.cloud.netboxapp.com/tenancy/tenant-groups/5/",
+        "display": "Test-Group-20250623_040636",
+        "name": "Test-Group-20250623_040636",
+        "slug": "test-group-20250623_040636",
+        "parent": null,
+        "description": "Test tenant group for onboarding validation",
+        "tags": [],
+        "custom_fields": {},
+        "created": "2025-06-23T02:06:36.838186Z",
+        "last_updated": "2025-06-23T02:06:36.838201Z",
+        "tenant_count": 0,
+        "_depth": 0
+      },
+      "dry_run": false
+    },
+    "tenant_with_group": {
+      "success": true,
+      "action": "onboarded",
+      "tenant": {
+        "id": 6,
+        "name": "Customer-20250623_040636",
+        "slug": "customer-20250623_040636",
+        "status": "unknown",
+        "description": "Test customer with group assignment",
+        "comments": "Contact: John Doe\nEmail: john.doe@customer.com\nPhone: +1-555-0123",
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/tenancy/tenants/6/",
+        "display_url": "https://zwqg2756.cloud.netboxapp.com/tenancy/tenants/6/"
+      },
+      "categorization": {
+        "tenant_group_assigned": true,
+        "group_auto_created": false,
+        "tags_applied": 0
+      },
+      "contact_information": {
+        "contact_name": "John Doe",
+        "contact_email": "john.doe@customer.com",
+        "contact_phone": "+1-555-0123",
+        "contact_address": null,
+        "stored_in_comments": false
+      },
+      "resolved_references": {
+        "tenant_group": {
+          "id": 6,
+          "name": "Customer-Group-20250623_040636",
+          "slug": "customer-group-20250623_040636"
+        }
+      },
+      "dry_run": false
+    },
+    "auto_group_creation": {
+      "success": true,
+      "action": "onboarded",
+      "tenant": {
+        "id": 7,
+        "name": "Auto-Tenant-20250623_040637",
+        "slug": "auto-tenant-20250623_040637",
+        "status": "unknown",
+        "description": "Tenant with auto-created group",
+        "comments": "",
+        "url": "https://zwqg2756.cloud.netboxapp.com/api/tenancy/tenants/7/",
+        "display_url": "https://zwqg2756.cloud.netboxapp.com/tenancy/tenants/7/"
+      },
+      "categorization": {
+        "tenant_group_assigned": true,
+        "group_auto_created": true,
+        "tags_applied": 0
+      },
+      "contact_information": {
+        "contact_name": null,
+        "contact_email": null,
+        "contact_phone": null,
+        "contact_address": null,
+        "stored_in_comments": false
+      },
+      "resolved_references": {
+        "tenant_group": {
+          "id": 7,
+          "name": "Auto-Group-20250623_040637",
+          "slug": "auto-group-20250623_040637",
+          "auto_created": true
+        }
+      },
+      "dry_run": false
+    },
+    "error_handling": [
+      {
+        "test": "Empty tenant name",
+        "status": "passed"
+      },
+      {
+        "test": "Invalid tenant status",
+        "status": "passed"
+      },
+      {
+        "test": "Non-existent group without auto-create",
+        "status": "passed"
+      }
+    ],
+    "dry_run": {
+      "success": true,
+      "action": "dry_run",
+      "would_create": {
+        "tenant": {
+          "name": "Dry-Run-Tenant-20250623_040637",
+          "group_id": null,
+          "status": "active",
+          "description": "Dry run test tenant",
+          "comments": null,
+          "contact_info": {
+            "name": null,
+            "email": null,
+            "phone": null,
+            "address": null
+          },
+          "tags": null
+        }
+      },
+      "resolved_references": {},
+      "validation_results": {
+        "tenant_available": true,
+        "group_resolved": false,
+        "tags_resolved": 0
+      },
+      "dry_run": true
+    }
+  }
+}
