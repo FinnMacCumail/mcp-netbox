@@ -9,8 +9,8 @@ The NetBox MCP provides **45 specialized tools** that enable Large Language Mode
 ## 2. Current Architecture Overview
 
 ### 2.1 Production Status
-- **Version**: 0.9.8 - Dual-Tool Pattern Architecture Complete
-- **Tool Count**: 45 MCP tools covering all NetBox domains
+- **Version**: 0.9.9 - Cable Management Suite Complete
+- **Tool Count**: 47 MCP tools covering all NetBox domains
 - **Architecture**: Hierarchical domain structure with Registry Bridge pattern
 - **Safety**: Enterprise-grade with dry-run mode, confirmation requirements, audit logging
 
@@ -56,7 +56,8 @@ netbox-mcp/
 │       │   ├── manufacturers.py    # Manufacturer management (2 tools)
 │       │   ├── device_types.py     # Device type management (2 tools)
 │       │   ├── device_roles.py     # Device role management (2 tools)
-│       │   └── interfaces.py       # Interface & cable management (2 tools)
+│       │   ├── interfaces.py       # Interface management (1 tool)
+│       │   └── cables.py           # Cable management (4 tools)
 │       ├── ipam/                   # IP Address Management
 │       │   ├── prefixes.py         # Prefix management (2 tools)
 │       │   ├── vlans.py            # VLAN management (3 tools)
@@ -70,7 +71,7 @@ netbox-mcp/
 
 ### 3.2 Tool Distribution by Domain
 - **System Tools** (1): Health monitoring
-- **DCIM Tools** (22): Complete device lifecycle with dual-tool pattern
+- **DCIM Tools** (24): Complete device lifecycle with dual-tool pattern + dedicated cable management suite
 - **IPAM Tools** (15): IP and network management with comprehensive discovery
 - **Tenancy Tools** (7): Multi-tenant resource management
 
@@ -298,14 +299,16 @@ def netbox_provision_device_with_ip(
 
 ### 8.1 Hierarchical Architecture Status
 - **Complete**: System, DCIM, IPAM, and Tenancy domains fully migrated
-- **Tool Count**: All 45 tools accessible via MCP interface
+- **Tool Count**: All 47 tools accessible via MCP interface
 - **Registry Bridge**: Fully operational with dependency injection
 - **Legacy Code**: All flat files removed, clean hierarchical structure
+- **Cable Management**: Dedicated cable suite with clean domain separation
 
 ### 8.2 Recent Architecture Fixes
 - **v0.9.6**: Tool loading conflict resolution - removed legacy flat files
 - **v0.9.7**: Registry Bridge implementation - connected internal registry to MCP interface
 - **v0.9.8**: Enhanced parameter parsing - robust LLM parameter handling
+- **v0.9.9**: Cable management consolidation - dedicated cable suite with domain separation
 
 ## 9. Development Workflow
 
@@ -336,4 +339,4 @@ The hierarchical domain structure and Registry Bridge pattern support:
 
 ---
 
-This guide represents the current state of the **enterprise-grade NetBox MCP Server v0.9.8** with comprehensive dual-tool pattern architecture and hierarchical domain organization. All development should follow these established patterns to maintain the high standards of quality, safety, and scalability that define this platform.
+This guide represents the current state of the **enterprise-grade NetBox MCP Server v0.9.9** with comprehensive dual-tool pattern architecture, hierarchical domain organization, and dedicated cable management suite. All development should follow these established patterns to maintain the high standards of quality, safety, and scalability that define this platform.
