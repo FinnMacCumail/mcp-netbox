@@ -228,16 +228,16 @@ def netbox_list_all_sites(
         total_racks = 0
         
         for site in sites:
-            # Status breakdown
-            status = site.status.label if hasattr(site.status, 'label') else str(site.status)
+            # Status breakdown with defensive checks
+            status = site.status.label if site.status and hasattr(site.status, 'label') else "N/A"
             status_counts[status] = status_counts.get(status, 0) + 1
             
-            # Region breakdown
+            # Region breakdown with defensive checks
             if site.region:
                 region_name = site.region.name if hasattr(site.region, 'name') else str(site.region)
                 region_counts[region_name] = region_counts.get(region_name, 0) + 1
             
-            # Tenant breakdown
+            # Tenant breakdown with defensive checks
             if site.tenant:
                 tenant_name = site.tenant.name if hasattr(site.tenant, 'name') else str(site.tenant)
                 tenant_counts[tenant_name] = tenant_counts.get(tenant_name, 0) + 1
@@ -261,10 +261,13 @@ def netbox_list_all_sites(
             site_info = {
                 "name": site.name,
                 "slug": site.slug,
-                "status": site.status.label if hasattr(site.status, 'label') else str(site.status),
+                # DEFENSIVE CHECK: Ensure status exists before accessing .label
+                "status": site.status.label if site.status and hasattr(site.status, 'label') else "N/A",
                 "region": site.region.name if site.region and hasattr(site.region, 'name') else None,
-                "tenant": site.tenant.name if site.tenant and hasattr(site.tenant, 'name') else None,
-                "description": site.description if hasattr(site, 'description') else None,
+                # DEFENSIVE CHECK: Ensure tenant exists before accessing .name
+                "tenant": site.tenant.name if site.tenant and hasattr(site.tenant, 'name') else "N/A",
+                # DEFENSIVE CHECK: Ensure description is never None
+                "description": site.description if hasattr(site, 'description') and site.description else "",
                 "physical_address": site.physical_address if hasattr(site, 'physical_address') else None,
                 "device_count": len(site_devices),
                 "rack_count": len(site_racks),
