@@ -64,12 +64,28 @@ def bridge_tools_to_fastmcp():
             description = tool_metadata.get("description", f"Executes the {tool_name} tool.")
             category = tool_metadata.get("category", "General")
 
-            # Create a 'wrapper' that injects the client
+            # Create a 'wrapper' that injects the client and handles nested kwargs
             def create_tool_wrapper(original_func):
                 def tool_wrapper(**kwargs):
                     try:
                         # Get a client instance via our dependency provider
                         client = get_netbox_client()
+                        
+                        # ---- NIEUWE LOGICA ----
+                        # Controleer of er een enkele 'kwargs' parameter is die een JSON-string bevat.
+                        if len(kwargs) == 1 and 'kwargs' in kwargs and isinstance(kwargs['kwargs'], str):
+                            try:
+                                logger.debug("Detected nested kwargs parameter, parsing JSON string...")
+                                # Parse de JSON-string naar een dictionary
+                                actual_params = json.loads(kwargs['kwargs'])
+                                # Gebruik deze nieuwe dictionary als de daadwerkelijke parameters
+                                kwargs = actual_params
+                                logger.debug(f"Successfully parsed nested kwargs: {kwargs}")
+                            except json.JSONDecodeError as json_err:
+                                logger.error(f"Failed to decode nested kwargs JSON string: {json_err}")
+                                # Val terug op het originele gedrag als parsen mislukt
+                                pass
+                        # ---- EINDE NIEUWE LOGICA ----
                         
                         # Inspect the original function to determine what parameters it accepts
                         import inspect
