@@ -142,41 +142,46 @@ def netbox_list_all_vrfs(
         # Create human-readable VRF list
         vrf_list = []
         for vrf in vrfs:
-            # Tenant breakdown
+            # Tenant breakdown with defensive dictionary access
             tenant_name = "No tenant"
-            if vrf.tenant:
-                tenant_name = vrf.tenant.name if hasattr(vrf.tenant, 'name') else str(vrf.tenant)
+            tenant_obj = vrf.get("tenant")
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name", str(tenant_obj))
+                else:
+                    tenant_name = str(tenant_obj)
             tenant_counts[tenant_name] = tenant_counts.get(tenant_name, 0) + 1
             
-            # Unique enforcement tracking
-            enforce_unique = vrf.enforce_unique if hasattr(vrf, 'enforce_unique') else False
+            # Unique enforcement tracking with defensive dictionary access
+            enforce_unique = vrf.get("enforce_unique", False)
             if enforce_unique:
                 unique_enforcement_counts["enforced"] += 1
             else:
                 unique_enforcement_counts["not_enforced"] += 1
             
             # Get prefixes in this VRF
-            vrf_prefixes = list(client.ipam.prefixes.filter(vrf_id=vrf.id))
+            vrf_id = vrf.get("id")
+            vrf_prefixes = list(client.ipam.prefixes.filter(vrf_id=vrf_id))
             prefix_count = len(vrf_prefixes)
             total_prefixes += prefix_count
             if prefix_count > 0:
                 vrfs_with_prefixes += 1
             
             # Get IP addresses in this VRF
-            vrf_ips = list(client.ipam.ip_addresses.filter(vrf_id=vrf.id))
+            vrf_ips = list(client.ipam.ip_addresses.filter(vrf_id=vrf_id))
             ip_count = len(vrf_ips)
             
             vrf_info = {
-                "name": vrf.name,
-                "rd": vrf.rd if hasattr(vrf, 'rd') else None,
-                "description": vrf.description if hasattr(vrf, 'description') else None,
+                "name": vrf.get("name", "Unknown"),
+                "rd": vrf.get("rd"),
+                "description": vrf.get("description"),
                 "tenant": tenant_name if tenant_name != "No tenant" else None,
                 "enforce_unique": enforce_unique,
                 "prefix_count": prefix_count,
                 "ip_address_count": ip_count,
                 "total_resources": prefix_count + ip_count,
-                "created": vrf.created if hasattr(vrf, 'created') else None,
-                "last_updated": vrf.last_updated if hasattr(vrf, 'last_updated') else None
+                "created": vrf.get("created"),
+                "last_updated": vrf.get("last_updated")
             }
             vrf_list.append(vrf_info)
         

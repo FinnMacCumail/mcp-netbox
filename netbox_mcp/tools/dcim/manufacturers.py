@@ -120,15 +120,17 @@ def netbox_list_all_manufacturers(
         # Create human-readable manufacturer list
         manufacturer_list = []
         for manufacturer in manufacturers:
-            # Get device types for this manufacturer
-            device_types = list(client.dcim.device_types.filter(manufacturer_id=manufacturer.id))
+            # Get device types for this manufacturer with defensive dictionary access
+            manufacturer_id = manufacturer.get("id")
+            device_types = list(client.dcim.device_types.filter(manufacturer_id=manufacturer_id))
             device_type_count = len(device_types)
             total_device_types += device_type_count
             
             # Get actual devices for this manufacturer (through device types)
             manufacturer_devices = 0
             for device_type in device_types:
-                devices_of_type = list(client.dcim.devices.filter(device_type_id=device_type.id))
+                device_type_id = device_type.get("id") if isinstance(device_type, dict) else device_type
+                devices_of_type = list(client.dcim.devices.filter(device_type_id=device_type_id))
                 manufacturer_devices += len(devices_of_type)
             
             total_devices += manufacturer_devices
@@ -136,13 +138,13 @@ def netbox_list_all_manufacturers(
                 manufacturers_with_devices += 1
             
             manufacturer_info = {
-                "name": manufacturer.name,
-                "slug": manufacturer.slug,
-                "description": manufacturer.description if hasattr(manufacturer, 'description') else None,
+                "name": manufacturer.get("name", "Unknown"),
+                "slug": manufacturer.get("slug", ""),
+                "description": manufacturer.get("description"),
                 "device_type_count": device_type_count,
                 "device_count": manufacturer_devices,
-                "created": manufacturer.created if hasattr(manufacturer, 'created') else None,
-                "last_updated": manufacturer.last_updated if hasattr(manufacturer, 'last_updated') else None
+                "created": manufacturer.get("created"),
+                "last_updated": manufacturer.get("last_updated")
             }
             manufacturer_list.append(manufacturer_info)
         

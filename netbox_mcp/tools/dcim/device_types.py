@@ -170,44 +170,49 @@ def netbox_list_all_device_types(
         # Create human-readable device type list
         device_type_list = []
         for device_type in device_types:
-            # Get manufacturer information
+            # Get manufacturer information with defensive dictionary access
             manufacturer_name = "Unknown"
-            if device_type.manufacturer:
-                if hasattr(device_type.manufacturer, 'name'):
-                    manufacturer_name = device_type.manufacturer.name
+            manufacturer_obj = device_type.get("manufacturer")
+            if manufacturer_obj:
+                if isinstance(manufacturer_obj, dict):
+                    manufacturer_name = manufacturer_obj.get("name", "Unknown")
                 else:
                     # If it's an ID, look up the manufacturer
                     try:
-                        manufacturer_obj = client.dcim.manufacturers.get(device_type.manufacturer)
-                        manufacturer_name = manufacturer_obj.name if hasattr(manufacturer_obj, 'name') else str(device_type.manufacturer)
+                        manufacturer_detail = client.dcim.manufacturers.get(manufacturer_obj)
+                        if isinstance(manufacturer_detail, dict):
+                            manufacturer_name = manufacturer_detail.get("name", str(manufacturer_obj))
+                        else:
+                            manufacturer_name = str(manufacturer_obj)
                     except:
-                        manufacturer_name = str(device_type.manufacturer)
+                        manufacturer_name = str(manufacturer_obj)
             
             # Manufacturer breakdown
             manufacturer_counts[manufacturer_name] = manufacturer_counts.get(manufacturer_name, 0) + 1
             
-            # U-height breakdown
-            u_height = device_type.u_height if hasattr(device_type, 'u_height') else 1
+            # U-height breakdown with defensive dictionary access
+            u_height = device_type.get("u_height", 1)
             u_height_counts[f"{u_height}U"] = u_height_counts.get(f"{u_height}U", 0) + 1
             
             # Get devices using this device type
-            devices_of_type = list(client.dcim.devices.filter(device_type_id=device_type.id))
+            device_type_id = device_type.get("id")
+            devices_of_type = list(client.dcim.devices.filter(device_type_id=device_type_id))
             device_count = len(devices_of_type)
             total_devices += device_count
             if device_count > 0:
                 device_types_with_devices += 1
             
             device_type_info = {
-                "model": device_type.model,
+                "model": device_type.get("model", "Unknown"),
                 "manufacturer": manufacturer_name,
-                "slug": device_type.slug,
+                "slug": device_type.get("slug", ""),
                 "u_height": u_height,
-                "is_full_depth": device_type.is_full_depth if hasattr(device_type, 'is_full_depth') else None,
-                "part_number": device_type.part_number if hasattr(device_type, 'part_number') else None,
-                "description": device_type.description if hasattr(device_type, 'description') else None,
+                "is_full_depth": device_type.get("is_full_depth"),
+                "part_number": device_type.get("part_number"),
+                "description": device_type.get("description"),
                 "device_count": device_count,
-                "created": device_type.created if hasattr(device_type, 'created') else None,
-                "last_updated": device_type.last_updated if hasattr(device_type, 'last_updated') else None
+                "created": device_type.get("created"),
+                "last_updated": device_type.get("last_updated")
             }
             device_type_list.append(device_type_info)
         

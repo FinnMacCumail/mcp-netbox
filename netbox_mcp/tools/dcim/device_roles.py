@@ -146,19 +146,20 @@ def netbox_list_all_device_roles(
         # Create human-readable device role list
         role_list = []
         for role in device_roles:
-            # VM role tracking
-            is_vm_role = role.vm_role if hasattr(role, 'vm_role') else False
+            # VM role tracking with defensive dictionary access
+            is_vm_role = role.get("vm_role", False)
             if is_vm_role:
                 vm_role_counts["vm_capable"] += 1
             else:
                 vm_role_counts["physical_only"] += 1
             
-            # Color tracking
-            role_color = role.color if hasattr(role, 'color') else "unknown"
+            # Color tracking with defensive dictionary access
+            role_color = role.get("color", "unknown")
             color_usage[role_color] = color_usage.get(role_color, 0) + 1
             
             # Get devices using this role
-            devices_with_role = list(client.dcim.devices.filter(role_id=role.id))
+            role_id = role.get("id")
+            devices_with_role = list(client.dcim.devices.filter(role_id=role_id))
             device_count = len(devices_with_role)
             total_devices += device_count
             if device_count > 0:
@@ -168,22 +169,22 @@ def netbox_list_all_device_roles(
             vm_count = 0
             if is_vm_role:
                 try:
-                    vms_with_role = list(client.virtualization.virtual_machines.filter(role_id=role.id))
+                    vms_with_role = list(client.virtualization.virtual_machines.filter(role_id=role_id))
                     vm_count = len(vms_with_role)
                 except:
                     vm_count = 0  # Skip if virtualization API fails
             
             role_info = {
-                "name": role.name,
-                "slug": role.slug,
+                "name": role.get("name", "Unknown"),
+                "slug": role.get("slug", ""),
                 "color": role_color,
                 "vm_role": is_vm_role,
-                "description": role.description if hasattr(role, 'description') else None,
+                "description": role.get("description"),
                 "device_count": device_count,
                 "vm_count": vm_count,
                 "total_resources": device_count + vm_count,
-                "created": role.created if hasattr(role, 'created') else None,
-                "last_updated": role.last_updated if hasattr(role, 'last_updated') else None
+                "created": role.get("created"),
+                "last_updated": role.get("last_updated")
             }
             role_list.append(role_info)
         

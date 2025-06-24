@@ -134,47 +134,63 @@ def netbox_list_all_tenant_groups(
         # Create human-readable tenant group list
         group_list = []
         for group in tenant_groups:
-            # Parent breakdown
+            # Parent breakdown with defensive dictionary access
             parent_name = "Root level"
-            if group.parent:
-                parent_name = group.parent.name if hasattr(group.parent, 'name') else str(group.parent)
+            parent_obj = group.get("parent")
+            if parent_obj:
+                if isinstance(parent_obj, dict):
+                    parent_name = parent_obj.get("name", str(parent_obj))
+                else:
+                    parent_name = str(parent_obj)
             parent_counts[parent_name] = parent_counts.get(parent_name, 0) + 1
             
             # Get tenants in this group
-            group_tenants = list(client.tenancy.tenants.filter(group_id=group.id))
+            group_id = group.get("id")
+            group_tenants = list(client.tenancy.tenants.filter(group_id=group_id))
             tenant_count = len(group_tenants)
             total_tenants += tenant_count
             if tenant_count > 0:
                 groups_with_tenants += 1
             
-            # Calculate hierarchy level (simple depth calculation)
+            # Calculate hierarchy level (simple depth calculation) with defensive access
             level = 0
-            current_parent = group.parent
+            current_parent = parent_obj
             while current_parent and level < 10:  # Prevent infinite loops
                 level += 1
                 try:
-                    parent_obj = client.tenancy.tenant_groups.get(current_parent.id if hasattr(current_parent, 'id') else current_parent)
-                    current_parent = parent_obj.parent if hasattr(parent_obj, 'parent') else None
+                    if isinstance(current_parent, dict):
+                        parent_id = current_parent.get("id")
+                    else:
+                        parent_id = current_parent
+                    
+                    if parent_id:
+                        parent_detail = client.tenancy.tenant_groups.get(parent_id)
+                        if isinstance(parent_detail, dict):
+                            current_parent = parent_detail.get("parent")
+                        else:
+                            current_parent = None
+                    else:
+                        current_parent = None
                 except:
                     break
             
             hierarchy_levels[f"Level {level}"] = hierarchy_levels.get(f"Level {level}", 0) + 1
             
             # Get child groups
-            child_groups = list(client.tenancy.tenant_groups.filter(parent_id=group.id))
+            child_groups = list(client.tenancy.tenant_groups.filter(parent_id=group_id))
             child_count = len(child_groups)
             
             group_info = {
-                "name": group.name,
-                "slug": group.slug,
+                "name": group.get("name", "Unknown"),
+                "slug": group.get("slug", ""),
                 "parent": parent_name if parent_name != "Root level" else None,
-                "description": group.description if hasattr(group, 'description') else None,
+                "description": group.get("description"),
                 "tenant_count": tenant_count,
                 "child_group_count": child_count,
                 "hierarchy_level": level,
                 "total_descendants": tenant_count + child_count,
-                "created": group.created if hasattr(group, 'created') else None,
-                "last_updated": group.last_updated if hasattr(group, 'last_updated') else None
+                "created": group.get("created"),
+                "last_updated": group.get("last_updated")
             }
             group_list.append(group_info)
         
