@@ -110,11 +110,14 @@ def netbox_get_site_info(
     site_name: str
 ) -> Dict[str, Any]:
     """
-    Get detailed information about a specific site.
-    
+    Get detailed information about ONE specific site by name.
+
+    This tool is exclusively intended for retrieving details of a single,
+    already known site. Use 'netbox_list_all_sites' for open, exploratory questions.
+
     Args:
         client: NetBoxClient instance (injected)
-        site_name: Name of the site to retrieve
+        site_name: The exact name of the site to be retrieved
         
     Returns:
         Site information including racks, devices, and statistics
@@ -172,11 +175,11 @@ def netbox_list_all_sites(
     tenant_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Get summarized list of sites with optional filtering.
-    
-    This tool provides bulk site discovery across the NetBox infrastructure,
-    enabling efficient multi-site management and geographic planning. Supports 
-    filtering by common criteria for operational needs.
+    Get a summarized list of all sites in NetBox.
+
+    This function is the correct choice for open, exploratory questions like
+    "what sites are there?" or "show all active locations". Use 
+    'netbox_get_site_info' for detailed information about one specific site.
     
     Args:
         client: NetBoxClient instance (injected by dependency system)
