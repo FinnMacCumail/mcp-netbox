@@ -631,3 +631,39 @@ cables.py: Complete cable management suite (4 enterprise tools)
 - **LLM Usability**: Intuitive tool discovery for cable-related tasks
 
 This **Cable Management Suite** establishes NetBox MCP as the definitive platform for enterprise cable infrastructure automation with comprehensive tooling and clean architectural patterns.
+
+## 💻 Development Environment Configuration
+
+### **Working Directory Setup**
+
+**Development Workflow**: Dual-repository setup for comprehensive development and testing:
+
+- **Primary Development**: `/Users/elvis/Developer/github/netbox-mcp/`
+  - Main development repository
+  - Git commits and documentation updates  
+  - Source of truth for all code changes
+  
+- **Testing Environment**: `/Users/elvis/mcp/netbox-mcp/`
+  - Validation and testing repository
+  - Fresh environment for testing new features
+  - Synchronization via git pull from main repository
+
+**Working Directory Benefits**:
+- ✅ **Seamless Development**: Both repositories accessible in single session
+- ✅ **Isolated Testing**: Clean testing environment separate from development  
+- ✅ **Git Workflow**: Easy synchronization between development and testing
+- ✅ **Validation Pipeline**: Test changes in isolated environment before deployment
+
+**Synchronization Workflow**:
+```bash
+# Development → Testing
+cd /Users/elvis/Developer/github/netbox-mcp
+git add . && git commit -m "Feature implementation"
+git push origin main
+
+cd /Users/elvis/mcp/netbox-mcp  
+git pull origin main
+# Run validation tests
+```
+
+This dual-repository setup ensures **enterprise-grade development practices** with proper separation of development and testing environments.
