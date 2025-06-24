@@ -876,11 +876,11 @@ def netbox_list_all_devices(
     manufacturer_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Get summarized list of devices with optional filtering.
-    
-    This tool provides bulk device discovery across the NetBox infrastructure,
-    enabling efficient exploration and inventory management. Supports filtering
-    by common criteria to narrow down results for specific operational needs.
+    Get a summarized list of all devices in NetBox.
+
+    This function is the correct choice for open, exploratory questions like
+    "what devices are there?" or "show all servers in datacenter-1". Use 
+    'netbox_get_device' for detailed information about one specific device.
     
     Args:
         client: NetBoxClient instance (injected by dependency system)
@@ -934,39 +934,118 @@ def netbox_list_all_devices(
         manufacturer_counts = {}
         
         for device in devices:
-            # Status breakdown
-            status = device.status.label if hasattr(device.status, 'label') else str(device.status)
+            # Status breakdown with defensive checks for dictionary access
+            status_obj = device.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
             status_counts[status] = status_counts.get(status, 0) + 1
             
-            # Role breakdown
-            if device.role:
-                role_name = device.role.name if hasattr(device.role, 'name') else str(device.role)
+            # Role breakdown with defensive checks for dictionary access
+            role_obj = device.get("role")
+            if role_obj:
+                if isinstance(role_obj, dict):
+                    role_name = role_obj.get("name", str(role_obj))
+                else:
+                    role_name = str(role_obj)
                 role_counts[role_name] = role_counts.get(role_name, 0) + 1
             
-            # Site breakdown
-            if device.site:
-                site_name = device.site.name if hasattr(device.site, 'name') else str(device.site)
+            # Site breakdown with defensive checks for dictionary access
+            site_obj = device.get("site")
+            if site_obj:
+                if isinstance(site_obj, dict):
+                    site_name = site_obj.get("name", str(site_obj))
+                else:
+                    site_name = str(site_obj)
                 site_counts[site_name] = site_counts.get(site_name, 0) + 1
             
-            # Manufacturer breakdown
-            if device.device_type and hasattr(device.device_type, 'manufacturer'):
-                mfg_name = device.device_type.manufacturer.name if hasattr(device.device_type.manufacturer, 'name') else str(device.device_type.manufacturer)
-                manufacturer_counts[mfg_name] = manufacturer_counts.get(mfg_name, 0) + 1
+            # Manufacturer breakdown with defensive checks for dictionary access
+            device_type_obj = device.get("device_type")
+            if device_type_obj and isinstance(device_type_obj, dict):
+                manufacturer_obj = device_type_obj.get("manufacturer")
+                if manufacturer_obj:
+                    if isinstance(manufacturer_obj, dict):
+                        mfg_name = manufacturer_obj.get("name", str(manufacturer_obj))
+                    else:
+                        mfg_name = str(manufacturer_obj)
+                    manufacturer_counts[mfg_name] = manufacturer_counts.get(mfg_name, 0) + 1
         
         # Create human-readable device list
         device_list = []
         for device in devices:
+            # DEFENSIVE CHECK: Handle dictionary access for all device attributes
+            status_obj = device.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
+            
+            site_obj = device.get("site")
+            site_name = None
+            if site_obj and isinstance(site_obj, dict):
+                site_name = site_obj.get("name")
+            elif site_obj:
+                site_name = str(site_obj)
+            
+            role_obj = device.get("role")
+            role_name = None
+            if role_obj and isinstance(role_obj, dict):
+                role_name = role_obj.get("name")
+            elif role_obj:
+                role_name = str(role_obj)
+            
+            device_type_obj = device.get("device_type")
+            device_type_model = None
+            manufacturer_name = None
+            if device_type_obj and isinstance(device_type_obj, dict):
+                device_type_model = device_type_obj.get("model")
+                manufacturer_obj = device_type_obj.get("manufacturer")
+                if manufacturer_obj and isinstance(manufacturer_obj, dict):
+                    manufacturer_name = manufacturer_obj.get("name")
+                elif manufacturer_obj:
+                    manufacturer_name = str(manufacturer_obj)
+            
+            # Handle IP addresses
+            primary_ip4_obj = device.get("primary_ip4")
+            primary_ip6_obj = device.get("primary_ip6")
+            primary_ip = None
+            if primary_ip4_obj:
+                if isinstance(primary_ip4_obj, dict):
+                    primary_ip = primary_ip4_obj.get("address")
+                else:
+                    primary_ip = str(primary_ip4_obj)
+            elif primary_ip6_obj:
+                if isinstance(primary_ip6_obj, dict):
+                    primary_ip = primary_ip6_obj.get("address")
+                else:
+                    primary_ip = str(primary_ip6_obj)
+            
+            rack_obj = device.get("rack")
+            rack_name = None
+            if rack_obj and isinstance(rack_obj, dict):
+                rack_name = rack_obj.get("name")
+            elif rack_obj:
+                rack_name = str(rack_obj)
+            
+            tenant_obj = device.get("tenant")
+            tenant_name = None
+            if tenant_obj and isinstance(tenant_obj, dict):
+                tenant_name = tenant_obj.get("name")
+            elif tenant_obj:
+                tenant_name = str(tenant_obj)
+            
             device_info = {
-                "name": device.name,
-                "status": device.status.label if hasattr(device.status, 'label') else str(device.status),
-                "site": device.site.name if device.site and hasattr(device.site, 'name') else None,
-                "role": device.role.name if device.role and hasattr(device.role, 'name') else None,
-                "device_type": device.device_type.model if device.device_type and hasattr(device.device_type, 'model') else None,
-                "manufacturer": device.device_type.manufacturer.name if (device.device_type and hasattr(device.device_type, 'manufacturer') and hasattr(device.device_type.manufacturer, 'name')) else None,
-                "primary_ip": str(device.primary_ip4) if device.primary_ip4 else (str(device.primary_ip6) if device.primary_ip6 else None),
-                "rack": device.rack.name if device.rack and hasattr(device.rack, 'name') else None,
-                "position": device.position,
-                "tenant": device.tenant.name if device.tenant and hasattr(device.tenant, 'name') else None
+                "name": device.get("name", "Unknown"),
+                "status": status,
+                "site": site_name,
+                "role": role_name,
+                "device_type": device_type_model,
+                "manufacturer": manufacturer_name,
+                "primary_ip": primary_ip,
+                "rack": rack_name,
+                "position": device.get("position"),
+                "tenant": tenant_name
             }
             device_list.append(device_info)
         
