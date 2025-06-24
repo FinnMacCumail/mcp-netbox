@@ -865,6 +865,146 @@ def netbox_decommission_device(
 
 
 
+@mcp_tool(category="dcim")
+def netbox_list_all_devices(
+    client: NetBoxClient,
+    limit: int = 100,
+    site_name: Optional[str] = None,
+    role_name: Optional[str] = None,
+    tenant_name: Optional[str] = None,
+    status: Optional[str] = None,
+    manufacturer_name: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get summarized list of devices with optional filtering.
+    
+    This tool provides bulk device discovery across the NetBox infrastructure,
+    enabling efficient exploration and inventory management. Supports filtering
+    by common criteria to narrow down results for specific operational needs.
+    
+    Args:
+        client: NetBoxClient instance (injected by dependency system)
+        limit: Maximum number of results to return (default: 100)
+        site_name: Filter by site name (optional)
+        role_name: Filter by device role name (optional)
+        tenant_name: Filter by tenant name (optional)
+        status: Filter by device status (active, offline, planned, etc.)
+        manufacturer_name: Filter by manufacturer name (optional)
+        
+    Returns:
+        Dictionary containing:
+        - count: Total number of devices found
+        - devices: List of summarized device information
+        - filters_applied: Dictionary of filters that were applied
+        - summary_stats: Aggregate statistics about the devices
+        
+    Example:
+        netbox_list_all_devices(site_name="datacenter-1", role_name="switch")
+        netbox_list_all_devices(status="active", manufacturer_name="Cisco")
+        netbox_list_all_devices(tenant_name="customer-a", limit=50)
+    """
+    try:
+        logger.info(f"Listing devices with filters - site: {site_name}, role: {role_name}, tenant: {tenant_name}, status: {status}, manufacturer: {manufacturer_name}")
+        
+        # Build filters dictionary - only include non-None values
+        filters = {}
+        if site_name:
+            filters['site'] = site_name
+        if role_name:
+            filters['role'] = role_name
+        if tenant_name:
+            filters['tenant'] = tenant_name
+        if status:
+            filters['status'] = status
+        if manufacturer_name:
+            # For manufacturer filtering, we need to filter by device_type__manufacturer
+            filters['device_type__manufacturer'] = manufacturer_name
+        
+        # Execute filtered query with limit
+        devices = list(client.dcim.devices.filter(**filters))
+        
+        # Apply limit after fetching (since pynetbox limit behavior can be inconsistent)
+        if len(devices) > limit:
+            devices = devices[:limit]
+        
+        # Generate summary statistics
+        status_counts = {}
+        role_counts = {}
+        site_counts = {}
+        manufacturer_counts = {}
+        
+        for device in devices:
+            # Status breakdown
+            status = device.status.label if hasattr(device.status, 'label') else str(device.status)
+            status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Role breakdown
+            if device.role:
+                role_name = device.role.name if hasattr(device.role, 'name') else str(device.role)
+                role_counts[role_name] = role_counts.get(role_name, 0) + 1
+            
+            # Site breakdown
+            if device.site:
+                site_name = device.site.name if hasattr(device.site, 'name') else str(device.site)
+                site_counts[site_name] = site_counts.get(site_name, 0) + 1
+            
+            # Manufacturer breakdown
+            if device.device_type and hasattr(device.device_type, 'manufacturer'):
+                mfg_name = device.device_type.manufacturer.name if hasattr(device.device_type.manufacturer, 'name') else str(device.device_type.manufacturer)
+                manufacturer_counts[mfg_name] = manufacturer_counts.get(mfg_name, 0) + 1
+        
+        # Create human-readable device list
+        device_list = []
+        for device in devices:
+            device_info = {
+                "name": device.name,
+                "status": device.status.label if hasattr(device.status, 'label') else str(device.status),
+                "site": device.site.name if device.site and hasattr(device.site, 'name') else None,
+                "role": device.role.name if device.role and hasattr(device.role, 'name') else None,
+                "device_type": device.device_type.model if device.device_type and hasattr(device.device_type, 'model') else None,
+                "manufacturer": device.device_type.manufacturer.name if (device.device_type and hasattr(device.device_type, 'manufacturer') and hasattr(device.device_type.manufacturer, 'name')) else None,
+                "primary_ip": str(device.primary_ip4) if device.primary_ip4 else (str(device.primary_ip6) if device.primary_ip6 else None),
+                "rack": device.rack.name if device.rack and hasattr(device.rack, 'name') else None,
+                "position": device.position,
+                "tenant": device.tenant.name if device.tenant and hasattr(device.tenant, 'name') else None
+            }
+            device_list.append(device_info)
+        
+        result = {
+            "count": len(device_list),
+            "devices": device_list,
+            "filters_applied": {k: v for k, v in filters.items() if v is not None},
+            "summary_stats": {
+                "total_devices": len(device_list),
+                "status_breakdown": status_counts,
+                "role_breakdown": role_counts,
+                "site_breakdown": site_counts,
+                "manufacturer_breakdown": manufacturer_counts,
+                "devices_with_ip": len([d for d in device_list if d['primary_ip']]),
+                "devices_in_racks": len([d for d in device_list if d['rack']])
+            }
+        }
+        
+        logger.info(f"Found {len(device_list)} devices matching criteria. Status breakdown: {status_counts}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error listing devices: {e}")
+        return {
+            "count": 0,
+            "devices": [],
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "filters_applied": {k: v for k, v in {
+                'site_name': site_name,
+                'role_name': role_name, 
+                'tenant_name': tenant_name,
+                'status': status,
+                'manufacturer_name': manufacturer_name
+            }.items() if v is not None}
+        }
+
+
 # TODO: Implement advanced device lifecycle management tools:
 # - netbox_configure_device_settings
 # - netbox_monitor_device_health
