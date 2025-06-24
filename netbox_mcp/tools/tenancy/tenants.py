@@ -489,3 +489,143 @@ def netbox_create_tenant_group(
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+@mcp_tool(category="tenancy")
+def netbox_list_all_tenants(
+    client: NetBoxClient,
+    limit: int = 100,
+    group_name: Optional[str] = None,
+    status: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get summarized list of tenants with optional filtering.
+    
+    This tool provides bulk tenant discovery across the NetBox multi-tenant 
+    infrastructure, enabling efficient tenant administration, billing operations,
+    and resource management. Essential for enterprise multi-tenant environments.
+    
+    Args:
+        client: NetBoxClient instance (injected by dependency system)
+        limit: Maximum number of results to return (default: 100)
+        group_name: Filter by tenant group name (optional)
+        status: Filter by tenant status (active, provisioning, suspended, etc.)
+        
+    Returns:
+        Dictionary containing:
+        - count: Total number of tenants found
+        - tenants: List of summarized tenant information
+        - filters_applied: Dictionary of filters that were applied
+        - summary_stats: Aggregate statistics about the tenants
+        
+    Example:
+        netbox_list_all_tenants(status="active", group_name="customers")
+        netbox_list_all_tenants(limit=50)
+    """
+    try:
+        logger.info(f"Listing tenants with filters - group: {group_name}, status: {status}")
+        
+        # Build filters dictionary - only include non-None values
+        filters = {}
+        if group_name:
+            filters['group'] = group_name
+        if status:
+            filters['status'] = status
+        
+        # Execute filtered query with limit
+        tenants = list(client.tenancy.tenants.filter(**filters))
+        
+        # Apply limit after fetching
+        if len(tenants) > limit:
+            tenants = tenants[:limit]
+        
+        # Generate summary statistics
+        status_counts = {}
+        group_counts = {}
+        
+        # Collect resource statistics for each tenant
+        total_devices = 0
+        total_sites = 0
+        total_prefixes = 0
+        
+        for tenant in tenants:
+            # Status breakdown
+            status = tenant.status.label if hasattr(tenant.status, 'label') else str(tenant.status)
+            status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Group breakdown
+            if tenant.group:
+                group_name = tenant.group.name if hasattr(tenant.group, 'name') else str(tenant.group)
+                group_counts[group_name] = group_counts.get(group_name, 0) + 1
+            
+            # Get basic resource counts for this tenant (efficient queries)
+            tenant_id = tenant.id
+            tenant_devices = list(client.dcim.devices.filter(tenant_id=tenant_id))
+            tenant_sites = list(client.dcim.sites.filter(tenant_id=tenant_id))
+            tenant_prefixes = list(client.ipam.prefixes.filter(tenant_id=tenant_id))
+            
+            total_devices += len(tenant_devices)
+            total_sites += len(tenant_sites)
+            total_prefixes += len(tenant_prefixes)
+        
+        # Create human-readable tenant list
+        tenant_list = []
+        for tenant in tenants:
+            # Get resource counts for this specific tenant
+            tenant_id = tenant.id
+            tenant_devices = list(client.dcim.devices.filter(tenant_id=tenant_id))
+            tenant_sites = list(client.dcim.sites.filter(tenant_id=tenant_id))
+            tenant_prefixes = list(client.ipam.prefixes.filter(tenant_id=tenant_id))
+            tenant_vlans = list(client.ipam.vlans.filter(tenant_id=tenant_id))
+            
+            tenant_info = {
+                "name": tenant.name,
+                "slug": tenant.slug,
+                "status": tenant.status.label if hasattr(tenant.status, 'label') else str(tenant.status),
+                "group": tenant.group.name if tenant.group and hasattr(tenant.group, 'name') else None,
+                "description": tenant.description if hasattr(tenant, 'description') else None,
+                "comments": tenant.comments if hasattr(tenant, 'comments') else None,
+                "resource_counts": {
+                    "devices": len(tenant_devices),
+                    "sites": len(tenant_sites),
+                    "prefixes": len(tenant_prefixes),
+                    "vlans": len(tenant_vlans)
+                },
+                "total_resources": len(tenant_devices) + len(tenant_sites) + len(tenant_prefixes) + len(tenant_vlans),
+                "created": tenant.created if hasattr(tenant, 'created') else None,
+                "last_updated": tenant.last_updated if hasattr(tenant, 'last_updated') else None
+            }
+            tenant_list.append(tenant_info)
+        
+        result = {
+            "count": len(tenant_list),
+            "tenants": tenant_list,
+            "filters_applied": {k: v for k, v in filters.items() if v is not None},
+            "summary_stats": {
+                "total_tenants": len(tenant_list),
+                "status_breakdown": status_counts,
+                "group_breakdown": group_counts,
+                "total_devices_across_tenants": total_devices,
+                "total_sites_across_tenants": total_sites,
+                "total_prefixes_across_tenants": total_prefixes,
+                "tenants_with_resources": len([t for t in tenant_list if t['total_resources'] > 0]),
+                "tenants_with_groups": len([t for t in tenant_list if t['group']]),
+                "average_resources_per_tenant": total_devices + total_sites + total_prefixes / len(tenant_list) if tenant_list else 0
+            }
+        }
+        
+        logger.info(f"Found {len(tenant_list)} tenants matching criteria. Status breakdown: {status_counts}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error listing tenants: {e}")
+        return {
+            "count": 0,
+            "tenants": [],
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "filters_applied": {k: v for k, v in {
+                'group_name': group_name,
+                'status': status
+            }.items() if v is not None}
+        }
