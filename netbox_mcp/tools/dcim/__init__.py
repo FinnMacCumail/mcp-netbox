@@ -14,4 +14,5 @@ from . import device_types
 from . import devices
 from . import interfaces
 from . import modules
-# TODO: Import other DCIM modules as they are migrated
+from . import cables
+from . import power_ports

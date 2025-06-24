@@ -23,59 +23,40 @@ logger = logging.getLogger(__name__)
 
 def load_all_tools() -> List[str]:
     """
-    Automatically discover and load all tool modules in this package.
+    Load all tools from the hierarchical domain structure.
     
-    This function scans the tools/ directory for Python modules and imports
-    them, which triggers the @mcp_tool decorator registration.
-    Supports both flat files and domain subdirectories.
+    This function directly imports all domain packages, which in turn import
+    their tool modules via their __init__.py files. This approach is more
+    reliable than automatic discovery and ensures all tools are loaded.
     
     Returns:
-        List[str]: Names of successfully loaded tool modules
+        List[str]: Names of successfully loaded domain packages
     """
-    loaded_modules = []
+    loaded_domains = []
     
-    # Get the path of this package
-    package_path = __path__
+    # Define the domain packages to load
+    domain_packages = [
+        'system',
+        'dcim', 
+        'ipam',
+        'tenancy',
+        'circuits',
+        'virtualization'
+    ]
     
-    try:
-        # Iterate through all modules in this package
-        for finder, module_name, ispkg in pkgutil.iter_modules(package_path, prefix=__name__ + '.'):
-            try:
-                if ispkg:
-                    # This is a subdirectory (domain package) - import it to trigger __init__.py
-                    importlib.import_module(module_name)
-                    loaded_modules.append(module_name)
-                    logger.info(f"Successfully loaded domain package: {module_name}")
-                    
-                    # Also load all modules within the domain package
-                    domain_package = importlib.import_module(module_name)
-                    if hasattr(domain_package, '__path__'):
-                        for domain_finder, domain_module_name, domain_ispkg in pkgutil.iter_modules(
-                            domain_package.__path__, prefix=module_name + '.'
-                        ):
-                            if not domain_ispkg and not domain_module_name.endswith('.__init__'):
-                                try:
-                                    importlib.import_module(domain_module_name)
-                                    loaded_modules.append(domain_module_name)
-                                    logger.info(f"Successfully loaded domain module: {domain_module_name}")
-                                except Exception as e:
-                                    logger.error(f"Failed to load domain module {domain_module_name}: {e}")
-                                    
-                elif not module_name.endswith('.__init__'):
-                    # This is a flat module file - import it directly
-                    importlib.import_module(module_name)
-                    loaded_modules.append(module_name)
-                    logger.info(f"Successfully loaded flat module: {module_name}")
-                    
-            except Exception as e:
-                logger.error(f"Failed to load module {module_name}: {e}")
-                # Continue loading other modules even if one fails
+    for domain in domain_packages:
+        try:
+            # Import the domain package - this triggers all __init__.py imports
+            module_name = f"{__name__}.{domain}"
+            importlib.import_module(module_name)
+            loaded_domains.append(domain)
+            logger.info(f"Successfully loaded domain package: {domain}")
+        except Exception as e:
+            logger.error(f"Failed to load domain package {domain}: {e}")
+            # Continue loading other domains even if one fails
     
-    except Exception as e:
-        logger.error(f"Error during tool discovery: {e}")
-    
-    logger.info(f"Tool discovery complete: {len(loaded_modules)} modules loaded")
-    return loaded_modules
+    logger.info(f"Tool loading complete: {len(loaded_domains)} domain packages loaded")
+    return loaded_domains
 
 # Automatically load all tools when this package is imported
 _loaded_tools = load_all_tools()

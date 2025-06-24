@@ -10,4 +10,8 @@ from . import addresses
 from . import prefixes  
 from . import vlans
 from . import enterprise
-# TODO: Import other IPAM modules as they are migrated
+from . import aggregates
+from . import ip_addresses
+from . import mac_addresses
+from . import rirs
+from . import vrfs
