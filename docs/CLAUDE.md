@@ -74,7 +74,7 @@ When making changes, always run linting and type checking if available:
 
 ## Current Status
 
-**Version: 0.9.0 - Enterprise Automation Platform (Hierarchical Migration Active)**
+**Version: 0.9.6 - Enterprise Automation Platform (Hierarchical Architecture Complete)**
 
 **34 MCP Tools Implemented:**
 - **System Tools** (1): Health monitoring  
@@ -436,3 +436,36 @@ This architectural transformation establishes NetBox MCP as a **enterprise-grade
 **Phase 4 Planning**: IPAM tools migration (12 tools - most complex domain)
 
 This session establishes the **architectural foundation** for enterprise-grade NetBox MCP with hierarchical domain separation and revolutionary tool consolidation following Gemini's guidance.
+
+## 🐛 Critical Architecture Fix (2025-06-24) - v0.9.6
+
+### **Tool Loading Conflict Resolution** ([Issue #45](https://github.com/Deployment-Team/netbox-mcp/issues/45))
+
+**Problem Identified**: The hierarchical architecture migration was not fully active due to conflicting legacy flat files that were overriding the new domain structure.
+
+**Root Cause**: 
+- Legacy flat files (`dcim_tools.py`, `ipam_tools.py`, `tenancy_tools.py`, `system_tools.py`) still existed
+- The `tools/__init__.py` auto-discovery loaded BOTH legacy AND hierarchical modules
+- Tool registry "first registration wins" behavior caused legacy tools to override enterprise versions
+
+**Solution Implemented**:
+- ✅ **Complete removal** of all conflicting legacy flat files
+- ✅ **Hierarchical structure** now single source of truth for all 34 tools
+- ✅ **Zero tool loss** during architecture fix
+- ✅ **Clean loading path**: Predictable domain-based discovery
+
+**Technical Validation**:
+```python
+# Before fix: Mixed loading with conflicts
+# After fix: Clean hierarchical loading
+Total tools loaded: 34
+Categories: {'dcim': 16, 'ipam': 12, 'tenancy': 5, 'system': 1}
+```
+
+**Impact**:
+- **Architecture Integrity**: Hierarchical domain structure fully operational
+- **Performance**: Single-pass loading, no duplicate registrations
+- **Developer Experience**: Clean file organization matches NetBox API domains
+- **Scalability**: Ready for Phase 4 IPAM migration and future domain expansion
+
+This fix **completes the hierarchical architecture migration** and establishes the foundation for all future development. The NetBox MCP tool loading mechanism now operates exactly as designed in the enterprise architecture specification.
