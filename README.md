@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-34-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-45-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **34 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with hierarchical architecture
+- **45 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with dual-tool pattern architecture
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -43,11 +43,17 @@ pip install .
 
 ## 📊 Current Status
 
-**Version**: 0.9.5 - Hierarchical Architecture Enterprise Platform
+**Version**: 0.9.8 - Dual-Tool Pattern Architecture Complete
 
-**🏆 HIERARCHICAL MIGRATION COMPLETE**: All 34 MCP tools migrated to enterprise-grade hierarchical domain architecture with 100% success rate. Full validation against live NetBox 4.2.9 instance confirms production readiness.
+**🎯 DUAL-TOOL PATTERN IMPLEMENTATION**: Revolutionary architecture breakthrough with 45 MCP tools implementing the fundamental dual-tool pattern (info + list). LLMs now have both detailed object inspection AND bulk discovery capabilities across all NetBox domains.
 
-**🛡️ NEW: Defensive Read-Validate-Write Pattern**: Revolutionary cache bypass architecture ensuring 100% conflict detection accuracy for enterprise-grade reliability.
+**🚀 NEW DISCOVERY TOOLS**: 11 new `list_all_*` tools enabling efficient bulk exploration:
+- `netbox_list_all_devices`, `netbox_list_all_sites`, `netbox_list_all_racks` (DCIM)
+- `netbox_list_all_prefixes`, `netbox_list_all_vlans`, `netbox_list_all_vrfs` (IPAM)  
+- `netbox_list_all_tenants`, `netbox_list_all_tenant_groups` (Tenancy)
+- `netbox_list_all_manufacturers`, `netbox_list_all_device_types`, `netbox_list_all_device_roles` (Device Management)
+
+**🛡️ ENTERPRISE FOUNDATION**: Defensive Read-Validate-Write Pattern with Registry Bridge ensuring 100% tool accessibility and conflict detection accuracy.
 
 ## ⚙️ Configuration
 
@@ -70,9 +76,16 @@ pip install .
 
 ## 🏗️ Architecture Highlights
 
+### Revolutionary Dual-Tool Pattern
+- **Fundamental LLM Architecture**: Every NetBox domain implements both "info" tools (detailed single-object retrieval) and "list_all" tools (bulk discovery/exploration)
+- **Comprehensive Filtering**: All list tools support filtering by site, tenant, status, and domain-specific criteria
+- **Summary Statistics**: Rich aggregate statistics, breakdowns, and utilization metrics for operational insight
+- **Cross-Domain Integration**: Tools bridge DCIM, IPAM, and Tenancy domains with relationship tracking
+
 ### Revolutionary Self-Describing Server
 - **@mcp_tool Decorator**: Automatic function inspection and metadata generation
 - **Plugin Architecture**: Modular tools/ subpackage with automatic discovery
+- **Registry Bridge Pattern**: Seamless connection between internal registry and FastMCP interface
 - **Dependency Injection**: Clean separation using FastAPI's Depends() system
 - **REST API Endpoints**: `/api/v1/tools`, `/api/v1/execute`, `/api/v1/status`
 

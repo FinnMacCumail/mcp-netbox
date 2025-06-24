@@ -74,15 +74,39 @@ When making changes, always run linting and type checking if available:
 
 ## Current Status
 
-**Version: 0.9.7 - Registry Bridge Implementation (Tool Export Complete)**
+**Version: 0.9.8 - Dual-Tool Pattern Architecture Complete**
 
-**34 MCP Tools Implemented:**
+**45 MCP Tools Implemented:**
 - **System Tools** (1): Health monitoring  
-- **IPAM Tools** (12): IP and MAC address management with high-level automation
-- **DCIM Tools** (16): Device and infrastructure management with component support
-- **Tenancy Tools** (5): Multi-tenant resource management with contact support
+- **IPAM Tools** (15): IP and MAC address management with comprehensive list_all discovery tools
+- **DCIM Tools** (22): Complete device lifecycle with dual-tool pattern implementation
+- **Tenancy Tools** (7): Multi-tenant resource management with hierarchical organization
 
-### 🚀 NEW: Hierarchical Domain Architecture Migration
+### 🎯 BREAKTHROUGH: Dual-Tool Pattern Implementation
+
+**Fundamental LLM Architecture Insight**: The critical discovery that LLMs need BOTH detailed object inspection AND bulk discovery capabilities across all NetBox domains.
+
+**Problem Identified**: Original toolbox had 34 tools but was missing the fundamental pattern where LLMs need:
+1. **"Info" Tools**: Detailed single-object retrieval (existing tools like `netbox_get_device`)
+2. **"List All" Tools**: Bulk discovery for exploratory queries (missing pattern)
+
+**Solution Implemented**: Systematic implementation of 11 new `list_all_*` tools following consistent template:
+
+#### **New Discovery Tools Added**:
+- **DCIM Domain**: `netbox_list_all_devices`, `netbox_list_all_sites`, `netbox_list_all_racks`, `netbox_list_all_manufacturers`, `netbox_list_all_device_types`, `netbox_list_all_device_roles`
+- **IPAM Domain**: `netbox_list_all_prefixes`, `netbox_list_all_vlans`, `netbox_list_all_vrfs`
+- **Tenancy Domain**: `netbox_list_all_tenants`, `netbox_list_all_tenant_groups`
+
+#### **Dual-Tool Pattern Template**:
+- **Comprehensive Filtering**: Site, tenant, status, domain-specific criteria
+- **Summary Statistics**: Rich aggregate data, breakdowns, utilization metrics  
+- **Human-Readable Output**: Sorted by relevance, complete object information
+- **Cross-Domain Integration**: Relationship tracking across DCIM/IPAM/Tenancy
+- **Enterprise Safety**: Error handling, graceful degradation, performance optimization
+
+**Impact**: Tool count progression 34 → 45 tools, solving the fundamental architectural gap for LLM-driven infrastructure exploration.
+
+### 🚀 COMPLETED: Hierarchical Domain Architecture Migration
 
 **Active Migration Status**: Phase 3 of 4 (DCIM Tools) - 6/16 tools migrated
 

@@ -92,6 +92,142 @@ def netbox_create_device_role(
         }
 
 
+@mcp_tool(category="dcim")
+def netbox_list_all_device_roles(
+    client: NetBoxClient,
+    limit: int = 100,
+    vm_role: Optional[bool] = None
+) -> Dict[str, Any]:
+    """
+    Get summarized list of device roles with usage statistics.
+    
+    This tool provides bulk device role discovery across the NetBox DCIM infrastructure,
+    enabling efficient role-based device management, organizational planning, and
+    infrastructure categorization. Essential for device lifecycle and role management.
+    
+    Args:
+        client: NetBoxClient instance (injected by dependency system)
+        limit: Maximum number of results to return (default: 100)
+        vm_role: Filter by VM role capability (True/False/None for all)
+        
+    Returns:
+        Dictionary containing:
+        - count: Total number of device roles found
+        - device_roles: List of summarized device role information
+        - filters_applied: Dictionary of filters that were applied
+        - summary_stats: Aggregate statistics about the device roles
+        
+    Example:
+        netbox_list_all_device_roles()
+        netbox_list_all_device_roles(vm_role=True)
+        netbox_list_all_device_roles(limit=25)
+    """
+    try:
+        logger.info(f"Listing device roles with filters - vm_role: {vm_role}")
+        
+        # Build filters dictionary - only include non-None values
+        filters = {}
+        if vm_role is not None:
+            filters['vm_role'] = vm_role
+        
+        # Execute filtered query
+        device_roles = list(client.dcim.device_roles.filter(**filters))
+        
+        # Apply limit after fetching
+        if len(device_roles) > limit:
+            device_roles = device_roles[:limit]
+        
+        # Generate summary statistics
+        vm_role_counts = {"vm_capable": 0, "physical_only": 0}
+        color_usage = {}
+        total_devices = 0
+        roles_with_devices = 0
+        
+        # Create human-readable device role list
+        role_list = []
+        for role in device_roles:
+            # VM role tracking
+            is_vm_role = role.vm_role if hasattr(role, 'vm_role') else False
+            if is_vm_role:
+                vm_role_counts["vm_capable"] += 1
+            else:
+                vm_role_counts["physical_only"] += 1
+            
+            # Color tracking
+            role_color = role.color if hasattr(role, 'color') else "unknown"
+            color_usage[role_color] = color_usage.get(role_color, 0) + 1
+            
+            # Get devices using this role
+            devices_with_role = list(client.dcim.devices.filter(role_id=role.id))
+            device_count = len(devices_with_role)
+            total_devices += device_count
+            if device_count > 0:
+                roles_with_devices += 1
+            
+            # Get VMs using this role (if vm_role is True)
+            vm_count = 0
+            if is_vm_role:
+                try:
+                    vms_with_role = list(client.virtualization.virtual_machines.filter(role_id=role.id))
+                    vm_count = len(vms_with_role)
+                except:
+                    vm_count = 0  # Skip if virtualization API fails
+            
+            role_info = {
+                "name": role.name,
+                "slug": role.slug,
+                "color": role_color,
+                "vm_role": is_vm_role,
+                "description": role.description if hasattr(role, 'description') else None,
+                "device_count": device_count,
+                "vm_count": vm_count,
+                "total_resources": device_count + vm_count,
+                "created": role.created if hasattr(role, 'created') else None,
+                "last_updated": role.last_updated if hasattr(role, 'last_updated') else None
+            }
+            role_list.append(role_info)
+        
+        # Sort by total resource count (most used roles first)
+        role_list.sort(key=lambda r: r['total_resources'], reverse=True)
+        
+        result = {
+            "count": len(role_list),
+            "device_roles": role_list,
+            "filters_applied": {k: v for k, v in filters.items() if v is not None},
+            "summary_stats": {
+                "total_roles": len(role_list),
+                "vm_role_breakdown": vm_role_counts,
+                "color_distribution": color_usage,
+                "total_devices_assigned": total_devices,
+                "total_vms_assigned": sum(r['vm_count'] for r in role_list),
+                "roles_in_use": roles_with_devices,
+                "roles_unused": len(role_list) - roles_with_devices,
+                "average_devices_per_role": round(total_devices / len(role_list), 1) if role_list else 0,
+                "most_used_roles": [r["name"] for r in role_list[:5] if r["total_resources"] > 0],
+                "role_categories": {
+                    "vm_capable_roles": len([r for r in role_list if r["vm_role"]]),
+                    "physical_only_roles": len([r for r in role_list if not r["vm_role"]]),
+                    "hybrid_roles": len([r for r in role_list if r["vm_role"] and r["device_count"] > 0 and r["vm_count"] > 0])
+                }
+            }
+        }
+        
+        logger.info(f"Found {len(role_list)} device roles matching criteria. Total devices assigned: {total_devices}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error listing device roles: {e}")
+        return {
+            "count": 0,
+            "device_roles": [],
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "filters_applied": {k: v for k, v in {
+                'vm_role': vm_role
+            }.items() if v is not None}
+        }
+
+
 # TODO: Implement advanced device role management tools:
 # - netbox_get_device_role_usage
 # - netbox_update_device_role_properties

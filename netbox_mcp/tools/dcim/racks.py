@@ -489,6 +489,203 @@ def netbox_get_rack_inventory(
 
 
 
+@mcp_tool(category="dcim")
+def netbox_list_all_racks(
+    client: NetBoxClient,
+    limit: int = 100,
+    site_name: Optional[str] = None,
+    tenant_name: Optional[str] = None,
+    status: Optional[str] = None,
+    role: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get summarized list of racks with optional filtering.
+    
+    This tool provides bulk rack discovery across the NetBox infrastructure,
+    enabling efficient capacity management, data center optimization, and
+    rack space planning. Essential for infrastructure capacity management.
+    
+    Args:
+        client: NetBoxClient instance (injected by dependency system)
+        limit: Maximum number of results to return (default: 100)
+        site_name: Filter by site name (optional)
+        tenant_name: Filter by tenant name (optional)
+        status: Filter by rack status (optional)
+        role: Filter by rack role (optional)
+        
+    Returns:
+        Dictionary containing:
+        - count: Total number of racks found
+        - racks: List of summarized rack information
+        - filters_applied: Dictionary of filters that were applied
+        - summary_stats: Aggregate statistics about the racks
+        
+    Example:
+        netbox_list_all_racks(site_name="datacenter-1", status="active")
+        netbox_list_all_racks(tenant_name="customer-a", limit=25)
+    """
+    try:
+        logger.info(f"Listing racks with filters - site: {site_name}, tenant: {tenant_name}, status: {status}, role: {role}")
+        
+        # Build filters dictionary - only include non-None values
+        filters = {}
+        if site_name:
+            filters['site'] = site_name
+        if tenant_name:
+            filters['tenant'] = tenant_name
+        if status:
+            filters['status'] = status
+        if role:
+            filters['role'] = role
+        
+        # Execute filtered query with limit
+        racks = list(client.dcim.racks.filter(**filters))
+        
+        # Apply limit after fetching
+        if len(racks) > limit:
+            racks = racks[:limit]
+        
+        # Generate summary statistics
+        status_counts = {}
+        site_counts = {}
+        tenant_counts = {}
+        role_counts = {}
+        
+        # Capacity tracking
+        total_rack_units = 0
+        total_occupied_units = 0
+        total_devices = 0
+        
+        for rack in racks:
+            # Status breakdown
+            status = rack.status.label if hasattr(rack.status, 'label') else str(rack.status)
+            status_counts[status] = status_counts.get(status, 0) + 1
+            
+            # Site breakdown
+            if rack.site:
+                site_name = rack.site.name if hasattr(rack.site, 'name') else str(rack.site)
+                site_counts[site_name] = site_counts.get(site_name, 0) + 1
+            
+            # Tenant breakdown
+            if rack.tenant:
+                tenant_name = rack.tenant.name if hasattr(rack.tenant, 'name') else str(rack.tenant)
+                tenant_counts[tenant_name] = tenant_counts.get(tenant_name, 0) + 1
+            
+            # Role breakdown
+            if rack.role:
+                role_name = rack.role.name if hasattr(rack.role, 'name') else str(rack.role)
+                role_counts[role_name] = role_counts.get(role_name, 0) + 1
+            
+            # Capacity calculations
+            rack_height = rack.u_height if hasattr(rack, 'u_height') and rack.u_height else 42
+            total_rack_units += rack_height
+            
+            # Get devices in this rack to calculate utilization
+            rack_id = rack.id
+            rack_devices = list(client.dcim.devices.filter(rack_id=rack_id))
+            total_devices += len(rack_devices)
+            
+            # Calculate occupied units
+            occupied_units = 0
+            for device in rack_devices:
+                if hasattr(device, 'position') and device.position:
+                    device_height = 1  # Default device height
+                    if hasattr(device, 'device_type') and device.device_type:
+                        device_type_details = client.dcim.device_types.get(device.device_type.id)
+                        if hasattr(device_type_details, 'u_height') and device_type_details.u_height:
+                            device_height = device_type_details.u_height
+                    occupied_units += device_height
+            
+            total_occupied_units += occupied_units
+        
+        # Create human-readable rack list
+        rack_list = []
+        for rack in racks:
+            # Get utilization details for this specific rack
+            rack_id = rack.id
+            rack_devices = list(client.dcim.devices.filter(rack_id=rack_id))
+            rack_height = rack.u_height if hasattr(rack, 'u_height') and rack.u_height else 42
+            
+            # Calculate occupied units for this rack
+            occupied_units = 0
+            for device in rack_devices:
+                if hasattr(device, 'position') and device.position:
+                    device_height = 1  # Default
+                    if hasattr(device, 'device_type') and device.device_type:
+                        try:
+                            device_type_details = client.dcim.device_types.get(device.device_type.id)
+                            if hasattr(device_type_details, 'u_height') and device_type_details.u_height:
+                                device_height = device_type_details.u_height
+                        except:
+                            pass  # Use default height if lookup fails
+                    occupied_units += device_height
+            
+            utilization_percent = (occupied_units / rack_height * 100) if rack_height > 0 else 0
+            
+            rack_info = {
+                "name": rack.name,
+                "site": rack.site.name if rack.site and hasattr(rack.site, 'name') else None,
+                "tenant": rack.tenant.name if rack.tenant and hasattr(rack.tenant, 'name') else None,
+                "status": rack.status.label if hasattr(rack.status, 'label') else str(rack.status),
+                "role": rack.role.name if rack.role and hasattr(rack.role, 'name') else None,
+                "height_units": rack_height,
+                "width": rack.width.value if hasattr(rack.width, 'value') else rack.width if hasattr(rack, 'width') else 19,
+                "device_count": len(rack_devices),
+                "occupied_units": occupied_units,
+                "available_units": rack_height - occupied_units,
+                "utilization_percent": round(utilization_percent, 1),
+                "description": rack.description if hasattr(rack, 'description') else None,
+                "location": rack.location.name if rack.location and hasattr(rack.location, 'name') else None,
+                "facility_id": rack.facility_id if hasattr(rack, 'facility_id') else None
+            }
+            rack_list.append(rack_info)
+        
+        # Calculate overall utilization
+        overall_utilization = (total_occupied_units / total_rack_units * 100) if total_rack_units > 0 else 0
+        
+        result = {
+            "count": len(rack_list),
+            "racks": rack_list,
+            "filters_applied": {k: v for k, v in filters.items() if v is not None},
+            "summary_stats": {
+                "total_racks": len(rack_list),
+                "status_breakdown": status_counts,
+                "site_breakdown": site_counts,
+                "tenant_breakdown": tenant_counts,
+                "role_breakdown": role_counts,
+                "capacity_overview": {
+                    "total_rack_units": total_rack_units,
+                    "total_occupied_units": total_occupied_units,
+                    "total_available_units": total_rack_units - total_occupied_units,
+                    "overall_utilization_percent": round(overall_utilization, 1),
+                    "total_devices": total_devices,
+                    "average_devices_per_rack": round(total_devices / len(rack_list), 1) if rack_list else 0
+                },
+                "racks_with_devices": len([r for r in rack_list if r['device_count'] > 0]),
+                "racks_with_tenants": len([r for r in rack_list if r['tenant']]),
+                "highly_utilized_racks": len([r for r in rack_list if r['utilization_percent'] > 80])
+            }
+        }
+        
+        logger.info(f"Found {len(rack_list)} racks matching criteria. Overall utilization: {overall_utilization:.1f}%")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error listing racks: {e}")
+        return {
+            "count": 0,
+            "racks": [],
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "filters_applied": {k: v for k, v in {
+                'site_name': site_name,
+                'tenant_name': tenant_name,
+                'status': status,
+                'role': role
+            }.items() if v is not None}
+        }
+
+
 # TODO: Implement advanced rack management tools:
 # - netbox_plan_rack_capacity
 # - netbox_manage_rack_power_cooling

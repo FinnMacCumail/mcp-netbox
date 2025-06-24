@@ -76,6 +76,107 @@ def netbox_create_manufacturer(
         }
 
 
+@mcp_tool(category="dcim")
+def netbox_list_all_manufacturers(
+    client: NetBoxClient,
+    limit: int = 100
+) -> Dict[str, Any]:
+    """
+    Get summarized list of manufacturers with device type statistics.
+    
+    This tool provides bulk manufacturer discovery across the NetBox DCIM infrastructure,
+    enabling efficient vendor management, device catalog planning, and manufacturer
+    oversight. Essential for device procurement and vendor relationship management.
+    
+    Args:
+        client: NetBoxClient instance (injected by dependency system)
+        limit: Maximum number of results to return (default: 100)
+        
+    Returns:
+        Dictionary containing:
+        - count: Total number of manufacturers found
+        - manufacturers: List of summarized manufacturer information
+        - summary_stats: Aggregate statistics about the manufacturers
+        
+    Example:
+        netbox_list_all_manufacturers()
+        netbox_list_all_manufacturers(limit=50)
+    """
+    try:
+        logger.info(f"Listing manufacturers with limit: {limit}")
+        
+        # Execute query with limit
+        manufacturers = list(client.dcim.manufacturers.all())
+        
+        # Apply limit after fetching
+        if len(manufacturers) > limit:
+            manufacturers = manufacturers[:limit]
+        
+        # Generate summary statistics
+        total_device_types = 0
+        total_devices = 0
+        manufacturers_with_devices = 0
+        
+        # Create human-readable manufacturer list
+        manufacturer_list = []
+        for manufacturer in manufacturers:
+            # Get device types for this manufacturer
+            device_types = list(client.dcim.device_types.filter(manufacturer_id=manufacturer.id))
+            device_type_count = len(device_types)
+            total_device_types += device_type_count
+            
+            # Get actual devices for this manufacturer (through device types)
+            manufacturer_devices = 0
+            for device_type in device_types:
+                devices_of_type = list(client.dcim.devices.filter(device_type_id=device_type.id))
+                manufacturer_devices += len(devices_of_type)
+            
+            total_devices += manufacturer_devices
+            if manufacturer_devices > 0:
+                manufacturers_with_devices += 1
+            
+            manufacturer_info = {
+                "name": manufacturer.name,
+                "slug": manufacturer.slug,
+                "description": manufacturer.description if hasattr(manufacturer, 'description') else None,
+                "device_type_count": device_type_count,
+                "device_count": manufacturer_devices,
+                "created": manufacturer.created if hasattr(manufacturer, 'created') else None,
+                "last_updated": manufacturer.last_updated if hasattr(manufacturer, 'last_updated') else None
+            }
+            manufacturer_list.append(manufacturer_info)
+        
+        # Sort by device count (most active manufacturers first)
+        manufacturer_list.sort(key=lambda m: m['device_count'], reverse=True)
+        
+        result = {
+            "count": len(manufacturer_list),
+            "manufacturers": manufacturer_list,
+            "summary_stats": {
+                "total_manufacturers": len(manufacturer_list),
+                "total_device_types": total_device_types,
+                "total_devices": total_devices,
+                "manufacturers_with_devices": manufacturers_with_devices,
+                "manufacturers_without_devices": len(manufacturer_list) - manufacturers_with_devices,
+                "average_device_types_per_manufacturer": round(total_device_types / len(manufacturer_list), 1) if manufacturer_list else 0,
+                "average_devices_per_manufacturer": round(total_devices / len(manufacturer_list), 1) if manufacturer_list else 0,
+                "top_manufacturers": [m["name"] for m in manufacturer_list[:5] if m["device_count"] > 0]
+            }
+        }
+        
+        logger.info(f"Found {len(manufacturer_list)} manufacturers. Total device types: {total_device_types}, Total devices: {total_devices}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error listing manufacturers: {e}")
+        return {
+            "count": 0,
+            "manufacturers": [],
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 # TODO: Implement advanced manufacturer management tools:
 # - netbox_get_manufacturer_devices
 # - netbox_get_manufacturer_statistics
