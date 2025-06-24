@@ -228,22 +228,34 @@ def netbox_list_all_sites(
         total_racks = 0
         
         for site in sites:
-            # Status breakdown with defensive checks
-            status = site.status.label if site.status and hasattr(site.status, 'label') else "N/A"
+            # Status breakdown with defensive checks for dictionary access
+            status_obj = site.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
             status_counts[status] = status_counts.get(status, 0) + 1
             
-            # Region breakdown with defensive checks
-            if site.region:
-                region_name = site.region.name if hasattr(site.region, 'name') else str(site.region)
+            # Region breakdown with defensive checks for dictionary access
+            region_obj = site.get("region")
+            if region_obj:
+                if isinstance(region_obj, dict):
+                    region_name = region_obj.get("name", str(region_obj))
+                else:
+                    region_name = str(region_obj)
                 region_counts[region_name] = region_counts.get(region_name, 0) + 1
             
-            # Tenant breakdown with defensive checks
-            if site.tenant:
-                tenant_name = site.tenant.name if hasattr(site.tenant, 'name') else str(site.tenant)
+            # Tenant breakdown with defensive checks for dictionary access
+            tenant_obj = site.get("tenant")
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name", str(tenant_obj))
+                else:
+                    tenant_name = str(tenant_obj)
                 tenant_counts[tenant_name] = tenant_counts.get(tenant_name, 0) + 1
             
             # Get basic counts for this site (efficient queries)
-            site_id = site.id
+            site_id = site.get("id")
             site_devices = list(client.dcim.devices.filter(site_id=site_id))
             site_racks = list(client.dcim.racks.filter(site_id=site_id))
             
@@ -254,26 +266,48 @@ def netbox_list_all_sites(
         site_list = []
         for site in sites:
             # Get counts for this specific site
-            site_id = site.id
+            site_id = site.get("id")
             site_devices = list(client.dcim.devices.filter(site_id=site_id))
             site_racks = list(client.dcim.racks.filter(site_id=site_id))
             
+            # DEFENSIVE CHECK: Handle dictionary access for all site attributes
+            status_obj = site.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
+            
+            region_obj = site.get("region")
+            region_name = None
+            if region_obj:
+                if isinstance(region_obj, dict):
+                    region_name = region_obj.get("name")
+                else:
+                    region_name = str(region_obj)
+            
+            tenant_obj = site.get("tenant")
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name", "N/A")
+                else:
+                    tenant_name = str(tenant_obj)
+            else:
+                tenant_name = "N/A"
+            
             site_info = {
-                "name": site.name,
-                "slug": site.slug,
-                # DEFENSIVE CHECK: Ensure status exists before accessing .label
-                "status": site.status.label if site.status and hasattr(site.status, 'label') else "N/A",
-                "region": site.region.name if site.region and hasattr(site.region, 'name') else None,
-                # DEFENSIVE CHECK: Ensure tenant exists before accessing .name
-                "tenant": site.tenant.name if site.tenant and hasattr(site.tenant, 'name') else "N/A",
+                "name": site.get("name", "Unknown"),
+                "slug": site.get("slug", ""),
+                "status": status,
+                "region": region_name,
+                "tenant": tenant_name,
                 # DEFENSIVE CHECK: Ensure description is never None
-                "description": site.description if hasattr(site, 'description') and site.description else "",
-                "physical_address": site.physical_address if hasattr(site, 'physical_address') else None,
+                "description": site.get("description", ""),
+                "physical_address": site.get("physical_address"),
                 "device_count": len(site_devices),
                 "rack_count": len(site_racks),
-                "total_rack_units": sum(rack.u_height for rack in site_racks if hasattr(rack, 'u_height') and rack.u_height),
-                "contact_name": site.contact_name if hasattr(site, 'contact_name') else None,
-                "contact_email": site.contact_email if hasattr(site, 'contact_email') else None
+                "total_rack_units": sum(rack.get("u_height", 0) for rack in site_racks if rack.get("u_height")),
+                "contact_name": site.get("contact_name"),
+                "contact_email": site.get("contact_email")
             }
             site_list.append(site_info)
         
