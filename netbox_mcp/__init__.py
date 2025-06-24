@@ -11,12 +11,12 @@ Features:
 - Integration-ready as an agnostic NetBox specialist for automation platforms
 """
 
-__version__ = "0.1.0"
+__version__ = "0.9.7"
 __author__ = "Deployment Team"
 __email__ = "info@deployment-team.nl"
 
 # Version information
-VERSION = (0, 1, 0)
+VERSION = (0, 9, 7)
 VERSION_STRING = ".".join(map(str, VERSION))
 
 # Package exports

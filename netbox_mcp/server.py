@@ -5,7 +5,7 @@ NetBox MCP Server
 A Model Context Protocol server for safe read/write access to NetBox instances.
 Provides tools for querying and managing NetBox data with comprehensive safety controls.
 
-Version: 0.9.6 - Hierarchical Architecture with Registry Bridge
+Version: 0.9.7 - Hierarchical Architecture with Registry Bridge
 """
 
 from mcp.server.fastmcp import FastMCP
@@ -70,8 +70,21 @@ def bridge_tools_to_fastmcp():
                     try:
                         # Get a client instance via our dependency provider
                         client = get_netbox_client()
-                        # Call the original tool with the client and other arguments
-                        return original_func(client=client, **kwargs)
+                        
+                        # Inspect the original function to determine what parameters it accepts
+                        import inspect
+                        sig = inspect.signature(original_func)
+                        
+                        # Build the arguments to pass to the original function
+                        call_args = {"client": client}
+                        
+                        # Only pass kwargs that the original function actually accepts
+                        for param_name in sig.parameters:
+                            if param_name != "client" and param_name in kwargs:
+                                call_args[param_name] = kwargs[param_name]
+                        
+                        # Call the original tool with the filtered arguments
+                        return original_func(**call_args)
                     except Exception as e:
                         logger.error(f"Execution of tool '{tool_name}' failed: {e}", exc_info=True)
                         # Return a structured error response
@@ -107,7 +120,7 @@ bridge_tools_to_fastmcp()
 api_app = FastAPI(
     title="NetBox MCP API",
     description="Self-describing REST API for NetBox Management & Control Plane",
-    version="0.9.6"
+    version="0.9.7"
 )
 
 # Pydantic models for API requests
@@ -213,7 +226,7 @@ async def get_system_status(
         
         return {
             "service": "NetBox MCP",
-            "version": "0.9.6",
+            "version": "0.9.7",
             "status": "healthy" if netbox_status.connected else "degraded",
             "netbox": {
                 "connected": netbox_status.connected,
@@ -232,7 +245,7 @@ async def get_system_status(
         logger.error(f"Status check failed: {e}")
         return {
             "service": "NetBox MCP",
-            "version": "0.9.6", 
+            "version": "0.9.7", 
             "status": "error",
             "error": str(e),
             "error_type": type(e).__name__
@@ -255,7 +268,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 response = {
                     "status": "OK",
                     "service": "netbox-mcp",
-                    "version": "0.9.6"
+                    "version": "0.9.7"
                 }
                 self.wfile.write(json.dumps(response).encode())
                 
