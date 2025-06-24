@@ -557,43 +557,68 @@ def netbox_list_all_racks(
         total_devices = 0
         
         for rack in racks:
-            # Status breakdown
-            status = rack.status.label if hasattr(rack.status, 'label') else str(rack.status)
+            # Status breakdown with defensive dictionary access
+            status_obj = rack.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
             status_counts[status] = status_counts.get(status, 0) + 1
             
-            # Site breakdown
-            if rack.site:
-                site_name = rack.site.name if hasattr(rack.site, 'name') else str(rack.site)
+            # Site breakdown with defensive dictionary access
+            site_obj = rack.get("site")
+            if site_obj:
+                if isinstance(site_obj, dict):
+                    site_name = site_obj.get("name", str(site_obj))
+                else:
+                    site_name = str(site_obj)
                 site_counts[site_name] = site_counts.get(site_name, 0) + 1
             
-            # Tenant breakdown
-            if rack.tenant:
-                tenant_name = rack.tenant.name if hasattr(rack.tenant, 'name') else str(rack.tenant)
+            # Tenant breakdown with defensive dictionary access
+            tenant_obj = rack.get("tenant")
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name", str(tenant_obj))
+                else:
+                    tenant_name = str(tenant_obj)
                 tenant_counts[tenant_name] = tenant_counts.get(tenant_name, 0) + 1
             
-            # Role breakdown
-            if rack.role:
-                role_name = rack.role.name if hasattr(rack.role, 'name') else str(rack.role)
+            # Role breakdown with defensive dictionary access
+            role_obj = rack.get("role")
+            if role_obj:
+                if isinstance(role_obj, dict):
+                    role_name = role_obj.get("name", str(role_obj))
+                else:
+                    role_name = str(role_obj)
                 role_counts[role_name] = role_counts.get(role_name, 0) + 1
             
-            # Capacity calculations
-            rack_height = rack.u_height if hasattr(rack, 'u_height') and rack.u_height else 42
+            # Capacity calculations with defensive dictionary access
+            rack_height = rack.get("u_height", 42)
             total_rack_units += rack_height
             
             # Get devices in this rack to calculate utilization
-            rack_id = rack.id
+            rack_id = rack.get("id")
             rack_devices = list(client.dcim.devices.filter(rack_id=rack_id))
             total_devices += len(rack_devices)
             
-            # Calculate occupied units
+            # Calculate occupied units with defensive dictionary access
             occupied_units = 0
             for device in rack_devices:
-                if hasattr(device, 'position') and device.position:
+                position = device.get("position")
+                if position:
                     device_height = 1  # Default device height
-                    if hasattr(device, 'device_type') and device.device_type:
-                        device_type_details = client.dcim.device_types.get(device.device_type.id)
-                        if hasattr(device_type_details, 'u_height') and device_type_details.u_height:
-                            device_height = device_type_details.u_height
+                    device_type_obj = device.get("device_type")
+                    if device_type_obj:
+                        if isinstance(device_type_obj, dict):
+                            device_height = device_type_obj.get("u_height", 1)
+                        else:
+                            # device_type is an ID, look it up if needed
+                            try:
+                                device_type_details = client.dcim.device_types.get(device_type_obj)
+                                if isinstance(device_type_details, dict):
+                                    device_height = device_type_details.get("u_height", 1)
+                            except:
+                                pass  # Use default height if lookup fails
                     occupied_units += device_height
             
             total_occupied_units += occupied_units
@@ -602,41 +627,94 @@ def netbox_list_all_racks(
         rack_list = []
         for rack in racks:
             # Get utilization details for this specific rack
-            rack_id = rack.id
+            rack_id = rack.get("id")
             rack_devices = list(client.dcim.devices.filter(rack_id=rack_id))
-            rack_height = rack.u_height if hasattr(rack, 'u_height') and rack.u_height else 42
+            rack_height = rack.get("u_height", 42)
             
-            # Calculate occupied units for this rack
+            # Calculate occupied units for this rack with defensive dictionary access
             occupied_units = 0
             for device in rack_devices:
-                if hasattr(device, 'position') and device.position:
+                position = device.get("position")
+                if position:
                     device_height = 1  # Default
-                    if hasattr(device, 'device_type') and device.device_type:
-                        try:
-                            device_type_details = client.dcim.device_types.get(device.device_type.id)
-                            if hasattr(device_type_details, 'u_height') and device_type_details.u_height:
-                                device_height = device_type_details.u_height
-                        except:
-                            pass  # Use default height if lookup fails
+                    device_type_obj = device.get("device_type")
+                    if device_type_obj:
+                        if isinstance(device_type_obj, dict):
+                            device_height = device_type_obj.get("u_height", 1)
+                        else:
+                            # device_type is an ID, look it up if needed
+                            try:
+                                device_type_details = client.dcim.device_types.get(device_type_obj)
+                                if isinstance(device_type_details, dict):
+                                    device_height = device_type_details.get("u_height", 1)
+                            except:
+                                pass  # Use default height if lookup fails
                     occupied_units += device_height
             
             utilization_percent = (occupied_units / rack_height * 100) if rack_height > 0 else 0
             
+            # Defensive dictionary access for all rack attributes
+            site_obj = rack.get("site")
+            site_name = None
+            if site_obj:
+                if isinstance(site_obj, dict):
+                    site_name = site_obj.get("name")
+                else:
+                    site_name = str(site_obj)
+            
+            tenant_obj = rack.get("tenant")
+            tenant_name = None
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name")
+                else:
+                    tenant_name = str(tenant_obj)
+            
+            status_obj = rack.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
+            
+            role_obj = rack.get("role")
+            role_name = None
+            if role_obj:
+                if isinstance(role_obj, dict):
+                    role_name = role_obj.get("name")
+                else:
+                    role_name = str(role_obj)
+            
+            width_obj = rack.get("width")
+            width = 19  # Default width
+            if width_obj:
+                if isinstance(width_obj, dict):
+                    width = width_obj.get("value", 19)
+                else:
+                    width = width_obj if isinstance(width_obj, int) else 19
+            
+            location_obj = rack.get("location")
+            location_name = None
+            if location_obj:
+                if isinstance(location_obj, dict):
+                    location_name = location_obj.get("name")
+                else:
+                    location_name = str(location_obj)
+            
             rack_info = {
-                "name": rack.name,
-                "site": rack.site.name if rack.site and hasattr(rack.site, 'name') else None,
-                "tenant": rack.tenant.name if rack.tenant and hasattr(rack.tenant, 'name') else None,
-                "status": rack.status.label if hasattr(rack.status, 'label') else str(rack.status),
-                "role": rack.role.name if rack.role and hasattr(rack.role, 'name') else None,
+                "name": rack.get("name", "Unknown"),
+                "site": site_name,
+                "tenant": tenant_name,
+                "status": status,
+                "role": role_name,
                 "height_units": rack_height,
-                "width": rack.width.value if hasattr(rack.width, 'value') else rack.width if hasattr(rack, 'width') else 19,
+                "width": width,
                 "device_count": len(rack_devices),
                 "occupied_units": occupied_units,
                 "available_units": rack_height - occupied_units,
                 "utilization_percent": round(utilization_percent, 1),
-                "description": rack.description if hasattr(rack, 'description') else None,
-                "location": rack.location.name if rack.location and hasattr(rack.location, 'name') else None,
-                "facility_id": rack.facility_id if hasattr(rack, 'facility_id') else None
+                "description": rack.get("description"),
+                "location": location_name,
+                "facility_id": rack.get("facility_id")
             }
             rack_list.append(rack_info)
         

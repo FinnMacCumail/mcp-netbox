@@ -247,32 +247,52 @@ def netbox_list_all_vlans(
         vlans_with_interfaces = 0
         
         for vlan in vlans:
-            # Status breakdown
-            status = vlan.status.label if hasattr(vlan.status, 'label') else str(vlan.status)
+            # Status breakdown with defensive dictionary access
+            status_obj = vlan.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
             status_counts[status] = status_counts.get(status, 0) + 1
             
-            # Site breakdown
-            if vlan.site:
-                site_name = vlan.site.name if hasattr(vlan.site, 'name') else str(vlan.site)
+            # Site breakdown with defensive dictionary access
+            site_obj = vlan.get("site")
+            if site_obj:
+                if isinstance(site_obj, dict):
+                    site_name = site_obj.get("name", str(site_obj))
+                else:
+                    site_name = str(site_obj)
                 site_counts[site_name] = site_counts.get(site_name, 0) + 1
             
-            # Tenant breakdown
-            if vlan.tenant:
-                tenant_name = vlan.tenant.name if hasattr(vlan.tenant, 'name') else str(vlan.tenant)
+            # Tenant breakdown with defensive dictionary access
+            tenant_obj = vlan.get("tenant")
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name", str(tenant_obj))
+                else:
+                    tenant_name = str(tenant_obj)
                 tenant_counts[tenant_name] = tenant_counts.get(tenant_name, 0) + 1
             
-            # Group breakdown
-            if vlan.group:
-                group_name = vlan.group.name if hasattr(vlan.group, 'name') else str(vlan.group)
+            # Group breakdown with defensive dictionary access
+            group_obj = vlan.get("group")
+            if group_obj:
+                if isinstance(group_obj, dict):
+                    group_name = group_obj.get("name", str(group_obj))
+                else:
+                    group_name = str(group_obj)
                 group_counts[group_name] = group_counts.get(group_name, 0) + 1
             
-            # Role breakdown
-            if vlan.role:
-                role_name = vlan.role.name if hasattr(vlan.role, 'name') else str(vlan.role)
+            # Role breakdown with defensive dictionary access
+            role_obj = vlan.get("role")
+            if role_obj:
+                if isinstance(role_obj, dict):
+                    role_name = role_obj.get("name", str(role_obj))
+                else:
+                    role_name = str(role_obj)
                 role_counts[role_name] = role_counts.get(role_name, 0) + 1
             
-            # VID range tracking
-            vid = vlan.vid if hasattr(vlan, 'vid') else 0
+            # VID range tracking with defensive dictionary access
+            vid = vlan.get("vid", 0)
             if 1 <= vid <= 100:
                 vid_ranges["1-100"] += 1
             elif 101 <= vid <= 1000:
@@ -284,8 +304,9 @@ def netbox_list_all_vlans(
             
             # Interface assignments (checking if VLAN has interfaces)
             try:
-                vlan_interfaces = list(client.dcim.interfaces.filter(untagged_vlan_id=vlan.id))
-                tagged_interfaces = list(client.dcim.interfaces.filter(tagged_vlans=vlan.id))
+                vlan_id = vlan.get("id")
+                vlan_interfaces = list(client.dcim.interfaces.filter(untagged_vlan_id=vlan_id))
+                tagged_interfaces = list(client.dcim.interfaces.filter(tagged_vlans=vlan_id))
                 if vlan_interfaces or tagged_interfaces:
                     vlans_with_interfaces += 1
             except:
@@ -298,27 +319,71 @@ def netbox_list_all_vlans(
             untagged_interfaces = []
             tagged_interfaces = []
             try:
-                untagged_interfaces = list(client.dcim.interfaces.filter(untagged_vlan_id=vlan.id))
-                tagged_interfaces = list(client.dcim.interfaces.filter(tagged_vlans=vlan.id))
+                vlan_id = vlan.get("id")
+                untagged_interfaces = list(client.dcim.interfaces.filter(untagged_vlan_id=vlan_id))
+                tagged_interfaces = list(client.dcim.interfaces.filter(tagged_vlans=vlan_id))
             except:
                 pass  # Skip if interface queries fail
             
+            # Defensive dictionary access for status
+            status_obj = vlan.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
+            
+            # Defensive dictionary access for site
+            site_obj = vlan.get("site")
+            site_name = None
+            if site_obj:
+                if isinstance(site_obj, dict):
+                    site_name = site_obj.get("name")
+                else:
+                    site_name = str(site_obj)
+            
+            # Defensive dictionary access for tenant
+            tenant_obj = vlan.get("tenant")
+            tenant_name = None
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name")
+                else:
+                    tenant_name = str(tenant_obj)
+            
+            # Defensive dictionary access for group
+            group_obj = vlan.get("group")
+            group_name = None
+            if group_obj:
+                if isinstance(group_obj, dict):
+                    group_name = group_obj.get("name")
+                else:
+                    group_name = str(group_obj)
+            
+            # Defensive dictionary access for role
+            role_obj = vlan.get("role")
+            role_name = None
+            if role_obj:
+                if isinstance(role_obj, dict):
+                    role_name = role_obj.get("name")
+                else:
+                    role_name = str(role_obj)
+            
             vlan_info = {
-                "name": vlan.name,
-                "vid": vlan.vid if hasattr(vlan, 'vid') else None,
-                "status": vlan.status.label if hasattr(vlan.status, 'label') else str(vlan.status),
-                "site": vlan.site.name if vlan.site and hasattr(vlan.site, 'name') else None,
-                "tenant": vlan.tenant.name if vlan.tenant and hasattr(vlan.tenant, 'name') else None,
-                "group": vlan.group.name if vlan.group and hasattr(vlan.group, 'name') else None,
-                "role": vlan.role.name if vlan.role and hasattr(vlan.role, 'name') else None,
-                "description": vlan.description if hasattr(vlan, 'description') else None,
+                "name": vlan.get("name", "Unknown"),
+                "vid": vlan.get("vid"),
+                "status": status,
+                "site": site_name,
+                "tenant": tenant_name,
+                "group": group_name,
+                "role": role_name,
+                "description": vlan.get("description"),
                 "interface_assignments": {
                     "untagged_count": len(untagged_interfaces),
                     "tagged_count": len(tagged_interfaces),
                     "total_interfaces": len(untagged_interfaces) + len(tagged_interfaces)
                 },
-                "created": vlan.created if hasattr(vlan, 'created') else None,
-                "last_updated": vlan.last_updated if hasattr(vlan, 'last_updated') else None
+                "created": vlan.get("created"),
+                "last_updated": vlan.get("last_updated")
             }
             vlan_list.append(vlan_info)
         

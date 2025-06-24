@@ -168,59 +168,137 @@ def netbox_list_all_prefixes(
         utilized_prefixes = 0
         
         for prefix in prefixes:
-            # Status breakdown
-            status = prefix.status.label if hasattr(prefix.status, 'label') else str(prefix.status)
+            # Status breakdown with defensive dictionary access
+            status_obj = prefix.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
             status_counts[status] = status_counts.get(status, 0) + 1
             
-            # Site breakdown
-            if prefix.site:
-                site_name = prefix.site.name if hasattr(prefix.site, 'name') else str(prefix.site)
+            # Site breakdown with defensive dictionary access
+            site_obj = prefix.get("site")
+            if site_obj:
+                if isinstance(site_obj, dict):
+                    site_name = site_obj.get("name", str(site_obj))
+                else:
+                    site_name = str(site_obj)
                 site_counts[site_name] = site_counts.get(site_name, 0) + 1
             
-            # Tenant breakdown
-            if prefix.tenant:
-                tenant_name = prefix.tenant.name if hasattr(prefix.tenant, 'name') else str(prefix.tenant)
+            # Tenant breakdown with defensive dictionary access
+            tenant_obj = prefix.get("tenant")
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name", str(tenant_obj))
+                else:
+                    tenant_name = str(tenant_obj)
                 tenant_counts[tenant_name] = tenant_counts.get(tenant_name, 0) + 1
             
-            # VRF breakdown
-            if prefix.vrf:
-                vrf_name = prefix.vrf.name if hasattr(prefix.vrf, 'name') else str(prefix.vrf)
+            # VRF breakdown with defensive dictionary access
+            vrf_obj = prefix.get("vrf")
+            if vrf_obj:
+                if isinstance(vrf_obj, dict):
+                    vrf_name = vrf_obj.get("name", str(vrf_obj))
+                else:
+                    vrf_name = str(vrf_obj)
                 vrf_counts[vrf_name] = vrf_counts.get(vrf_name, 0) + 1
             
-            # Role breakdown
-            if prefix.role:
-                role_name = prefix.role.name if hasattr(prefix.role, 'name') else str(prefix.role)
+            # Role breakdown with defensive dictionary access
+            role_obj = prefix.get("role")
+            if role_obj:
+                if isinstance(role_obj, dict):
+                    role_name = role_obj.get("name", str(role_obj))
+                else:
+                    role_name = str(role_obj)
                 role_counts[role_name] = role_counts.get(role_name, 0) + 1
             
-            # Family tracking
-            if hasattr(prefix, 'family'):
-                family_val = prefix.family.value if hasattr(prefix.family, 'value') else prefix.family
+            # Family tracking with defensive dictionary access
+            family_obj = prefix.get("family")
+            if family_obj:
+                if isinstance(family_obj, dict):
+                    family_val = family_obj.get("value", family_obj.get("label", 4))
+                else:
+                    family_val = family_obj
                 family_counts[f"IPv{family_val}"] = family_counts.get(f"IPv{family_val}", 0) + 1
                 if family_val == 4:
                     ipv4_count += 1
                 elif family_val == 6:
                     ipv6_count += 1
             
-            # Utilization tracking
-            if hasattr(prefix, 'utilization') and prefix.utilization and prefix.utilization > 0:
+            # Utilization tracking with defensive dictionary access
+            utilization = prefix.get("utilization", 0)
+            if utilization and utilization > 0:
                 utilized_prefixes += 1
         
         # Create human-readable prefix list
         prefix_list = []
         for prefix in prefixes:
+            # Defensive dictionary access for family
+            family_obj = prefix.get("family")
+            family_str = "Unknown"
+            if family_obj:
+                if isinstance(family_obj, dict):
+                    family_val = family_obj.get("value", family_obj.get("label", 4))
+                    family_str = f"IPv{family_val}"
+                else:
+                    family_str = f"IPv{family_obj}"
+            
+            # Defensive dictionary access for status
+            status_obj = prefix.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
+            
+            # Defensive dictionary access for site
+            site_obj = prefix.get("site")
+            site_name = None
+            if site_obj:
+                if isinstance(site_obj, dict):
+                    site_name = site_obj.get("name")
+                else:
+                    site_name = str(site_obj)
+            
+            # Defensive dictionary access for tenant
+            tenant_obj = prefix.get("tenant")
+            tenant_name = None
+            if tenant_obj:
+                if isinstance(tenant_obj, dict):
+                    tenant_name = tenant_obj.get("name")
+                else:
+                    tenant_name = str(tenant_obj)
+            
+            # Defensive dictionary access for vrf
+            vrf_obj = prefix.get("vrf")
+            vrf_name = None
+            if vrf_obj:
+                if isinstance(vrf_obj, dict):
+                    vrf_name = vrf_obj.get("name")
+                else:
+                    vrf_name = str(vrf_obj)
+            
+            # Defensive dictionary access for role
+            role_obj = prefix.get("role")
+            role_name = None
+            if role_obj:
+                if isinstance(role_obj, dict):
+                    role_name = role_obj.get("name")
+                else:
+                    role_name = str(role_obj)
+            
             prefix_info = {
-                "prefix": prefix.prefix,
-                "family": f"IPv{prefix.family.value}" if hasattr(prefix.family, 'value') else f"IPv{prefix.family}" if hasattr(prefix, 'family') else "Unknown",
-                "status": prefix.status.label if hasattr(prefix.status, 'label') else str(prefix.status),
-                "site": prefix.site.name if prefix.site and hasattr(prefix.site, 'name') else None,
-                "tenant": prefix.tenant.name if prefix.tenant and hasattr(prefix.tenant, 'name') else None,
-                "vrf": prefix.vrf.name if prefix.vrf and hasattr(prefix.vrf, 'name') else None,
-                "role": prefix.role.name if prefix.role and hasattr(prefix.role, 'name') else None,
-                "description": prefix.description if hasattr(prefix, 'description') else None,
-                "utilization": prefix.utilization if hasattr(prefix, 'utilization') else None,
-                "is_pool": prefix.is_pool if hasattr(prefix, 'is_pool') else None,
-                "mark_utilized": prefix.mark_utilized if hasattr(prefix, 'mark_utilized') else None,
-                "created": prefix.created if hasattr(prefix, 'created') else None
+                "prefix": prefix.get("prefix", "Unknown"),
+                "family": family_str,
+                "status": status,
+                "site": site_name,
+                "tenant": tenant_name,
+                "vrf": vrf_name,
+                "role": role_name,
+                "description": prefix.get("description"),
+                "utilization": prefix.get("utilization"),
+                "is_pool": prefix.get("is_pool"),
+                "mark_utilized": prefix.get("mark_utilized"),
+                "created": prefix.get("created")
             }
             prefix_list.append(prefix_info)
         

@@ -549,17 +549,25 @@ def netbox_list_all_tenants(
         total_prefixes = 0
         
         for tenant in tenants:
-            # Status breakdown
-            status = tenant.status.label if hasattr(tenant.status, 'label') else str(tenant.status)
+            # Status breakdown with defensive dictionary access
+            status_obj = tenant.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
             status_counts[status] = status_counts.get(status, 0) + 1
             
-            # Group breakdown
-            if tenant.group:
-                group_name = tenant.group.name if hasattr(tenant.group, 'name') else str(tenant.group)
+            # Group breakdown with defensive dictionary access
+            group_obj = tenant.get("group")
+            if group_obj:
+                if isinstance(group_obj, dict):
+                    group_name = group_obj.get("name", str(group_obj))
+                else:
+                    group_name = str(group_obj)
                 group_counts[group_name] = group_counts.get(group_name, 0) + 1
             
             # Get basic resource counts for this tenant (efficient queries)
-            tenant_id = tenant.id
+            tenant_id = tenant.get("id")
             tenant_devices = list(client.dcim.devices.filter(tenant_id=tenant_id))
             tenant_sites = list(client.dcim.sites.filter(tenant_id=tenant_id))
             tenant_prefixes = list(client.ipam.prefixes.filter(tenant_id=tenant_id))
@@ -572,19 +580,35 @@ def netbox_list_all_tenants(
         tenant_list = []
         for tenant in tenants:
             # Get resource counts for this specific tenant
-            tenant_id = tenant.id
+            tenant_id = tenant.get("id")
             tenant_devices = list(client.dcim.devices.filter(tenant_id=tenant_id))
             tenant_sites = list(client.dcim.sites.filter(tenant_id=tenant_id))
             tenant_prefixes = list(client.ipam.prefixes.filter(tenant_id=tenant_id))
             tenant_vlans = list(client.ipam.vlans.filter(tenant_id=tenant_id))
             
+            # Defensive dictionary access for status
+            status_obj = tenant.get("status", {})
+            if isinstance(status_obj, dict):
+                status = status_obj.get("label", "N/A")
+            else:
+                status = str(status_obj) if status_obj else "N/A"
+            
+            # Defensive dictionary access for group
+            group_obj = tenant.get("group")
+            group_name = None
+            if group_obj:
+                if isinstance(group_obj, dict):
+                    group_name = group_obj.get("name")
+                else:
+                    group_name = str(group_obj)
+            
             tenant_info = {
-                "name": tenant.name,
-                "slug": tenant.slug,
-                "status": tenant.status.label if hasattr(tenant.status, 'label') else str(tenant.status),
-                "group": tenant.group.name if tenant.group and hasattr(tenant.group, 'name') else None,
-                "description": tenant.description if hasattr(tenant, 'description') else None,
-                "comments": tenant.comments if hasattr(tenant, 'comments') else None,
+                "name": tenant.get("name", "Unknown"),
+                "slug": tenant.get("slug", ""),
+                "status": status,
+                "group": group_name,
+                "description": tenant.get("description"),
+                "comments": tenant.get("comments"),
                 "resource_counts": {
                     "devices": len(tenant_devices),
                     "sites": len(tenant_sites),
@@ -592,8 +616,8 @@ def netbox_list_all_tenants(
                     "vlans": len(tenant_vlans)
                 },
                 "total_resources": len(tenant_devices) + len(tenant_sites) + len(tenant_prefixes) + len(tenant_vlans),
-                "created": tenant.created if hasattr(tenant, 'created') else None,
-                "last_updated": tenant.last_updated if hasattr(tenant, 'last_updated') else None
+                "created": tenant.get("created"),
+                "last_updated": tenant.get("last_updated")
             }
             tenant_list.append(tenant_info)
         
