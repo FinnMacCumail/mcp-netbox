@@ -74,7 +74,7 @@ When making changes, always run linting and type checking if available:
 
 ## Current Status
 
-**Version: 0.9.6 - Enterprise Automation Platform (Hierarchical Architecture Complete)**
+**Version: 0.9.7 - Registry Bridge Implementation (Tool Export Complete)**
 
 **34 MCP Tools Implemented:**
 - **System Tools** (1): Health monitoring  
@@ -469,3 +469,80 @@ Categories: {'dcim': 16, 'ipam': 12, 'tenancy': 5, 'system': 1}
 - **Scalability**: Ready for Phase 4 IPAM migration and future domain expansion
 
 This fix **completes the hierarchical architecture migration** and establishes the foundation for all future development. The NetBox MCP tool loading mechanism now operates exactly as designed in the enterprise architecture specification.
+
+## 🔗 Critical Registry Bridge Implementation (2025-06-24) - v0.9.7
+
+### **Registry Bridge Pattern - Complete Tool Export Solution**
+
+**Problem Identified**: While the hierarchical architecture was loading 34 tools correctly into the internal `TOOL_REGISTRY`, these tools were **not accessible via the MCP interface**. The issue was a missing bridge between two separate registration systems.
+
+**Root Cause Analysis**:
+- **Internal Registry**: `@mcp_tool` decorator → `TOOL_REGISTRY` (34 tools loaded ✅)
+- **FastMCP Interface**: `@mcp.tool()` decorator → FastMCP registry (18 old individual tools)
+- **Missing Bridge**: No connection between the two registration systems
+
+**Architecture Solution**: **Registry Bridge Pattern**
+- **Dynamic Tool Export**: All tools from `TOOL_REGISTRY` automatically registered with FastMCP
+- **Dependency Injection**: Automatic `NetBoxClient` injection via wrapper functions
+- **Function Signature Inspection**: Smart parameter filtering to prevent TypeError issues
+- **Single Source of Truth**: `TOOL_REGISTRY` as the authoritative tool source
+
+**Technical Implementation**:
+```python
+def bridge_tools_to_fastmcp():
+    """
+    Dynamically registers all tools from our internal TOOL_REGISTRY
+    with the FastMCP instance, creating wrappers for dependency injection.
+    """
+    for tool_name, tool_metadata in TOOL_REGISTRY.items():
+        # Create wrapper with dependency injection and parameter inspection
+        def create_tool_wrapper(original_func):
+            def tool_wrapper(**kwargs):
+                client = get_netbox_client()
+                # Inspect function signature and filter parameters
+                sig = inspect.signature(original_func)
+                call_args = {"client": client}
+                for param_name in sig.parameters:
+                    if param_name != "client" and param_name in kwargs:
+                        call_args[param_name] = kwargs[param_name]
+                return original_func(**call_args)
+            return tool_wrapper
+        
+        # Register with FastMCP
+        wrapped_tool = create_tool_wrapper(original_func)
+        mcp.tool(name=tool_name, description=description)(wrapped_tool)
+```
+
+**Critical Fixes Implemented**:
+1. **Registry Bridge**: Connects internal registry to FastMCP interface
+2. **Parameter Inspection**: Prevents TypeError from unexpected keyword arguments
+3. **Dependency Injection**: Automatic NetBoxClient injection for all tools
+4. **Pydantic Schema Fix**: Cleared type annotations to avoid JSON schema conflicts
+
+**Validation Results**:
+- ✅ **All 34 tools accessible** via MCP interface in Claude Code
+- ✅ **Function signature inspection** prevents parameter errors
+- ✅ **Enterprise tools working**: `netbox_get_rack_inventory`, `netbox_health_check`, etc.
+- ✅ **Zero tool loss** during Registry Bridge implementation
+- ✅ **1400+ lines of legacy code removed** from server.py
+
+**Before Registry Bridge**:
+```
+Internal Registry: 34 tools ✅
+MCP Interface: "No such tool available" ❌
+```
+
+**After Registry Bridge**:
+```
+Internal Registry: 34 tools ✅
+FastMCP Interface: 34 tools bridged ✅
+MCP Tools Accessible: All enterprise tools working ✅
+```
+
+**Impact**:
+- **Complete Tool Accessibility**: All 34 hierarchical tools now available in Claude Code
+- **Enterprise Tools Functional**: Revolutionary tools like device provisioning and decommissioning accessible
+- **Clean Architecture**: Registry Bridge maintains separation of concerns
+- **Production Ready**: All tools working with proper dependency injection
+
+This **Registry Bridge implementation** represents the final critical piece of the NetBox MCP architecture, ensuring that all enterprise tools built during the hierarchical migration are fully accessible and functional via the MCP interface. The architecture is now **complete and production-ready**.
