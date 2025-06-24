@@ -72,19 +72,43 @@ def bridge_tools_to_fastmcp():
                         client = get_netbox_client()
                         
                         # ---- NIEUWE LOGICA ----
-                        # Controleer of er een enkele 'kwargs' parameter is die een JSON-string bevat.
+                        # Controleer of er een enkele 'kwargs' parameter is die een string bevat.
                         if len(kwargs) == 1 and 'kwargs' in kwargs and isinstance(kwargs['kwargs'], str):
+                            kwargs_string = kwargs['kwargs']
+                            
+                            # Probeer eerst JSON parsing
                             try:
-                                logger.debug("Detected nested kwargs parameter, parsing JSON string...")
-                                # Parse de JSON-string naar een dictionary
-                                actual_params = json.loads(kwargs['kwargs'])
-                                # Gebruik deze nieuwe dictionary als de daadwerkelijke parameters
+                                logger.debug("Detected nested kwargs parameter, trying JSON parsing...")
+                                actual_params = json.loads(kwargs_string)
                                 kwargs = actual_params
-                                logger.debug(f"Successfully parsed nested kwargs: {kwargs}")
-                            except json.JSONDecodeError as json_err:
-                                logger.error(f"Failed to decode nested kwargs JSON string: {json_err}")
-                                # Val terug op het originele gedrag als parsen mislukt
-                                pass
+                                logger.debug(f"Successfully parsed nested kwargs as JSON: {kwargs}")
+                            except json.JSONDecodeError:
+                                # Als JSON faalt, probeer query string format (name=value of param=value)
+                                try:
+                                    logger.debug("JSON parsing failed, trying query string format...")
+                                    
+                                    # Split op = en maak dictionary
+                                    if '=' in kwargs_string:
+                                        # Simpele query string: "name=value" of "device_name=value"
+                                        key, value = kwargs_string.split('=', 1)  # Split op eerste =
+                                        
+                                        # Als de key 'name' is maar de functie 'device_name' verwacht
+                                        if key == 'name':
+                                            # Controleer of de functie 'device_name' verwacht
+                                            import inspect
+                                            sig = inspect.signature(original_func)
+                                            if 'device_name' in sig.parameters and 'name' not in sig.parameters:
+                                                key = 'device_name'
+                                        
+                                        actual_params = {key: value}
+                                        kwargs = actual_params
+                                        logger.debug(f"Successfully parsed nested kwargs as query string: {kwargs}")
+                                    else:
+                                        logger.warning(f"Could not parse kwargs string format: {kwargs_string}")
+                                except Exception as parse_err:
+                                    logger.error(f"Failed to parse kwargs string '{kwargs_string}': {parse_err}")
+                                    # Val terug op het originele gedrag als alle parsing mislukt
+                                    pass
                         # ---- EINDE NIEUWE LOGICA ----
                         
                         # Inspect the original function to determine what parameters it accepts
