@@ -1,161 +1,339 @@
-Of course. You've made an important clarification about the project's identity. Redefining "MCP" as a "Model-Context Protocol" is a powerful concept that better reflects the project's purpose as an intelligent bridge between a Large Language Model (LLM) and a system of record like NetBox.
+# NetBox MCP - Development Guide
 
-Here is the updated Development Guide, rewritten entirely in English and incorporating this new, more accurate definition.
+## 1. Introduction
 
------
+Welcome to the development guide for the **NetBox Model Context Protocol (MCP) Server v0.9.8**. This document is the central source of truth for developing new tools and extending the functionality of this enterprise-grade MCP server.
 
-### **NetBox MCP - Development Guide**
+The NetBox MCP provides **45 specialized tools** that enable Large Language Models to interact intelligently with NetBox network documentation and IPAM systems through a sophisticated dual-tool pattern architecture.
 
-#### **1. Introduction**
+## 2. Current Architecture Overview
 
-Welcome to the development guide for the NetBox Model-Context Protocol (MCP). This document is the central source of truth for developing new tools and extending the functionality of the MCP.
+### 2.1 Production Status
+- **Version**: 0.9.8 - Dual-Tool Pattern Architecture Complete
+- **Tool Count**: 45 MCP tools covering all NetBox domains
+- **Architecture**: Hierarchical domain structure with Registry Bridge pattern
+- **Safety**: Enterprise-grade with dry-run mode, confirmation requirements, audit logging
 
-The goal of this guide is to ensure that every contribution upholds the project's high standards of quality, maintainability, and architectural integrity. Adherence to these guidelines is mandatory for all development work.
+### 2.2 Core Components
 
-#### **2. Core Architectural Principles**
+#### Registry Bridge Pattern
+```
+Internal Tool Registry (@mcp_tool) → Registry Bridge → FastMCP Interface
+```
 
-The MCP is built on three fundamental principles that define its purpose and design:
+- **Tool Registry** (`netbox_mcp/registry.py`): Core `@mcp_tool` decorator with automatic function inspection
+- **Registry Bridge** (`netbox_mcp/server.py`): Dynamic tool export with dependency injection
+- **Dependency Injection** (`netbox_mcp/dependencies.py`): Thread-safe singleton client management
+- **Client Layer** (`netbox_mcp/client.py`): Enhanced NetBox API client with caching and safety controls
 
-1.  **Model-Context Protocol:** The MCP is not just an API wrapper; it's a specialized protocol implementation designed for LLMs. It exposes complex backend systems (like NetBox) as a structured set of "tools" that an LLM can dynamically discover and execute. It provides the **context** (through well-defined tools) for the **model** (the LLM) to operate effectively.
-2.  **High-Level Abstraction:** We hide the complexity of the underlying NetBox API. Tools must accept simple, human-understandable parameters (like names) and handle the internal logic (looking up IDs, composing complex API requests) transparently.
-3.  **Modular & Scalable Structure:** Functionality is strictly separated by domain and model, mirroring the structure of NetBox itself. This ensures the codebase remains clean, organized, and scalable.
+#### Dual-Tool Pattern Implementation
+Every NetBox domain implements both:
+1. **"Info" Tools**: Detailed single-object retrieval (e.g., `netbox_get_device_info`)
+2. **"List All" Tools**: Bulk discovery for exploratory queries (e.g., `netbox_list_all_devices`)
 
-#### **3. Project Structure Overview**
+This fundamental LLM architecture ensures both detailed inspection AND bulk exploration capabilities.
 
-The repository follows a strict, domain-driven structure:
+## 3. Project Structure
 
+### 3.1 Hierarchical Domain Structure
 ```
 netbox-mcp/
-├── docs/                     # All documentation, including this guide.
+├── docs/                           # Documentation including this guide
 ├── netbox_mcp/
-│   ├── client.py             # The dynamic NetBox API client.
-│   ├── registry.py           # The @mcp_tool decorator and tool registry.
-│   └── tools/                # THE CORE: All high-level tools.
-│       ├── __init__.py         # Central loading point for all tools.
-│       ├── dcim/               # Tools for the DCIM domain.
-│       │   ├── __init__.py
-│       │   └── devices.py
-│       └── ipam/               # Tools for the IPAM domain.
-│           ├── __init__.py
-│           └── prefixes.py
-└── tests/                    # All tests, mirroring the tools structure.
-    └── tools/
-        └── dcim/
-            └── test_devices.py
+│   ├── server.py                   # Main MCP server with Registry Bridge
+│   ├── registry.py                 # @mcp_tool decorator and tool registry
+│   ├── client.py                   # Enhanced NetBox API client
+│   ├── dependencies.py             # Dependency injection system
+│   ├── config.py                   # Configuration management
+│   └── tools/                      # Hierarchical domain structure
+│       ├── __init__.py             # Automatic tool discovery
+│       ├── system/                 # System monitoring tools
+│       │   └── health.py           # Health check tools
+│       ├── dcim/                   # Data Center Infrastructure
+│       │   ├── sites.py            # Site management (2 tools)
+│       │   ├── racks.py            # Rack management (3 tools)
+│       │   ├── devices.py          # Device lifecycle (4 tools)
+│       │   ├── manufacturers.py    # Manufacturer management (2 tools)
+│       │   ├── device_types.py     # Device type management (2 tools)
+│       │   ├── device_roles.py     # Device role management (2 tools)
+│       │   └── interfaces.py       # Interface & cable management (2 tools)
+│       ├── ipam/                   # IP Address Management
+│       │   ├── prefixes.py         # Prefix management (2 tools)
+│       │   ├── vlans.py            # VLAN management (3 tools)
+│       │   ├── vrfs.py             # VRF management (2 tools)
+│       │   └── ip_addresses.py     # IP address tools (7 tools)
+│       └── tenancy/                # Multi-tenant management
+│           ├── tenants.py          # Tenant lifecycle (3 tools)
+│           └── tenant_groups.py    # Tenant group management (2 tools)
+└── tests/                          # Test structure mirrors tools
 ```
 
-#### **4. The Mandatory Development Workflow**
+### 3.2 Tool Distribution by Domain
+- **System Tools** (1): Health monitoring
+- **DCIM Tools** (22): Complete device lifecycle with dual-tool pattern
+- **IPAM Tools** (15): IP and network management with comprehensive discovery
+- **Tenancy Tools** (7): Multi-tenant resource management
 
-Every task, from a minor bugfix to a new feature, must follow this process:
+## 4. Development Standards
 
-1.  **Create a GitHub Issue:** Before writing any code, create a detailed GitHub Issue. This describes the "what" and "why" of the task.
-2.  **Implement in a Separate Branch:** Create a new Git branch for your work, named in reference to the issue number (e.g., `feature/issue-45-vlan-tools`).
-3.  **Write or Update Tests:** All new functionality must be accompanied by tests. For a bugfix, first write a test that reproduces the bug, then validate that the test passes after your fix.
-4.  **Ensure 100% Test Success:** Before opening a Pull Request, the **entire** test suite must pass locally with 100% success.
-5.  **Ask for Help (If Needed):** If you get stuck, have doubts about the approach, or have architectural questions, stop implementation. Create a new file in the `/docs` directory named `ask-gemini-<github-issue-number>.md`. Detail your problem or question and wait for advice before proceeding.
+### 4.1 The @mcp_tool Decorator Pattern
 
-#### **5. Guide: Creating a New High-Level Tool**
-
-Follow these steps to add a new tool to the MCP.
-
-##### **Step 1: Find the Right Location**
-
-Determine which domain and model your tool belongs to.
-
-  * A tool to manage VLANs? → `tools/ipam/vlans.py`
-  * A tool for a NetBox plugin named "my-plugin"? → `tools/plugins/my_plugin/main.py`
-
-##### **Step 2: Write the Function Template**
-
-Every tool function follows a consistent pattern:
+Every tool function must follow this pattern:
 
 ```python
-# In e.g., tools/ipam/vlans.py
-from netbox_mcp.registry import mcp_tool
-from netbox_mcp.client import NetBoxClient
-from netbox_mcp.exceptions import McpError
+from typing import Dict, Optional, Any
 import logging
+from ...registry import mcp_tool
+from ...client import NetBoxClient
 
 logger = logging.getLogger(__name__)
 
-@mcp_tool
-def create_vlan(
-    vlan_id: int,
-    name: str,
-    site_name: str,
+@mcp_tool(category="dcim")
+def netbox_example_tool(
     client: NetBoxClient,
+    required_param: str,
+    optional_param: Optional[str] = None,
     confirm: bool = False
-) -> dict:
+) -> Dict[str, Any]:
     """
-    Creates a new VLAN and assigns it to a specific site.
+    Tool description for LLM context.
+    
+    Args:
+        client: NetBoxClient instance (injected automatically)
+        required_param: Description of required parameter
+        optional_param: Description of optional parameter
+        confirm: Must be True for write operations (safety mechanism)
+        
+    Returns:
+        Structured result dictionary
+        
+    Example:
+        netbox_example_tool("param_value", confirm=True)
     """
-    # Logic goes here
+    try:
+        if not required_param:
+            return {
+                "success": False,
+                "error": "Required parameter is missing",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Executing example tool with param: {required_param}")
+        
+        # Implementation logic here
+        
+        return {
+            "success": True,
+            "action": "completed",
+            "result": "operation_result"
+        }
+        
+    except Exception as e:
+        logger.error(f"Tool execution failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 ```
 
-**Key Elements:**
+### 4.2 Defensive Dictionary Access Pattern
 
-  * The `@mcp_tool` decorator is mandatory.
-  * The function must have clear type hints.
-  * The `client: NetBoxClient` parameter is required for API interaction.
-  * Every "write" tool **must** include a `confirm: bool = False` parameter for safety.
-
-##### **Step 3: Implement the Logic (The "Read-Validate-Write-Invalidate" Pattern)**
-
-This pattern is the core of every reliable write tool.
+**Critical**: All `list_all` tools must use defensive dictionary access since NetBox API returns dictionaries, not objects:
 
 ```python
-    # Inside the create_vlan function:
-    if not confirm:
-        raise McpError("Confirmation is required to create a VLAN.")
+# WRONG - Will cause AttributeError
+status = device.status.label
 
-    # 1. DEFENSIVE READ: Check for conflicts WITHOUT cache
-    existing_vlan = client.ipam.vlans.get(vid=vlan_id, site=site_name, no_cache=True)
-    if existing_vlan:
-        raise McpError(f"Conflict: VLAN {vlan_id} already exists in site '{site_name}'.")
+# CORRECT - Defensive pattern
+status_obj = device.get("status", {})
+if isinstance(status_obj, dict):
+    status = status_obj.get("label", "N/A")
+else:
+    status = str(status_obj) if status_obj else "N/A"
+```
 
-    # 2. VALIDATE: Look up dependencies
-    site = client.dcim.sites.get(name=site_name)
-    if not site:
-        raise McpError(f"Site '{site_name}' not found.")
+This pattern is **mandatory** for all tools that process NetBox API responses.
 
-    # 3. WRITE: Execute the action
-    try:
-        new_vlan = client.ipam.vlans.create(
-            vid=vlan_id,
-            name=name,
-            site=site.id
-        )
-    except Exception as e:
-        raise McpError(f"Failed to create VLAN in NetBox: {e}")
+### 4.3 Enterprise Safety Requirements
 
-    # 4. INVALIDATE: (Not strictly needed for 'create', but essential for 'update')
-    # Example for an update: client.cache.invalidate_for_objects(updated_vlan)
-
+#### Write Operation Safety
+All write operations must include:
+```python
+# 1. Confirmation requirement
+if not confirm:
     return {
-        "status": "success",
-        "message": f"VLAN {new_vlan.vid} ({new_vlan.name}) created successfully.",
-        "data": new_vlan.serialize()
+        "success": False,
+        "error": "Confirmation required for write operations",
+        "error_type": "ConfirmationError"
+    }
+
+# 2. Conflict detection with cache bypass
+existing = client.api.objects.filter(name=name, no_cache=True)
+if existing:
+    return {
+        "success": False,
+        "error": f"Object '{name}' already exists",
+        "error_type": "ConflictError"
     }
 ```
 
-##### **Step 4: Register the Tool**
+#### Error Handling Standards
+```python
+try:
+    # Operation logic
+    result = client.api.operation()
+    
+    return {
+        "success": True,
+        "action": "created",
+        "object_type": "device",
+        "result": result
+    }
+    
+except Exception as e:
+    logger.error(f"Operation failed: {e}")
+    return {
+        "success": False,
+        "error": str(e),
+        "error_type": type(e).__name__
+    }
+```
 
-Make the new tool visible to the MCP by importing it into its domain's `__init__.py` file.
+## 5. Tool Registration and Discovery
 
-  * **File:** `tools/ipam/__init__.py`
-  * **Action:** Add the import line.
-    ```python
-    # In tools/ipam/__init__.py
-    from .vlans import create_vlan
-    # ... other ipam imports
-    ```
+### 5.1 Automatic Registration
+Tools are automatically discovered and registered through:
 
-#### **6. Testing Your Tool**
+1. **Domain Module Import**: Add tool to appropriate domain file
+2. **Decorator Registration**: `@mcp_tool` automatically registers with internal registry
+3. **Registry Bridge**: `bridge_tools_to_fastmcp()` exports all tools to MCP interface
+4. **Dependency Injection**: Client automatically injected via wrapper functions
 
-  * Mirror the file location in the `tests/` directory (e.g., `tests/tools/ipam/test_vlans.py`).
-  * Write tests for both the "happy path" (everything works as expected) and failure scenarios (e.g., what happens if a conflicting VLAN already exists?).
-  * Use `pytest` fixtures to manage test data (e.g., creating and cleaning up a temporary `site`). This guarantees test isolation.
+### 5.2 Making Tools Discoverable
 
------
+Add new tools to the appropriate domain file and ensure they're properly imported:
 
-This guide establishes the foundation for the continued growth of the NetBox MCP. By following these principles and workflows, we ensure the platform remains clean, stable, and a pleasure to work on.
+```python
+# In tools/dcim/devices.py
+@mcp_tool(category="dcim")
+def netbox_new_device_tool(client: NetBoxClient, ...):
+    # Tool implementation
+    pass
+
+# Domain __init__.py is not required - automatic discovery handles imports
+```
+
+## 6. Testing and Validation
+
+### 6.1 Tool Registry Validation
+Test tool registration:
+```python
+python -c "
+from netbox_mcp.registry import TOOL_REGISTRY
+print(f'Total tools: {len(TOOL_REGISTRY)}')
+for name, meta in TOOL_REGISTRY.items():
+    print(f'  {name}: {meta[\"category\"]}')
+"
+```
+
+### 6.2 Development Testing
+1. **Local Development**: Test against your NetBox instance
+2. **Registry Validation**: Verify tool appears in registry
+3. **MCP Interface Testing**: Test via Claude Code or MCP client
+4. **Error Handling**: Test failure scenarios and validation
+
+### 6.3 Parameter Parsing Robustness
+The enhanced `tool_wrapper` handles multiple LLM parameter passing patterns:
+- Direct parameters: `{"device_name": "value"}`
+- JSON nested: `{"kwargs": "{\"device_name\": \"value\"}"}`
+- Query string nested: `{"kwargs": "device_name=value"}`
+
+## 7. Common Patterns and Examples
+
+### 7.1 Dual-Tool Pattern Implementation
+
+**Info Tool** (detailed retrieval):
+```python
+@mcp_tool(category="dcim")
+def netbox_get_device_info(
+    client: NetBoxClient,
+    device_name: str,
+    site: Optional[str] = None
+) -> Dict[str, Any]:
+    """Get detailed information about ONE specific device by name."""
+    # Implementation for single device lookup
+```
+
+**List All Tool** (bulk discovery):
+```python
+@mcp_tool(category="dcim") 
+def netbox_list_all_devices(
+    client: NetBoxClient,
+    limit: int = 100,
+    site_name: Optional[str] = None,
+    status: Optional[str] = None
+) -> Dict[str, Any]:
+    """Get summarized list of devices with optional filtering."""
+    # Implementation for bulk device discovery with filtering
+```
+
+### 7.2 Cross-Domain Integration
+```python
+# Example: Device provisioning with IP assignment
+@mcp_tool(category="dcim")
+def netbox_provision_device_with_ip(
+    client: NetBoxClient,
+    device_name: str,
+    device_type: str,
+    site: str,
+    ip_address: str,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """Enterprise tool combining DCIM device creation with IPAM IP assignment."""
+    # Multi-domain operation with atomic rollback capabilities
+```
+
+## 8. Migration and Architecture Notes
+
+### 8.1 Hierarchical Architecture Status
+- **Complete**: System, DCIM, IPAM, and Tenancy domains fully migrated
+- **Tool Count**: All 45 tools accessible via MCP interface
+- **Registry Bridge**: Fully operational with dependency injection
+- **Legacy Code**: All flat files removed, clean hierarchical structure
+
+### 8.2 Recent Architecture Fixes
+- **v0.9.6**: Tool loading conflict resolution - removed legacy flat files
+- **v0.9.7**: Registry Bridge implementation - connected internal registry to MCP interface
+- **v0.9.8**: Enhanced parameter parsing - robust LLM parameter handling
+
+## 9. Development Workflow
+
+### 9.1 Adding New Tools
+1. **Identify Domain**: Determine which domain your tool belongs to
+2. **Create Function**: Follow the `@mcp_tool` decorator pattern
+3. **Implement Logic**: Use defensive programming and enterprise safety patterns
+4. **Test Locally**: Validate tool registration and functionality
+5. **Document**: Add appropriate docstrings and examples
+
+### 9.2 Deployment and Testing
+- **Development Directory**: `/Users/elvis/Developer/github/netbox-mcp/`
+- **Testing Directory**: `/Users/elvis/mcp/netbox-mcp/` (fresh clones for testing)
+- **Git Workflow**: Commit with detailed messages explaining functionality
+
+## 10. Future Development
+
+### 10.1 Extension Points
+- **New Domains**: Easy addition of new NetBox domains as they become available
+- **Enhanced Tools**: Build upon dual-tool pattern for domain-specific workflows
+- **Integration Tools**: Cross-domain operations leveraging multiple NetBox APIs
+
+### 10.2 Architecture Scalability
+The hierarchical domain structure and Registry Bridge pattern support:
+- **Unlimited Tool Growth**: No architectural limits on tool count
+- **Domain Expansion**: Easy addition of new NetBox domains
+- **Enterprise Features**: Built-in safety, caching, and performance optimization
+
+---
+
+This guide represents the current state of the **enterprise-grade NetBox MCP Server v0.9.8** with comprehensive dual-tool pattern architecture and hierarchical domain organization. All development should follow these established patterns to maintain the high standards of quality, safety, and scalability that define this platform.
