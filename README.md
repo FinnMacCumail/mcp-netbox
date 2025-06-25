@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-55-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-48-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **55 MCP Tools**: Complete DCIM, IPAM, circuits, tenancy, and system management with dual-tool pattern architecture
+- **48 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with dual-tool pattern architecture
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -43,23 +43,22 @@ pip install .
 
 ## 📊 Current Status
 
-**Version**: 0.10.1 - Circuits Module & Code Cleanup Complete
+**Version**: 0.10.2 - Core Modules Stabilized
 
-**🎯 CIRCUITS MODULE IMPLEMENTATION**: Major expansion with 55 MCP tools including comprehensive circuit and provider management. Complete circuit lifecycle from provider onboarding to termination management with enterprise-grade validation and reporting.
+**♻️ CIRCUITS MODULE SEPARATION**: Circuits module moved to separate project for focused development. Core 48 tools for DCIM, IPAM, and Tenancy management are stable and production-ready.
 
-**🧹 MAJOR CODE CLEANUP**: Comprehensive codebase optimization removing 750+ lines of dead code, unused dependencies, and legacy components while maintaining full functionality.
+**🧹 CONTINUOUS OPTIMIZATION**: Maintained clean codebase architecture with enterprise-grade reliability and performance optimization.
 
-**🔌 NEW CIRCUITS MODULE**: Complete circuit and provider management with 7 enterprise tools:
-- **Provider Management**: `netbox_create_provider`, `netbox_get_provider_info`, `netbox_list_all_providers`
-- **Circuit Management**: `netbox_create_circuit`, `netbox_get_circuit_info`, `netbox_list_all_circuits`, `netbox_create_circuit_termination`
-- **Features**: ASN tracking, bandwidth management, A/Z terminations, multi-tenant support
+**🔧 STABLE CORE MODULES**: 48 production-ready tools across three domains:
+- **DCIM Tools**: Complete device and infrastructure lifecycle management
+- **IPAM Tools**: IP address and network management with enterprise automation
+- **Tenancy Tools**: Multi-tenant resource management with hierarchical organization
 
 **🚀 DISCOVERY TOOLS**: 11 `list_all_*` tools enabling efficient bulk exploration:
 - `netbox_list_all_devices`, `netbox_list_all_sites`, `netbox_list_all_racks` (DCIM)
 - `netbox_list_all_prefixes`, `netbox_list_all_vlans`, `netbox_list_all_vrfs` (IPAM)  
 - `netbox_list_all_tenants`, `netbox_list_all_tenant_groups` (Tenancy)
 - `netbox_list_all_manufacturers`, `netbox_list_all_device_types`, `netbox_list_all_device_roles` (Device Management)
-- `netbox_list_all_providers`, `netbox_list_all_circuits` (Circuits)
 
 **🛡️ ENTERPRISE FOUNDATION**: Defensive Read-Validate-Write Pattern with Registry Bridge ensuring 100% tool accessibility and conflict detection accuracy.
 
