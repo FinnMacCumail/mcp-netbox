@@ -125,25 +125,15 @@ def netbox_create_circuit(
             circuit_data["tags"] = tags
         
         # Create the circuit
-        circuit = client.circuits.circuits.create(circuit_data)
+        result = client.circuits.circuits.create(circuit_data)
         
-        logger.info(f"Successfully created circuit: {cid} (ID: {circuit.id})")
+        logger.info(f"Successfully created circuit: {cid} (ID: {result.id})")
         
         return {
             "success": True,
-            "message": f"Successfully created circuit: {cid}",
-            "circuit": {
-                "id": circuit.id,
-                "cid": circuit.cid,
-                "provider": getattr(circuit.provider, 'name', 'Unknown') if hasattr(circuit, 'provider') and circuit.provider else 'Unknown',
-                "type": getattr(circuit.type, 'name', 'Unknown') if hasattr(circuit, 'type') and circuit.type else 'Unknown',
-                "status": getattr(circuit.status, 'label', status) if hasattr(circuit, 'status') and circuit.status else status,
-                "tenant": getattr(circuit.tenant, 'name', None) if hasattr(circuit, 'tenant') and circuit.tenant else None,
-                "description": getattr(circuit, 'description', None),
-                "install_date": str(getattr(circuit, 'install_date', None)),
-                "commit_rate": getattr(circuit, 'commit_rate', None),
-                "url": f"{client.base_url}/circuits/circuits/{circuit.id}/"
-            }
+            "action": "created",
+            "object_type": "circuit",
+            "circuit": result
         }
         
     except Exception as e:
@@ -157,7 +147,9 @@ def netbox_create_circuit(
 
 @mcp_tool(category="circuits")
 def netbox_get_circuit_info(
-    cid: str = None, circuit_id: int = None, client: Optional[NetBoxClient] = None
+    client: NetBoxClient,
+    cid: str = None,
+    circuit_id: int = None
 ) -> Dict[str, Any]:
     """
     Get detailed information about a specific circuit.
@@ -196,46 +188,45 @@ def netbox_get_circuit_info(
             }
         
         # Get circuit terminations
-        terminations = client.circuits.circuit_terminations.filter(circuit_id=circuit.id)
+        terminations = list(client.circuits.circuit_terminations.filter(circuit_id=circuit.get('id')))
         
         return {
             "success": True,
             "circuit": {
-                "id": circuit.id,
-                "cid": circuit.cid,
+                "id": circuit.get('id'),
+                "cid": circuit.get('cid'),
                 "provider": {
-                    "id": getattr(circuit.provider, 'id', None) if hasattr(circuit, 'provider') and circuit.provider else None,
-                    "name": getattr(circuit.provider, 'name', 'Unknown') if hasattr(circuit, 'provider') and circuit.provider else 'Unknown'
+                    "id": circuit.get('provider', {}).get('id'),
+                    "name": circuit.get('provider', {}).get('name', 'Unknown')
                 },
                 "type": {
-                    "id": getattr(circuit.type, 'id', None) if hasattr(circuit, 'type') and circuit.type else None,
-                    "name": getattr(circuit.type, 'name', 'Unknown') if hasattr(circuit, 'type') and circuit.type else 'Unknown'
+                    "id": circuit.get('type', {}).get('id'),
+                    "name": circuit.get('type', {}).get('name', 'Unknown')
                 },
-                "status": getattr(circuit.status, 'label', 'Unknown') if hasattr(circuit, 'status') and circuit.status else 'Unknown',
+                "status": circuit.get('status', {}).get('label', 'Unknown'),
                 "tenant": {
-                    "id": getattr(circuit.tenant, 'id', None) if hasattr(circuit, 'tenant') and circuit.tenant else None,
-                    "name": getattr(circuit.tenant, 'name', None) if hasattr(circuit, 'tenant') and circuit.tenant else None
-                } if hasattr(circuit, 'tenant') and circuit.tenant else None,
-                "description": getattr(circuit, 'description', None),
-                "install_date": str(getattr(circuit, 'install_date', None)),
-                "commit_rate": getattr(circuit, 'commit_rate', None),
-                "comments": getattr(circuit, 'comments', None),
-                "tags": [tag.name for tag in getattr(circuit, 'tags', [])],
+                    "id": circuit.get('tenant', {}).get('id'),
+                    "name": circuit.get('tenant', {}).get('name')
+                } if circuit.get('tenant') else None,
+                "description": circuit.get('description'),
+                "install_date": str(circuit.get('install_date')),
+                "commit_rate": circuit.get('commit_rate'),
+                "comments": circuit.get('comments'),
+                "tags": [tag.get('name') for tag in circuit.get('tags', [])],
                 "terminations": [
                     {
-                        "id": term.id,
-                        "term_side": getattr(term, 'term_side', 'Unknown'),
-                        "site": getattr(term.site, 'name', 'Unknown') if hasattr(term, 'site') and term.site else None,
-                        "port_speed": getattr(term, 'port_speed', None),
-                        "upstream_speed": getattr(term, 'upstream_speed', None),
-                        "xconnect_id": getattr(term, 'xconnect_id', None),
-                        "description": getattr(term, 'description', None)
+                        "id": term.get('id'),
+                        "term_side": term.get('term_side'),
+                        "site": term.get('site', {}).get('name', 'Unknown'),
+                        "port_speed": term.get('port_speed'),
+                        "upstream_speed": term.get('upstream_speed'),
+                        "xconnect_id": term.get('xconnect_id'),
+                        "description": term.get('description')
                     }
                     for term in terminations
                 ],
-                "created": str(getattr(circuit, 'created', 'Unknown')),
-                "last_updated": str(getattr(circuit, 'last_updated', 'Unknown')),
-                "url": f"{client.base_url}/circuits/circuits/{circuit.id}/"
+                "created": str(circuit.get('created')),
+                "last_updated": str(circuit.get('last_updated'))
             }
         }
         
@@ -250,12 +241,12 @@ def netbox_get_circuit_info(
 
 @mcp_tool(category="circuits")
 def netbox_list_all_circuits(
+    client: NetBoxClient,
     provider_name: str = None,
     circuit_type: str = None,
     status: str = None,
     tenant_name: str = None,
-    site_name: str = None,
-    client: Optional[NetBoxClient] = None,
+    site_name: str = None
 ) -> Dict[str, Any]:
     """
     Get a comprehensive list of all circuits with filtering capabilities.
@@ -309,7 +300,7 @@ def netbox_list_all_circuits(
                 }
         
         # Get all circuits
-        circuits = client.circuits.circuits.filter(**filter_params)
+        circuits = list(client.circuits.circuits.filter(**filter_params))
         
         # Process circuits with defensive dict access
         circuit_list = []
@@ -321,48 +312,34 @@ def netbox_list_all_circuits(
         circuits_with_rate = 0
         
         for circuit in circuits:
-            # Defensive dictionary access patterns
-            circuit_dict = circuit if isinstance(circuit, dict) else circuit.__dict__
-            
-            circuit_id = circuit_dict.get('id', 'Unknown')
-            circuit_cid = circuit_dict.get('cid', 'Unknown')
-            
-            # Get provider info
-            provider_info = "Unknown"
-            if hasattr(circuit, 'provider') and circuit.provider:
-                provider_info = getattr(circuit.provider, 'name', 'Unknown')
-            
-            # Get type info
-            type_info = "Unknown"
-            if hasattr(circuit, 'type') and circuit.type:
-                type_info = getattr(circuit.type, 'name', 'Unknown')
-            
-            # Get status info
-            status_info = "Unknown"
-            if hasattr(circuit, 'status') and circuit.status:
-                status_info = getattr(circuit.status, 'label', 'Unknown')
-            
-            # Get tenant info
-            tenant_info = None
-            if hasattr(circuit, 'tenant') and circuit.tenant:
-                tenant_info = getattr(circuit.tenant, 'name', None)
-            
-            # Get commit rate
-            commit_rate = circuit_dict.get('commit_rate', None)
-            if commit_rate:
-                total_commit_rate += commit_rate
-                circuits_with_rate += 1
-            
             # Apply site filter if specified
             if site_name:
-                terminations = client.circuits.circuit_terminations.filter(circuit_id=circuit_id)
+                terminations = client.circuits.circuit_terminations.filter(circuit_id=circuit.get('id'))
                 has_site = False
                 for term in terminations:
-                    if hasattr(term, 'site') and term.site and getattr(term.site, 'name', '') == site_name:
+                    if term.get('site') and term.get('site').get('name') == site_name:
                         has_site = True
                         break
                 if not has_site:
                     continue
+
+            # Get provider info
+            provider_info = circuit.get('provider', {}).get('name', 'Unknown')
+            
+            # Get type info
+            type_info = circuit.get('type', {}).get('name', 'Unknown')
+            
+            # Get status info
+            status_info = circuit.get('status', {}).get('label', 'Unknown')
+            
+            # Get tenant info
+            tenant_info = circuit.get('tenant', {}).get('name')
+            
+            # Get commit rate
+            commit_rate = circuit.get('commit_rate')
+            if commit_rate:
+                total_commit_rate += commit_rate
+                circuits_with_rate += 1
             
             # Track statistics
             status_stats[status_info] = status_stats.get(status_info, 0) + 1
@@ -372,17 +349,16 @@ def netbox_list_all_circuits(
                 tenant_stats[tenant_info] = tenant_stats.get(tenant_info, 0) + 1
             
             circuit_info = {
-                "id": circuit_id,
-                "cid": circuit_cid,
+                "id": circuit.get('id'),
+                "cid": circuit.get('cid'),
                 "provider": provider_info,
                 "type": type_info,
                 "status": status_info,
                 "tenant": tenant_info,
-                "description": circuit_dict.get('description', None),
-                "install_date": str(circuit_dict.get('install_date', None)),
+                "description": circuit.get('description'),
+                "install_date": str(circuit.get('install_date')),
                 "commit_rate": commit_rate,
-                "termination_count": 0,  # Will be populated if needed
-                "url": f"{client.base_url}/circuits/circuits/{circuit_id}/"
+                "termination_count": circuit.get('termination_count', 0)
             }
             
             circuit_list.append(circuit_info)
@@ -527,25 +503,15 @@ def netbox_create_circuit_termination(
             termination_data["description"] = description
         
         # Create the termination
-        termination = client.circuits.circuit_terminations.create(termination_data)
+        result = client.circuits.circuit_terminations.create(termination_data)
         
-        logger.info(f"Successfully created circuit termination: {cid} side {term_side} (ID: {termination.id})")
+        logger.info(f"Successfully created circuit termination: {cid} side {term_side} (ID: {result.id})")
         
         return {
             "success": True,
-            "message": f"Successfully created circuit termination: {cid} side {term_side}",
-            "termination": {
-                "id": termination.id,
-                "circuit_cid": cid,
-                "term_side": termination.term_side,
-                "site": getattr(termination.site, 'name', 'Unknown') if hasattr(termination, 'site') and termination.site else 'Unknown',
-                "port_speed": getattr(termination, 'port_speed', None),
-                "upstream_speed": getattr(termination, 'upstream_speed', None),
-                "xconnect_id": getattr(termination, 'xconnect_id', None),
-                "pp_info": getattr(termination, 'pp_info', None),
-                "description": getattr(termination, 'description', None),
-                "url": f"{client.base_url}/circuits/circuit-terminations/{termination.id}/"
-            }
+            "action": "created",
+            "object_type": "circuit_termination",
+            "termination": result
         }
         
     except Exception as e:
