@@ -7,9 +7,8 @@ injection architecture. These tools provide insight into NetBox system status
 and MCP server health.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Any
 import logging
-import time
 from ...registry import mcp_tool
 from ...client import NetBoxClient
 

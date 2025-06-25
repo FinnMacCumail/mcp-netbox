@@ -5,7 +5,7 @@ IPAM VLAN Management Tools
 High-level tools for managing NetBox VLANs and VLAN assignments.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 import logging
 from ...registry import mcp_tool
 from ...client import NetBoxClient

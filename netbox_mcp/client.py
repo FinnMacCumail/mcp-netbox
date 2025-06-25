@@ -33,13 +33,11 @@ dynamically routing all requests to the appropriate NetBox API endpoints.
 
 import logging
 import time
-import hashlib
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 
 import pynetbox
 import requests
-from requests.exceptions import ConnectionError, Timeout, RequestException
 from cachetools import TTLCache
 
 from .config import NetBoxConfig
@@ -51,8 +49,7 @@ from .exceptions import (
     NetBoxNotFoundError,
     NetBoxPermissionError,
     NetBoxWriteError,
-    NetBoxConfirmationError,
-    NetBoxDryRunError
+    NetBoxConfirmationError
 )
 
 logger = logging.getLogger(__name__)

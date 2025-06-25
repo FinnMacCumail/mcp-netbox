@@ -19,9 +19,7 @@ Security Features:
 import os
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
-import base64
-import json
+from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 

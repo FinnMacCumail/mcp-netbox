@@ -6,7 +6,7 @@ High-level tools for managing NetBox devices with comprehensive lifecycle manage
 including creation, provisioning, decommissioning, and enterprise-grade functionality.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 import logging
 from ...registry import mcp_tool
 from ...client import NetBoxClient
@@ -772,7 +772,7 @@ def netbox_decommission_device(
                                 "action": "deprecated",
                                 "status": "success"
                             })
-                        except Exception as e:
+                        except Exception:
                             # If deprecation fails, try removal
                             client.dcim.cables.delete(cable["id"], confirm=True)
                             cable_results.append({

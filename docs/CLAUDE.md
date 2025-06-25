@@ -1,5 +1,62 @@
 # Claude Instructions for NetBox MCP Server
 
+## 🎉 Latest Updates (2025-06-25)
+
+**Version 0.10.1**: Major code cleanup and circuits module implementation completed
+
+### 🚨 CRITICAL DISCOVERY - Live Testing Session (2025-06-25):
+**MAJOR BUG FOUND**: Parameter passing completely broken for multi-parameter MCP tools!
+
+#### Bug Impact:
+- ✅ **No-parameter tools**: Work perfectly (health check, list_all tools)
+- ✅ **Single-parameter tools**: Work with query string format only
+- ❌ **Multi-parameter tools**: Completely broken (all write operations affected)
+
+#### Tools Tested & Results:
+- ✅ `netbox_health_check` - Works perfectly
+- ✅ `netbox_list_all_sites` - Works perfectly  
+- ✅ `netbox_get_site_info` - Works with query string format
+- ❌ `netbox_create_site` - BROKEN (TypeError: missing arguments)
+- ✅ `netbox_list_all_racks` - Works perfectly
+- ✅ `netbox_get_rack_elevation` - Works with single parameter
+- ❌ `netbox_get_rack_inventory` - BROKEN (requires 2 parameters)
+
+#### Critical Severity:
+**90% of write operations are unusable** due to parameter passing bug in Registry Bridge pattern.
+
+### Session Summary (2025-06-25):
+- **Complete Git Workflow**: Alle wijzigingen gecommit en gepusht naar remote
+- **Documentation Sync**: README.md, wiki (/Users/elvis/Developer/github/netbox-mcp.wiki), en CLAUDE.md bijgewerkt
+- **Live-Testing Sync**: Live-testing directory volledig gesynchroniseerd met main repo via git reset --hard
+- **Claude Code Integration**: netbox-mcp-live MCP server toegevoegd aan Claude Code CLI
+- **MCP Configuration**: 55 tools nu beschikbaar in Claude Code met .env configuratie
+- **Repository Status**: Alle drie directories (github, live-testing, wiki) zijn up-to-date
+- **⚠️ URGENT ISSUE**: Critical parameter passing bug discovered affecting most functionality
+
+### 📁 Repository Structure & Workflow:
+- **Main Development**: `/Users/elvis/Developer/github/netbox-mcp` (source of truth, git commits hier)
+- **Wiki Documentation**: `/Users/elvis/Developer/github/netbox-mcp.wiki` (GitHub wiki repo)
+- **Live Testing**: `/Users/elvis/Developer/live-testing/netbox-mcp` (ALTIJD hier voor live testing en Claude Code MCP)
+
+### 🔄 Standard Workflow:
+1. **Development**: Work in main github repo
+2. **Live Testing**: Sync changes naar `/Users/elvis/Developer/live-testing/netbox-mcp` via git reset --hard origin/main
+3. **Documentation**: Update wiki in `/Users/elvis/Developer/github/netbox-mcp.wiki`
+4. **Claude Code**: MCP server draait altijd vanuit live-testing directory
+
+### Major Changes:
+- **Code Cleanup**: Removed 750+ lines of dead code (async task system, empty modules, unused imports)
+- **Circuits Module**: Added 7 new circuits tools (providers + circuits management)
+- **Tool Count**: Increased from 48 → 55 tools
+- **Dependencies**: Removed redis/rq dependencies (no longer needed)
+- **Architecture**: Cleaner, faster, more maintainable codebase
+
+### New Circuits Tools:
+- `netbox_create_provider`, `netbox_get_provider_info`, `netbox_list_all_providers`
+- `netbox_create_circuit`, `netbox_get_circuit_info`, `netbox_list_all_circuits`, `netbox_create_circuit_termination`
+
+All tools follow enterprise safety patterns with dry-run mode and comprehensive validation.
+
 ## Communication Language Guidelines
 
 - **Human Communication**: Always communicate with the user in Dutch

@@ -6,7 +6,7 @@ High-level tools for managing NetBox racks, rack units, rack elevations,
 and rack capacity management with enterprise-grade functionality.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 import logging
 from ...registry import mcp_tool
 from ...client import NetBoxClient

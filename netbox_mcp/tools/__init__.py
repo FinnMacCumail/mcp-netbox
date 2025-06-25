@@ -15,7 +15,6 @@ Tools are loaded automatically when this package is imported.
 """
 
 import importlib
-import pkgutil
 import logging
 from typing import List
 
@@ -40,8 +39,7 @@ def load_all_tools() -> List[str]:
         'dcim', 
         'ipam',
         'tenancy',
-        'circuits',
-        'virtualization'
+        'circuits'
     ]
     
     for domain in domain_packages:
