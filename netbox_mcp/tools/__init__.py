@@ -39,7 +39,6 @@ def load_all_tools() -> List[str]:
         'dcim', 
         'ipam',
         'tenancy',
-        'circuits'
     ]
     
     for domain in domain_packages:

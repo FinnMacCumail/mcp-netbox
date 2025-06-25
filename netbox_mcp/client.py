@@ -8,7 +8,7 @@ dynamically routing all requests to the appropriate NetBox API endpoints.
 
 **Architecture Components:**
 - NetBoxClient: Dynamic entrypoint with __getattr__ routing
-- AppWrapper: Navigator between NetBox apps (dcim, ipam, circuits)  
+- AppWrapper: Navigator between NetBox apps (dcim, ipam, tenancy)  
 - EndpointWrapper: Executor with enterprise-grade caching and safety
 
 **Key Features:**
@@ -688,7 +688,7 @@ class AppWrapper:
     Wraps a pynetbox App to navigate to wrapped Endpoints.
     
     This class serves as the "Navigator" in the dynamic client architecture,
-    routing from NetBox API applications (dcim, ipam, circuits) to their
+    routing from NetBox API applications (dcim, ipam, tenancy) to their
     specific endpoints, wrapping each endpoint in EndpointWrapper.
     
     Following Gemini's architectural guidance for robust error handling
@@ -918,7 +918,7 @@ class NetBoxClient:
         NetBoxClient → AppWrapper → EndpointWrapper
         
         Args:
-            name: NetBox API application name (e.g., 'dcim', 'ipam', 'circuits')
+            name: NetBox API application name (e.g., 'dcim', 'ipam', 'tenancy')
             
         Returns:
             AppWrapper instance for the requested application
@@ -948,7 +948,7 @@ class NetBoxClient:
         # If we reach here, the app doesn't exist or isn't valid
         raise AttributeError(
             f"NetBox API has no application named '{name}'. "
-            f"Available applications include: dcim, ipam, circuits, extras, tenancy, users, virtualization, wireless"
+            f"Available applications include: dcim, ipam, tenancy, extras, users, virtualization, wireless"
         )
     
 
