@@ -61,3 +61,15 @@ class NetBoxDryRunError(NetBoxError):
     def __init__(self, operation: str):
         message = f"Cannot execute '{operation}' in dry-run mode"
         super().__init__(message, {"operation": operation, "mode": "dry-run"})
+
+
+class NetBoxConflictError(NetBoxError):
+    """Raised when a resource conflict is detected (e.g., duplicate names, existing objects)."""
+    
+    def __init__(self, resource_type: str, identifier: str, existing_id: int = None):
+        message = f"Conflict: {resource_type} '{identifier}' already exists"
+        details = {"resource_type": resource_type, "identifier": identifier}
+        if existing_id:
+            details["existing_id"] = existing_id
+            message += f" (ID: {existing_id})"
+        super().__init__(message, details)
