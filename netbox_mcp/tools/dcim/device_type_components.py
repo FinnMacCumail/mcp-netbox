@@ -138,12 +138,12 @@ def validate_power_outlet_type(outlet_type: str) -> None:
 
 @mcp_tool(category="dcim")
 def netbox_add_interface_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     type: str,
     description: Optional[str] = None,
     mgmt_only: bool = False,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
@@ -307,11 +307,11 @@ def netbox_add_interface_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_console_port_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     type: str = "rj-45",
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
@@ -403,13 +403,13 @@ def netbox_add_console_port_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_power_port_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     type: str = "iec-60320-c14",
     maximum_draw: Optional[int] = None,
     allocated_draw: Optional[int] = None,
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
@@ -539,11 +539,11 @@ def netbox_add_power_port_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_console_server_port_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     type: str = "rj-45",
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
@@ -635,13 +635,13 @@ def netbox_add_console_server_port_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_power_outlet_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     type: str = "iec-60320-c13",
     power_port_template: Optional[str] = None,
     feed_leg: Optional[str] = None,
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False  
 ) -> Dict[str, Any]:
     """
@@ -911,13 +911,13 @@ def netbox_add_power_outlet_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_front_port_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     type: str,
     rear_port_template: str,
     rear_port_position: int = 1,
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
@@ -1179,12 +1179,12 @@ def netbox_add_front_port_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_rear_port_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     type: str,
     positions: int = 1,
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
@@ -1363,10 +1363,10 @@ def netbox_add_rear_port_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_device_bay_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
@@ -1454,11 +1454,11 @@ def netbox_add_device_bay_template_to_device_type(
 
 @mcp_tool(category="dcim")
 def netbox_add_module_bay_template_to_device_type(
+    client: NetBoxClient,
     device_type_model: str,
     name: str,
     position: Optional[str] = None,
     description: Optional[str] = None,
-    client: NetBoxClient = None,
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
