@@ -18,6 +18,8 @@ from .dependencies import NetBoxClientManager, get_netbox_client  # Use new depe
 import logging
 import threading
 import time
+import inspect
+from functools import wraps
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 from typing import Dict, List, Optional, Any
@@ -51,78 +53,43 @@ def bridge_tools_to_fastmcp():
             description = tool_metadata.get("description", f"Executes the {tool_name} tool.")
             category = tool_metadata.get("category", "General")
 
-            # Create a 'wrapper' that injects the client and handles nested kwargs
+            # Create a 'wrapper' that injects the client with EXACT function signature (Gemini's Fix)
             def create_tool_wrapper(original_func):
-                def tool_wrapper(**kwargs):
+                """
+                Creëert een wrapper voor een tool die de exacte signatuur van de originele functie nabootst,
+                terwijl de NetBox client automatisch wordt geïnjecteerd.
+                """
+                # 1. Inspecteer de originele functie om de parameters te achterhalen.
+                sig = inspect.signature(original_func)
+                
+                # We sluiten de 'client' parameter uit van de wrapper, omdat we die zelf toevoegen.
+                wrapper_params = [
+                    p for p in sig.parameters.values() if p.name != 'client'
+                ]
+
+                # 2. Definieer een innerlijke wrapper functie die de daadwerkelijke logica bevat.
+                #    @wraps(original_func) zorgt ervoor dat metadata zoals de docstring behouden blijft.
+                @wraps(original_func)
+                def tool_wrapper(*args, **kwargs):
                     try:
-                        # Get a client instance via our dependency provider
+                        # Haal de NetBox client op, net als voorheen.
                         client = get_netbox_client()
                         
-                        # ---- NIEUWE LOGICA ----
-                        # Controleer of er een enkele 'kwargs' parameter is die een string bevat.
-                        if len(kwargs) == 1 and 'kwargs' in kwargs and isinstance(kwargs['kwargs'], str):
-                            kwargs_string = kwargs['kwargs']
-                            
-                            # Probeer eerst JSON parsing
-                            try:
-                                logger.debug("Detected nested kwargs parameter, trying JSON parsing...")
-                                actual_params = json.loads(kwargs_string)
-                                kwargs = actual_params
-                                logger.debug(f"Successfully parsed nested kwargs as JSON: {kwargs}")
-                            except json.JSONDecodeError:
-                                # Als JSON faalt, probeer query string format (name=value of param=value)
-                                try:
-                                    logger.debug("JSON parsing failed, trying query string format...")
-                                    
-                                    # Split op = en maak dictionary
-                                    if '=' in kwargs_string:
-                                        # Simpele query string: "name=value" of "device_name=value"
-                                        key, value = kwargs_string.split('=', 1)  # Split op eerste =
-                                        
-                                        # Als de key 'name' is maar de functie 'device_name' verwacht
-                                        if key == 'name':
-                                            # Controleer of de functie 'device_name' verwacht
-                                            import inspect
-                                            sig = inspect.signature(original_func)
-                                            if 'device_name' in sig.parameters and 'name' not in sig.parameters:
-                                                key = 'device_name'
-                                        
-                                        actual_params = {key: value}
-                                        kwargs = actual_params
-                                        logger.debug(f"Successfully parsed nested kwargs as query string: {kwargs}")
-                                    else:
-                                        logger.warning(f"Could not parse kwargs string format: {kwargs_string}")
-                                except Exception as parse_err:
-                                    logger.error(f"Failed to parse kwargs string '{kwargs_string}': {parse_err}")
-                                    # Val terug op het originele gedrag als alle parsing mislukt
-                        # ---- EINDE NIEUWE LOGICA ----
-                        
-                        # Inspect the original function to determine what parameters it accepts
-                        import inspect
-                        sig = inspect.signature(original_func)
-                        
-                        # Build the arguments to pass to the original function
-                        call_args = {"client": client}
-                        
-                        # Only pass kwargs that the original function actually accepts
-                        for param_name in sig.parameters:
-                            if param_name != "client" and param_name in kwargs:
-                                call_args[param_name] = kwargs[param_name]
-                        
-                        # Call the original tool with the filtered arguments
-                        return original_func(**call_args)
+                        # Roep de originele functie aan met de client en alle andere doorgegeven argumenten.
+                        # *args en **kwargs zorgen ervoor dat alle positional en keyword arguments
+                        # correct worden doorgegeven.
+                        return original_func(client, *args, **kwargs)
                     except Exception as e:
                         logger.error(f"Execution of tool '{tool_name}' failed: {e}", exc_info=True)
                         # Return a structured error response
                         return {"success": False, "error": str(e), "error_type": type(e).__name__}
-                
-                # Copy essential metadata without type annotations
-                tool_wrapper.__name__ = original_func.__name__
-                tool_wrapper.__doc__ = original_func.__doc__
-                
-                # Clear any type annotations to avoid FastMCP schema generation issues
-                tool_wrapper.__annotations__ = {}
-                
+
+                # 3. Creëer een nieuwe signatuur voor onze 'tool_wrapper'.
+                #    Dit is de magische stap! We vertellen Python dat de wrapper eruitziet als
+                #    de originele functie (minus de 'client' parameter).
+                new_sig = sig.replace(parameters=wrapper_params)
+                tool_wrapper.__signature__ = new_sig
+
                 return tool_wrapper
 
             # Register the 'wrapper' with FastMCP with the correct metadata
