@@ -1,5 +1,22 @@
 # Claude Instructions for NetBox MCP Server
 
+## 🎉 Latest Updates (2025-06-24)
+
+**Version 0.10.1**: Major code cleanup and circuits module implementation completed
+
+### Major Changes:
+- **Code Cleanup**: Removed 750+ lines of dead code (async task system, empty modules, unused imports)
+- **Circuits Module**: Added 7 new circuits tools (providers + circuits management)
+- **Tool Count**: Increased from 48 → 55 tools
+- **Dependencies**: Removed redis/rq dependencies (no longer needed)
+- **Architecture**: Cleaner, faster, more maintainable codebase
+
+### New Circuits Tools:
+- `netbox_create_provider`, `netbox_get_provider_info`, `netbox_list_all_providers`
+- `netbox_create_circuit`, `netbox_get_circuit_info`, `netbox_list_all_circuits`, `netbox_create_circuit_termination`
+
+All tools follow enterprise safety patterns with dry-run mode and comprehensive validation.
+
 ## Communication Language Guidelines
 
 - **Human Communication**: Always communicate with the user in Dutch
