@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 @mcp_tool(category="circuits")
 def netbox_create_provider(
-    client: NetBoxClient,
     name: str,
     slug: str = None,
     asn: int = None,
@@ -26,7 +25,8 @@ def netbox_create_provider(
     admin_contact: str = None,
     comments: str = None,
     tags: List[str] = None,
-    confirm: bool = False
+    confirm: bool = False,
+    client: Optional[NetBoxClient] = None,
 ) -> Dict[str, Any]:
     """
     Create a new circuit provider in NetBox.
@@ -124,9 +124,7 @@ def netbox_create_provider(
 
 @mcp_tool(category="circuits")
 def netbox_get_provider_info(
-    client: NetBoxClient,
-    provider_name: str = None,
-    provider_id: int = None
+    provider_name: str = None, provider_id: int = None, client: Optional[NetBoxClient] = None
 ) -> Dict[str, Any]:
     """
     Get detailed information about a specific circuit provider.
@@ -157,6 +155,12 @@ def netbox_get_provider_info(
                     "error": f"Provider not found: {provider_name}"
                 }
             provider = providers[0]
+
+        if not provider:
+            return {
+                "success": False,
+                "error": f"Provider not found: {provider_name or provider_id}"
+            }
         
         # Get related circuits
         circuits = client.circuits.circuits.filter(provider_id=provider.id)
@@ -201,10 +205,10 @@ def netbox_get_provider_info(
 
 @mcp_tool(category="circuits")
 def netbox_list_all_providers(
-    client: NetBoxClient,
     name_filter: str = None,
     asn_filter: int = None,
-    has_circuits: bool = None
+    has_circuits: bool = None,
+    client: Optional[NetBoxClient] = None,
 ) -> Dict[str, Any]:
     """
     Get a comprehensive list of all circuit providers with filtering capabilities.
