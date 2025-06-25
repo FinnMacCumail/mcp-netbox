@@ -10,30 +10,17 @@ Version: 0.9.7 - Hierarchical Architecture with Registry Bridge
 
 from mcp.server.fastmcp import FastMCP
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from .client import NetBoxClient, ConnectionStatus, NetBoxBulkOrchestrator
-from .config import load_config, NetBoxConfig
-from .registry import mcp_tool, TOOL_REGISTRY, load_tools, serialize_registry_for_api, execute_tool
+from .client import NetBoxClient
+from .config import load_config
+from .registry import TOOL_REGISTRY, load_tools, serialize_registry_for_api, execute_tool
 from .dependencies import NetBoxClientManager, get_netbox_client  # Use new dependency system
-from .exceptions import (
-    NetBoxError,
-    NetBoxConnectionError,
-    NetBoxAuthError,
-    NetBoxNotFoundError,
-    NetBoxValidationError,
-    NetBoxWriteError,
-    NetBoxConfirmationError,
-    NetBoxDryRunError
-)
-import os
 import logging
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
-from functools import partial, wraps
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 
 # Configure logging (will be updated from config)
 logging.basicConfig(level=logging.INFO)
@@ -108,7 +95,6 @@ def bridge_tools_to_fastmcp():
                                 except Exception as parse_err:
                                     logger.error(f"Failed to parse kwargs string '{kwargs_string}': {parse_err}")
                                     # Val terug op het originele gedrag als alle parsing mislukt
-                                    pass
                         # ---- EINDE NIEUWE LOGICA ----
                         
                         # Inspect the original function to determine what parameters it accepts
@@ -414,20 +400,8 @@ def initialize_server():
             logger.warning(f"⚠️ NetBox connection failed during startup, running in degraded mode: {e}")
             # Continue startup - health server should still start for liveness probes
         
-        # Initialize async task manager (optional)
-        try:
-            from .tasks import initialize_task_manager
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-            task_manager = initialize_task_manager(redis_url)
-            
-            if task_manager:
-                logger.info("✅ Async task queue initialized - Redis/RQ available")
-                logger.info("Async tools: netbox_start_bulk_async, netbox_get_task_status")
-            else:
-                logger.info("⚠️  Async task queue not available - using synchronous operations only")
-        except Exception as e:
-            logger.warning(f"Async task queue initialization failed: {e}")
-            logger.info("Falling back to synchronous operations only")
+        # Async task system removed - using synchronous operations only
+        logger.info("NetBox MCP server using synchronous operations")
         
         # Start health check server if enabled
         if config.enable_health_server:

@@ -6,7 +6,7 @@ High-level tools for managing NetBox VRFs (Virtual Routing and Forwarding),
 VRF route targets, and multi-tenant network isolation with enterprise-grade functionality.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional, Any
 import logging
 from ...registry import mcp_tool
 from ...client import NetBoxClient

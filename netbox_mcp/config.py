@@ -11,10 +11,9 @@ Configuration hierarchy (highest priority first):
 Safety-focused configuration with write operation controls and enterprise secrets management.
 """
 
-import os
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 from .secrets import get_secrets_manager, validate_secrets
 

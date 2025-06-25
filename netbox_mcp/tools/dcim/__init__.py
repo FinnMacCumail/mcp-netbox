@@ -6,13 +6,4 @@ devices, racks, sites, cables, interfaces, modules, and power infrastructure.
 """
 
 # Import all DCIM tools to make them discoverable by the registry
-from . import sites
-from . import racks
-from . import manufacturers
-from . import device_roles
-from . import device_types
-from . import devices
-from . import interfaces
-from . import modules
-from . import cables
-from . import power_ports
+from . import sites, racks, manufacturers, device_roles, device_types, devices, interfaces, cables, modules, power_ports

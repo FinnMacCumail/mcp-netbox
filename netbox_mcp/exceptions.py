@@ -25,32 +25,26 @@ class NetBoxError(Exception):
 
 class NetBoxConnectionError(NetBoxError):
     """Raised when connection to NetBox API fails."""
-    pass
 
 
 class NetBoxAuthError(NetBoxError):
     """Raised when NetBox API authentication fails."""
-    pass
 
 
 class NetBoxValidationError(NetBoxError):
     """Raised when data validation fails."""
-    pass
 
 
 class NetBoxNotFoundError(NetBoxError):
     """Raised when requested NetBox object is not found."""
-    pass
 
 
 class NetBoxPermissionError(NetBoxError):
     """Raised when insufficient permissions for operation."""
-    pass
 
 
 class NetBoxWriteError(NetBoxError):
     """Raised when write operation fails."""
-    pass
 
 
 class NetBoxConfirmationError(NetBoxError):
