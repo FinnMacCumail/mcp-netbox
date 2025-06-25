@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 @mcp_tool(category="circuits")
 def netbox_create_circuit(
-    client: NetBoxClient,
     cid: str,
     provider_name: str,
     circuit_type: str,
@@ -28,7 +27,8 @@ def netbox_create_circuit(
     commit_rate_kbps: int = None,
     comments: str = None,
     tags: List[str] = None,
-    confirm: bool = False
+    confirm: bool = False,
+    client: Optional[NetBoxClient] = None,
 ) -> Dict[str, Any]:
     """
     Create a new circuit in NetBox.
@@ -157,9 +157,7 @@ def netbox_create_circuit(
 
 @mcp_tool(category="circuits")
 def netbox_get_circuit_info(
-    client: NetBoxClient,
-    cid: str = None,
-    circuit_id: int = None
+    cid: str = None, circuit_id: int = None, client: Optional[NetBoxClient] = None
 ) -> Dict[str, Any]:
     """
     Get detailed information about a specific circuit.
@@ -190,6 +188,12 @@ def netbox_get_circuit_info(
                     "error": f"Circuit not found: {cid}"
                 }
             circuit = circuits[0]
+
+        if not circuit:
+            return {
+                "success": False,
+                "error": f"Circuit not found: {cid or circuit_id}"
+            }
         
         # Get circuit terminations
         terminations = client.circuits.circuit_terminations.filter(circuit_id=circuit.id)
@@ -246,12 +250,12 @@ def netbox_get_circuit_info(
 
 @mcp_tool(category="circuits")
 def netbox_list_all_circuits(
-    client: NetBoxClient,
     provider_name: str = None,
     circuit_type: str = None,
     status: str = None,
     tenant_name: str = None,
-    site_name: str = None
+    site_name: str = None,
+    client: Optional[NetBoxClient] = None,
 ) -> Dict[str, Any]:
     """
     Get a comprehensive list of all circuits with filtering capabilities.
@@ -421,7 +425,6 @@ def netbox_list_all_circuits(
 
 @mcp_tool(category="circuits")
 def netbox_create_circuit_termination(
-    client: NetBoxClient,
     cid: str,
     term_side: str,
     site_name: str,
@@ -430,7 +433,8 @@ def netbox_create_circuit_termination(
     xconnect_id: str = None,
     pp_info: str = None,
     description: str = None,
-    confirm: bool = False
+    confirm: bool = False,
+    client: Optional[NetBoxClient] = None,
 ) -> Dict[str, Any]:
     """
     Create a circuit termination for an existing circuit.
