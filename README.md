@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-48-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-55-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **48 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with dual-tool pattern architecture
+- **55 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with dual-tool pattern architecture
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -45,11 +45,11 @@ pip install .
 
 **Version**: 0.10.2 - Core Modules Stabilized
 
-**♻️ CIRCUITS MODULE SEPARATION**: Circuits module moved to separate project for focused development. Core 48 tools for DCIM, IPAM, and Tenancy management are stable and production-ready.
+**📦 NEW: INVENTORY MANAGEMENT SUITE**: 7 comprehensive inventory management tools added for complete device asset tracking and lifecycle management.
 
 **🧹 CONTINUOUS OPTIMIZATION**: Maintained clean codebase architecture with enterprise-grade reliability and performance optimization.
 
-**🔧 STABLE CORE MODULES**: 48 production-ready tools across three domains:
+**🔧 STABLE CORE MODULES**: 55 production-ready tools across three domains:
 - **DCIM Tools**: Complete device and infrastructure lifecycle management
 - **IPAM Tools**: IP address and network management with enterprise automation
 - **Tenancy Tools**: Multi-tenant resource management with hierarchical organization
@@ -134,7 +134,7 @@ pip install .
 - `netbox_provision_vlan_with_prefix` - 🆕 Atomic VLAN/prefix coordination
 - `netbox_assign_ip_to_interface` - 🆕 Cross-domain IPAM/DCIM integration
 
-**DCIM Tools** (10):
+**DCIM Tools** (17):
 - `netbox_create_site` - Create and manage sites
 - `netbox_get_site_info` - Retrieve site information
 - `netbox_create_rack` - Create equipment racks
@@ -146,6 +146,14 @@ pip install .
 - `netbox_get_device_info` - Retrieve device details
 - `netbox_install_module_in_device` - 🆕 Device component installation with validation
 - `netbox_add_power_port_to_device` - 🆕 Power infrastructure documentation
+- **Inventory Management Suite** (7 tools):
+  - `netbox_add_inventory_item_template_to_device_type` - 🆕 Define standard inventory for device types
+  - `netbox_list_inventory_item_templates_for_device_type` - 🆕 List device type inventory templates
+  - `netbox_add_inventory_item_to_device` - 🆕 Track actual inventory items on devices
+  - `netbox_list_device_inventory` - 🆕 Comprehensive device inventory reporting
+  - `netbox_update_inventory_item` - 🆕 Update asset information and serial numbers
+  - `netbox_remove_inventory_item` - 🆕 Safe inventory item removal with validation
+  - `netbox_bulk_add_standard_inventory` - 🆕 Rapid deployment with predefined presets
 
 **Tenancy Tools** (2):
 - `netbox_create_contact_for_tenant` - 🆕 Contact management with role-based assignment
