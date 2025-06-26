@@ -852,15 +852,8 @@ def netbox_update_inventory_item(
     
     # STEP 6: UPDATE INVENTORY ITEM
     try:
-        # Get the inventory item record first
-        inventory_record = client.dcim.inventory_items.get(item_id)
-        
-        # Update the record using pynetbox's save() method
-        for field, value in update_payload.items():
-            setattr(inventory_record, field, value)
-        
-        # Save changes to NetBox
-        updated_item = inventory_record.save()
+        # Use the direct update method with ID and confirm parameter (consistent with other MCP tools)
+        updated_item = client.dcim.inventory_items.update(item_id, confirm=confirm, **update_payload)
         
         # Handle both dict and object responses
         updated_name = updated_item.get('name') if isinstance(updated_item, dict) else updated_item.name
@@ -990,9 +983,8 @@ def netbox_remove_inventory_item(
     
     # STEP 5: REMOVE INVENTORY ITEM
     try:
-        # Get the inventory item record and delete it
-        inventory_record = client.dcim.inventory_items.get(item_id)
-        result = inventory_record.delete()
+        # Use the direct delete method with ID and confirm parameter (consistent with other MCP tools)
+        result = client.dcim.inventory_items.delete(item_id, confirm=confirm)
         logger.info(f"Successfully removed Inventory Item '{item_name}' (ID: {item_id})")
         
     except Exception as e:
