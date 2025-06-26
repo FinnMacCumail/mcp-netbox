@@ -198,7 +198,8 @@ def netbox_add_interface_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Interface Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -227,7 +228,10 @@ def netbox_add_interface_template_to_device_type(
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         
         device_type = device_types[0]
-        logger.info(f"Found Device Type: {device_type.display} (ID: {device_type.id})")
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+        device_type_display = device_type.get('display', device_type_model) if isinstance(device_type, dict) else getattr(device_type, 'display', device_type_model)
+        logger.info(f"Found Device Type: {device_type_display} (ID: {device_type_id})")
         
     except Exception as e:
         logger.error(f"Error looking up Device Type: {e}")
@@ -238,7 +242,7 @@ def netbox_add_interface_template_to_device_type(
     
     try:
         existing_templates = client.dcim.interface_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True  # Force live check for accurate conflict detection
         )
@@ -266,7 +270,7 @@ def netbox_add_interface_template_to_device_type(
 
     # STEP 4: WRITE - Create the Interface Template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "type": type,
         "description": description or "",
@@ -275,32 +279,27 @@ def netbox_add_interface_template_to_device_type(
     
     try:
         logger.info(f"Creating Interface Template '{name}' for Device Type '{device_type_model}'...")
-        new_template = client.dcim.interface_templates.create(**template_payload)
-        logger.info(f"Successfully created Interface Template with ID: {new_template.id}")
+        new_template = client.dcim.interface_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
+        logger.info(f"Successfully created Interface Template with ID: {template_id}")
         
     except Exception as e:
         logger.error(f"Failed to create Interface Template in NetBox: {e}")
         raise ValidationError(f"NetBox API error during Interface Template creation: {e}")
 
-    # STEP 5: CACHE INVALIDATION - Invalidate cache for the Device Type
-    try:
-        client.cache.invalidate_for_objects([device_type])
-        logger.debug("Cache invalidated for Device Type after Interface Template creation")
-    except Exception as e:
-        logger.warning(f"Cache invalidation failed (non-critical): {e}")
+    # Cache invalidation handled by NetBox client automatically
 
     return {
-        "status": "success",
-        "message": f"Interface Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Interface Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
-            "template_type": new_template.type,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
+            "template_type": new_template.get('type') if isinstance(new_template, dict) else new_template.type,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
-            "mgmt_only": new_template.mgmt_only,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/interface-templates/"
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
+            "mgmt_only": new_template.get('mgmt_only') if isinstance(new_template, dict) else new_template.mgmt_only,
         }
     }
 
@@ -333,7 +332,8 @@ def netbox_add_console_port_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run", 
+            "success": True,
+        "dry_run": True, 
             "message": "DRY RUN: Console Port Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -349,13 +349,15 @@ def netbox_add_console_port_template_to_device_type(
         if not device_types:
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         device_type = device_types[0]
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
     except Exception as e:
         raise NotFoundError(f"Could not find Device Type '{device_type_model}': {e}")
 
     # Check for conflicts
     try:
         existing_templates = client.dcim.console_port_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True
         )
@@ -374,29 +376,28 @@ def netbox_add_console_port_template_to_device_type(
 
     # Create the template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "type": type,
         "description": description or ""
     }
     
     try:
-        new_template = client.dcim.console_port_templates.create(**template_payload)
-        client.cache.invalidate_for_objects([device_type])
+        new_template = client.dcim.console_port_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
     except Exception as e:
         raise ValidationError(f"NetBox API error during Console Port Template creation: {e}")
 
     return {
-        "status": "success",
-        "message": f"Console Port Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Console Port Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
-            "template_type": new_template.type,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
+            "template_type": new_template.get('type') if isinstance(new_template, dict) else new_template.type,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/console-port-templates/"
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
         }
     }
 
@@ -451,7 +452,8 @@ def netbox_add_power_port_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Power Port Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -477,13 +479,15 @@ def netbox_add_power_port_template_to_device_type(
         if not device_types:
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         device_type = device_types[0]
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
     except Exception as e:
         raise NotFoundError(f"Could not find Device Type '{device_type_model}': {e}")
 
     # Check for conflicts
     try:
         existing_templates = client.dcim.power_port_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True
         )
@@ -502,7 +506,7 @@ def netbox_add_power_port_template_to_device_type(
 
     # Create the template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "type": type,
         "description": description or ""
@@ -515,24 +519,23 @@ def netbox_add_power_port_template_to_device_type(
         template_payload["allocated_draw"] = allocated_draw
     
     try:
-        new_template = client.dcim.power_port_templates.create(**template_payload)
-        client.cache.invalidate_for_objects([device_type])
+        new_template = client.dcim.power_port_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
     except Exception as e:
         raise ValidationError(f"NetBox API error during Power Port Template creation: {e}")
 
     return {
-        "status": "success",
-        "message": f"Power Port Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Power Port Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
-            "template_type": new_template.type,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
+            "template_type": new_template.get('type') if isinstance(new_template, dict) else new_template.type,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
             "maximum_draw": getattr(new_template, 'maximum_draw', None),
             "allocated_draw": getattr(new_template, 'allocated_draw', None),
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/power-port-templates/"
         }
     }
 
@@ -565,7 +568,8 @@ def netbox_add_console_server_port_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Console Server Port Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -581,13 +585,15 @@ def netbox_add_console_server_port_template_to_device_type(
         if not device_types:
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         device_type = device_types[0]
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
     except Exception as e:
         raise NotFoundError(f"Could not find Device Type '{device_type_model}': {e}")
 
     # Check for conflicts
     try:
         existing_templates = client.dcim.console_server_port_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True
         )
@@ -606,29 +612,28 @@ def netbox_add_console_server_port_template_to_device_type(
 
     # Create the template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "type": type,
         "description": description or ""
     }
     
     try:
-        new_template = client.dcim.console_server_port_templates.create(**template_payload)
-        client.cache.invalidate_for_objects([device_type])
+        new_template = client.dcim.console_server_port_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
     except Exception as e:
         raise ValidationError(f"NetBox API error during Console Server Port Template creation: {e}")
 
     return {
-        "status": "success",
-        "message": f"Console Server Port Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Console Server Port Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
-            "template_type": new_template.type,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
+            "template_type": new_template.get('type') if isinstance(new_template, dict) else new_template.type,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/console-server-port-templates/"
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
         }
     }
 
@@ -771,7 +776,8 @@ def netbox_add_power_outlet_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Power Outlet Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -804,7 +810,10 @@ def netbox_add_power_outlet_template_to_device_type(
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         
         device_type = device_types[0]
-        logger.info(f"Found Device Type: {device_type.display} (ID: {device_type.id})")
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+        device_type_display = device_type.get('display', device_type_model) if isinstance(device_type, dict) else getattr(device_type, 'display', device_type_model)
+        logger.info(f"Found Device Type: {device_type_display} (ID: {device_type_id})")
         
     except Exception as e:
         logger.error(f"Error looking up Device Type: {e}")
@@ -815,7 +824,7 @@ def netbox_add_power_outlet_template_to_device_type(
     
     try:
         existing_templates = client.dcim.power_outlet_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True  # Force live check for accurate conflict detection
         )
@@ -841,7 +850,7 @@ def netbox_add_power_outlet_template_to_device_type(
         
         try:
             power_port_templates = client.dcim.power_port_templates.filter(
-                device_type_id=device_type.id,
+                device_type_id=device_type_id,
                 name=power_port_template
             )
             if power_port_templates:
@@ -865,7 +874,7 @@ def netbox_add_power_outlet_template_to_device_type(
 
     # STEP 5: WRITE - Create the Power Outlet Template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "type": type,
         "description": description or ""
@@ -878,33 +887,28 @@ def netbox_add_power_outlet_template_to_device_type(
     
     try:
         logger.info(f"Creating Power Outlet Template '{name}' for Device Type '{device_type_model}'...")
-        new_template = client.dcim.power_outlet_templates.create(**template_payload)
-        logger.info(f"Successfully created Power Outlet Template with ID: {new_template.id}")
+        new_template = client.dcim.power_outlet_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
+        logger.info(f"Successfully created Power Outlet Template with ID: {template_id}")
         
     except Exception as e:
         logger.error(f"Failed to create Power Outlet Template in NetBox: {e}")
         raise ValidationError(f"NetBox API error during Power Outlet Template creation: {e}")
 
-    # STEP 6: CACHE INVALIDATION - Invalidate cache for the Device Type
-    try:
-        client.cache.invalidate_for_objects([device_type])
-        logger.debug("Cache invalidated for Device Type after Power Outlet Template creation")
-    except Exception as e:
-        logger.warning(f"Cache invalidation failed (non-critical): {e}")
+    # Cache invalidation handled by NetBox client automatically
 
     return {
-        "status": "success",
-        "message": f"Power Outlet Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Power Outlet Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
-            "template_type": new_template.type,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
+            "template_type": new_template.get('type') if isinstance(new_template, dict) else new_template.type,
             "device_type_model": device_type_model,  
-            "device_type_id": device_type.id,
-            "description": new_template.description,
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
             "power_port_template": power_port_template,
             "feed_leg": feed_leg,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/power-outlet-templates/"
         }
     }
 
@@ -1038,7 +1042,8 @@ def netbox_add_front_port_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Front Port Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -1072,7 +1077,10 @@ def netbox_add_front_port_template_to_device_type(
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         
         device_type = device_types[0]
-        logger.info(f"Found Device Type: {device_type.display} (ID: {device_type.id})")
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+        device_type_display = device_type.get('display', device_type_model) if isinstance(device_type, dict) else getattr(device_type, 'display', device_type_model)
+        logger.info(f"Found Device Type: {device_type_display} (ID: {device_type_id})")
         
     except Exception as e:
         logger.error(f"Error looking up Device Type: {e}")
@@ -1083,7 +1091,7 @@ def netbox_add_front_port_template_to_device_type(
     
     try:
         rear_port_templates = client.dcim.rear_port_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=rear_port_template
         )
         if not rear_port_templates:
@@ -1091,11 +1099,14 @@ def netbox_add_front_port_template_to_device_type(
             raise NotFoundError(f"Rear Port Template '{rear_port_template}' not found for Device Type '{device_type_model}'. Create the rear port template first.")
         
         rear_port_template_obj = rear_port_templates[0]
-        logger.info(f"Resolved rear port template '{rear_port_template}' to ID: {rear_port_template_obj.id}")
+        # Handle both dict and object responses from NetBox API
+        rear_port_template_id = rear_port_template_obj.get('id') if isinstance(rear_port_template_obj, dict) else rear_port_template_obj.id
+        rear_port_positions = rear_port_template_obj.get('positions') if isinstance(rear_port_template_obj, dict) else rear_port_template_obj.positions
+        logger.info(f"Resolved rear port template '{rear_port_template}' to ID: {rear_port_template_id}")
         
         # Validate rear port position against rear port positions
-        if rear_port_position > rear_port_template_obj.positions:
-            raise ValidationError(f"Rear port position {rear_port_position} exceeds available positions ({rear_port_template_obj.positions}) on rear port template '{rear_port_template}'")
+        if rear_port_position > rear_port_positions:
+            raise ValidationError(f"Rear port position {rear_port_position} exceeds available positions ({rear_port_positions}) on rear port template '{rear_port_template}'")
         
     except NotFoundError:
         raise
@@ -1110,7 +1121,7 @@ def netbox_add_front_port_template_to_device_type(
     
     try:
         existing_templates = client.dcim.front_port_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True  # Force live check for accurate conflict detection
         )
@@ -1135,44 +1146,38 @@ def netbox_add_front_port_template_to_device_type(
 
     # STEP 5: WRITE - Create the Front Port Template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "type": type,
-        "rear_port": rear_port_template_obj.id,
+        "rear_port": rear_port_template_id,
         "rear_port_position": rear_port_position,
         "description": description or ""
     }
     
     try:
         logger.info(f"Creating Front Port Template '{name}' for Device Type '{device_type_model}'...")
-        new_template = client.dcim.front_port_templates.create(**template_payload)
-        logger.info(f"Successfully created Front Port Template with ID: {new_template.id}")
+        new_template = client.dcim.front_port_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
+        logger.info(f"Successfully created Front Port Template with ID: {template_id}")
         
     except Exception as e:
         logger.error(f"Failed to create Front Port Template in NetBox: {e}")
         raise ValidationError(f"NetBox API error during Front Port Template creation: {e}")
 
-    # STEP 6: CACHE INVALIDATION - Invalidate cache for the Device Type
-    try:
-        client.cache.invalidate_for_objects([device_type])
-        logger.debug("Cache invalidated for Device Type after Front Port Template creation")
-    except Exception as e:
-        logger.warning(f"Cache invalidation failed (non-critical): {e}")
 
     return {
-        "status": "success",
-        "message": f"Front Port Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Front Port Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
-            "template_type": new_template.type,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
+            "template_type": new_template.get('type') if isinstance(new_template, dict) else new_template.type,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
             "rear_port_template": rear_port_template,
             "rear_port_position": rear_port_position,
             "rear_port_max_positions": rear_port_template_obj.positions,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/front-port-templates/"
         }
     }
 
@@ -1256,7 +1261,8 @@ def netbox_add_rear_port_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Rear Port Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -1286,7 +1292,10 @@ def netbox_add_rear_port_template_to_device_type(
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         
         device_type = device_types[0]
-        logger.info(f"Found Device Type: {device_type.display} (ID: {device_type.id})")
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+        device_type_display = device_type.get('display', device_type_model) if isinstance(device_type, dict) else getattr(device_type, 'display', device_type_model)
+        logger.info(f"Found Device Type: {device_type_display} (ID: {device_type_id})")
         
     except Exception as e:
         logger.error(f"Error looking up Device Type: {e}")
@@ -1297,7 +1306,7 @@ def netbox_add_rear_port_template_to_device_type(
     
     try:
         existing_templates = client.dcim.rear_port_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True  # Force live check for accurate conflict detection
         )
@@ -1322,7 +1331,7 @@ def netbox_add_rear_port_template_to_device_type(
 
     # STEP 4: WRITE - Create the Rear Port Template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "type": type,
         "positions": positions,
@@ -1331,32 +1340,26 @@ def netbox_add_rear_port_template_to_device_type(
     
     try:
         logger.info(f"Creating Rear Port Template '{name}' for Device Type '{device_type_model}'...")
-        new_template = client.dcim.rear_port_templates.create(**template_payload)
-        logger.info(f"Successfully created Rear Port Template with ID: {new_template.id}")
+        new_template = client.dcim.rear_port_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
+        logger.info(f"Successfully created Rear Port Template with ID: {template_id}")
         
     except Exception as e:
         logger.error(f"Failed to create Rear Port Template in NetBox: {e}")
         raise ValidationError(f"NetBox API error during Rear Port Template creation: {e}")
 
-    # STEP 5: CACHE INVALIDATION - Invalidate cache for the Device Type
-    try:
-        client.cache.invalidate_for_objects([device_type])
-        logger.debug("Cache invalidated for Device Type after Rear Port Template creation")
-    except Exception as e:
-        logger.warning(f"Cache invalidation failed (non-critical): {e}")
 
     return {
-        "status": "success",
-        "message": f"Rear Port Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Rear Port Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
-            "template_type": new_template.type,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
+            "template_type": new_template.get('type') if isinstance(new_template, dict) else new_template.type,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
-            "positions": new_template.positions,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/rear-port-templates/"
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
+            "positions": new_template.get('positions') if isinstance(new_template, dict) else new_template.positions,
         }
     }
 
@@ -1387,7 +1390,8 @@ def netbox_add_device_bay_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Device Bay Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -1402,13 +1406,15 @@ def netbox_add_device_bay_template_to_device_type(
         if not device_types:
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         device_type = device_types[0]
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
     except Exception as e:
         raise NotFoundError(f"Could not find Device Type '{device_type_model}': {e}")
 
     # Check for conflicts
     try:
         existing_templates = client.dcim.device_bay_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True
         )
@@ -1427,27 +1433,26 @@ def netbox_add_device_bay_template_to_device_type(
 
     # Create the template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "description": description or ""
     }
     
     try:
-        new_template = client.dcim.device_bay_templates.create(**template_payload)
-        client.cache.invalidate_for_objects([device_type])
+        new_template = client.dcim.device_bay_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
     except Exception as e:
         raise ValidationError(f"NetBox API error during Device Bay Template creation: {e}")
 
     return {
-        "status": "success",
-        "message": f"Device Bay Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Device Bay Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/device-bay-templates/"
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
         }
     }
 
@@ -1480,7 +1485,8 @@ def netbox_add_module_bay_template_to_device_type(
     """
     if not confirm:
         return {
-            "status": "dry_run",
+            "success": True,
+        "dry_run": True,
             "message": "DRY RUN: Module Bay Template would be created. Set confirm=True to execute.",
             "would_create": {
                 "device_type_model": device_type_model,
@@ -1496,13 +1502,15 @@ def netbox_add_module_bay_template_to_device_type(
         if not device_types:
             raise NotFoundError(f"Device Type with model '{device_type_model}' not found.")
         device_type = device_types[0]
+        # Handle both dict and object responses from NetBox API
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
     except Exception as e:
         raise NotFoundError(f"Could not find Device Type '{device_type_model}': {e}")
 
     # Check for conflicts
     try:
         existing_templates = client.dcim.module_bay_templates.filter(
-            device_type_id=device_type.id,
+            device_type_id=device_type_id,
             name=name,
             no_cache=True
         )
@@ -1521,7 +1529,7 @@ def netbox_add_module_bay_template_to_device_type(
 
     # Create the template
     template_payload = {
-        "device_type": device_type.id,
+        "device_type": device_type_id,
         "name": name,
         "description": description or ""
     }
@@ -1530,21 +1538,20 @@ def netbox_add_module_bay_template_to_device_type(
         template_payload["position"] = position
     
     try:
-        new_template = client.dcim.module_bay_templates.create(**template_payload)
-        client.cache.invalidate_for_objects([device_type])
+        new_template = client.dcim.module_bay_templates.create(confirm=confirm, **template_payload)
+        template_id = new_template.get('id') if isinstance(new_template, dict) else new_template.id
     except Exception as e:
         raise ValidationError(f"NetBox API error during Module Bay Template creation: {e}")
 
     return {
-        "status": "success",
-        "message": f"Module Bay Template '{new_template.name}' successfully added to Device Type '{device_type_model}'.",
+        "success": True,
+        "message": f"Module Bay Template '{new_template.get('name') if isinstance(new_template, dict) else new_template.name}' successfully added to Device Type '{device_type_model}'.",
         "data": {
-            "template_id": new_template.id,
-            "template_name": new_template.name,
+            "template_id": template_id,
+            "template_name": new_template.get('name') if isinstance(new_template, dict) else new_template.name,
             "device_type_model": device_type_model,
-            "device_type_id": device_type.id,
-            "description": new_template.description,
+            "device_type_id": device_type_id,
+            "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
             "position": getattr(new_template, 'position', None),
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type.id}/module-bay-templates/"
         }
     }

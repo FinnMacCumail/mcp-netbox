@@ -95,12 +95,49 @@ def netbox_example_tool(...) -> Dict[str, Any]:
     """
 ```
 
-### **5.2 Defensive Dictionary Access Pattern**
+### **5.2 Defensive Dict/Object Handling Pattern** 
 
-**Critical**: All `list_all` tools must use defensive dictionary access.
+**CRITICAL**: NetBox API responses can be either dictionaries OR objects. ALL tools must handle both formats defensively.
+
+#### **The Universal Pattern**
 
 ```python
-# CORRECT - Defensive pattern
+# CORRECT - Works with both dict and object responses
+resource = api_response[0]
+resource_id = resource.get('id') if isinstance(resource, dict) else resource.id
+resource_name = resource.get('name') if isinstance(resource, dict) else resource.name
+```
+
+#### **Common Failure Pattern**
+
+```python
+# INCORRECT - Causes AttributeError: 'dict' object has no attribute 'id'
+resource = api_response[0]
+resource_id = resource.id  # ❌ Fails when NetBox returns dict
+```
+
+#### **Write Function Requirements**
+
+ALL write functions must apply this pattern to EVERY NetBox API lookup:
+
+```python
+# Device Type Lookup
+device_types = client.dcim.device_types.filter(model=device_type_model)
+device_type = device_types[0]
+device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+device_type_display = device_type.get('display', device_type_model) if isinstance(device_type, dict) else getattr(device_type, 'display', device_type_model)
+
+# Related Object Lookup (e.g., rear port template)
+templates = client.dcim.rear_port_templates.filter(device_type_id=device_type_id, name=template_name)
+template_obj = templates[0]
+template_id = template_obj.get('id') if isinstance(template_obj, dict) else template_obj.id
+template_positions = template_obj.get('positions') if isinstance(template_obj, dict) else template_obj.positions
+```
+
+#### **List Tools Defensive Access**
+
+```python
+# CORRECT - Defensive pattern for nested attributes
 status_obj = device.get("status", {})
 if isinstance(status_obj, dict):
     status = status_obj.get("label", "N/A")
@@ -108,9 +145,185 @@ else:
     status = str(status_obj) if status_obj else "N/A"
 ```
 
-This pattern is **mandatory** for all tools that process NetBox API responses.
+**This pattern is MANDATORY for ALL tools that process NetBox API responses.**
 
-### **5.3 Enterprise Safety Requirements**
+### **5.3 Complete Write Function Template**
+
+**Use this template for ALL new write functions to prevent recurring AttributeError bugs:**
+
+```python
+@mcp_tool(category="dcim")  
+async def netbox_create_example_function(
+    client: NetBoxClient,
+    required_param: str,
+    optional_param: str = "default",
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create example function with full defensive pattern.
+    
+    Args:
+        required_param: Required parameter
+        optional_param: Optional parameter  
+        client: NetBox client (injected)
+        confirm: Must be True to execute
+    """
+    
+    # STEP 1: DRY RUN CHECK
+    if not confirm:
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": "DRY RUN: Resource would be created. Set confirm=True to execute.",
+            "would_create": {
+                "required_param": required_param,
+                "optional_param": optional_param
+            }
+        }
+    
+    # STEP 2: PARAMETER VALIDATION
+    if not required_param or not required_param.strip():
+        raise ValidationError("Required parameter cannot be empty")
+    
+    # STEP 3: LOOKUP MAIN RESOURCE (with defensive dict/object handling)
+    try:
+        main_resources = client.dcim.main_resource.filter(name=required_param)
+        if not main_resources:
+            raise NotFoundError(f"Main resource '{required_param}' not found")
+        
+        main_resource = main_resources[0]
+        # CRITICAL: Apply dict/object handling to ALL NetBox responses
+        main_resource_id = main_resource.get('id') if isinstance(main_resource, dict) else main_resource.id
+        main_resource_display = main_resource.get('display', required_param) if isinstance(main_resource, dict) else getattr(main_resource, 'display', required_param)
+        
+    except Exception as e:
+        raise NotFoundError(f"Could not find main resource '{required_param}': {e}")
+    
+    # STEP 4: LOOKUP RELATED RESOURCES (if needed)
+    if related_param:
+        try:
+            related_resources = client.dcim.related_resource.filter(
+                main_resource_id=main_resource_id,
+                name=related_param
+            )
+            if not related_resources:
+                raise NotFoundError(f"Related resource '{related_param}' not found")
+            
+            related_resource = related_resources[0]
+            # CRITICAL: Apply dict/object handling to related resources too
+            related_resource_id = related_resource.get('id') if isinstance(related_resource, dict) else related_resource.id
+            related_positions = related_resource.get('positions') if isinstance(related_resource, dict) else related_resource.positions
+            
+        except Exception as e:
+            raise ValidationError(f"Failed to resolve related resource: {e}")
+    
+    # STEP 5: CONFLICT DETECTION
+    try:
+        existing_resources = client.dcim.target_resource.filter(
+            main_resource_id=main_resource_id,
+            name=target_name,
+            no_cache=True  # Force live check for accurate conflict detection
+        )
+        
+        if existing_resources:
+            existing_resource = existing_resources[0]
+            existing_id = existing_resource.get('id') if isinstance(existing_resource, dict) else existing_resource.id
+            raise ConflictError(
+                resource_type="Target Resource",
+                identifier=f"{target_name} for Main Resource {required_param}",
+                existing_id=existing_id
+            )
+    except ConflictError:
+        raise
+    except Exception as e:
+        logger.warning(f"Could not check for existing resources: {e}")
+    
+    # STEP 6: CREATE RESOURCE
+    create_payload = {
+        "main_resource": main_resource_id,
+        "name": target_name,
+        "type": resource_type,
+        "description": description or ""
+    }
+    
+    # Add related resource ID if applicable
+    if related_param:
+        create_payload["related_resource"] = related_resource_id
+    
+    try:
+        new_resource = client.dcim.target_resource.create(confirm=confirm, **create_payload)
+        resource_id = new_resource.get('id') if isinstance(new_resource, dict) else new_resource.id
+        
+    except Exception as e:
+        raise ValidationError(f"NetBox API error during resource creation: {e}")
+    
+    # STEP 7: RETURN SUCCESS
+    return {
+        "success": True,
+        "message": f"Resource '{target_name}' successfully created for '{required_param}'.",
+        "data": {
+            "resource_id": resource_id,
+            "resource_name": new_resource.get('name') if isinstance(new_resource, dict) else new_resource.name,
+            "main_resource_id": main_resource_id,
+            "main_resource_name": required_param
+        }
+    }
+```
+
+### **5.4 Common Bugs and How to Prevent Them**
+
+#### **Bug #1: AttributeError: 'dict' object has no attribute 'id'**
+
+**Cause**: Direct attribute access on NetBox API responses without checking if it's a dict or object.
+
+**Prevention**: ALWAYS use the defensive dict/object pattern for ALL NetBox API responses.
+
+```python
+# ❌ WRONG - Will fail randomly
+resource = api_responses[0]
+resource_id = resource.id
+
+# ✅ CORRECT - Always works  
+resource = api_responses[0]
+resource_id = resource.get('id') if isinstance(resource, dict) else resource.id
+```
+
+#### **Bug #2: Missing Related Resource Handling**
+
+**Cause**: Functions that reference other NetBox objects (like front ports → rear ports) often forget to apply defensive handling to the related object.
+
+**Prevention**: Apply defensive pattern to EVERY NetBox API lookup in the function.
+
+```python
+# ❌ WRONG - Only main resource has defensive handling
+device_type = device_types[0]
+device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+rear_port = rear_ports[0]
+rear_port_id = rear_port.id  # ❌ Missing defensive handling
+
+# ✅ CORRECT - All resources have defensive handling
+device_type = device_types[0]  
+device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+rear_port = rear_ports[0]
+rear_port_id = rear_port.get('id') if isinstance(rear_port, dict) else rear_port.id
+```
+
+#### **Bug #3: Inconsistent Error Handling**
+
+**Cause**: Not following the standard exception handling pattern.
+
+**Prevention**: Use the standard exception handling pattern:
+
+```python
+try:
+    # NetBox API operation
+except ConflictError:
+    raise  # Re-raise specific errors
+except Exception as e:
+    raise ValidationError(f"NetBox API error during operation: {e}")
+```
+
+### **5.5 Enterprise Safety Requirements**
 
 All write operations must include a `confirm` parameter and logic to check for conflicts.
 
