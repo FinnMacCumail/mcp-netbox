@@ -36,7 +36,7 @@ logger.info(f"Internal tool registry initialized with {len(TOOL_REGISTRY)} tools
 
 # Step 2: Initialize FastMCP server (empty at first)
 mcp = FastMCP(
-    "NetBox Model-Context Protocol", 
+    "NetBox Model-Context Protocol",
     description="A powerful, tool-based interface to manage and orchestrate a NetBox instance."
 )
 
@@ -57,51 +57,49 @@ def bridge_tools_to_fastmcp():
             def create_tool_wrapper(original_func):
                 """
                 Creëert een wrapper voor een tool die de exacte signatuur van de originele functie nabootst,
-                terwijl de NetBox client automatisch wordt geïnjecteerd.
+                terwijl de NetBox client automatisch wordt geïnjecteerd en argument-duplicaten voorkomt.
                 """
-                # 1. Inspecteer de originele functie om de parameters te achterhalen.
                 sig = inspect.signature(original_func)
-                
-                # We sluiten de 'client' parameter uit van de wrapper, omdat we die zelf toevoegen.
-                wrapper_params = [
-                    p for p in sig.parameters.values() if p.name != 'client'
-                ]
+                wrapper_params = [p for p in sig.parameters.values() if p.name != 'client']
 
-                # 2. Definieer een innerlijke wrapper functie die de daadwerkelijke logica bevat.
-                #    @wraps(original_func) zorgt ervoor dat metadata zoals de docstring behouden blijft.
                 @wraps(original_func)
                 def tool_wrapper(*args, **kwargs):
                     try:
-                        # Haal de NetBox client op, net als voorheen.
+                        # ----- VEILIGE ARGUMENT-AFHANDELING -----
+                        # 1. Maak een lijst van de verwachte parameternamen (zonder 'client')
+                        param_names = [p.name for p in wrapper_params]
+
+                        # 2. Maak een dictionary van de positionele argumenten (*args)
+                        final_kwargs = dict(zip(param_names, args))
+
+                        # 3. Update met de keyword-argumenten (**kwargs).
+                        #    Dit overschrijft eventuele duplicaten en is de kern van de fix.
+                        final_kwargs.update(kwargs)
+                        # ----------------------------------------
+
                         client = get_netbox_client()
-                        
-                        # Roep de originele functie aan met de client en alle andere doorgegeven argumenten.
-                        # *args en **kwargs zorgen ervoor dat alle positional en keyword arguments
-                        # correct worden doorgegeven.
-                        return original_func(client, *args, **kwargs)
+
+                        # Roep de originele functie aan met de schone, ontdubbelde argumenten.
+                        return original_func(client, **final_kwargs)
+
                     except Exception as e:
                         logger.error(f"Execution of tool '{tool_name}' failed: {e}", exc_info=True)
-                        # Return a structured error response
                         return {"success": False, "error": str(e), "error_type": type(e).__name__}
 
-                # 3. Creëer een nieuwe signatuur voor onze 'tool_wrapper'.
-                #    Dit is de magische stap! We vertellen Python dat de wrapper eruitziet als
-                #    de originele functie (minus de 'client' parameter).
                 new_sig = sig.replace(parameters=wrapper_params)
                 tool_wrapper.__signature__ = new_sig
-
                 return tool_wrapper
 
             # Register the 'wrapper' with FastMCP with the correct metadata
             wrapped_tool = create_tool_wrapper(original_func)
             mcp.tool(name=tool_name, description=description)(wrapped_tool)
-            
+
             bridged_count += 1
             logger.debug(f"Bridged tool: {tool_name} (category: {category})")
-            
+
         except Exception as e:
             logger.error(f"Failed to bridge tool '{tool_name}' to FastMCP: {e}", exc_info=True)
-            
+
     logger.info(f"Successfully bridged {bridged_count}/{len(TOOL_REGISTRY)} tools to the FastMCP interface")
 
 # Step 4: Execute the bridge function at server startup
@@ -132,27 +130,27 @@ async def get_tools(
 ) -> List[Dict[str, Any]]:
     """
     Discovery endpoint: List all available MCP tools.
-    
+
     Query Parameters:
         category: Filter tools by category (system, ipam, dcim, etc.)
         name_pattern: Filter tools by name pattern (partial match)
-        
+
     Returns:
         List of tool metadata with parameters, descriptions, and categories
     """
     try:
         tools = serialize_registry_for_api()
-        
+
         # Apply filters
         if category:
             tools = [tool for tool in tools if tool.get("category") == category]
-        
+
         if name_pattern:
             tools = [tool for tool in tools if name_pattern.lower() in tool.get("name", "").lower()]
-        
+
         logger.info(f"Tools discovery request: {len(tools)} tools returned (category={category}, pattern={name_pattern})")
         return tools
-        
+
     except Exception as e:
         logger.error(f"Error in tools discovery: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
@@ -165,31 +163,31 @@ async def execute_mcp_tool(
 ) -> Dict[str, Any]:
     """
     Generic execution endpoint: Execute any registered MCP tool.
-    
+
     Request Body:
         tool_name: Name of the tool to execute
         parameters: Dictionary of tool parameters
-        
+
     Returns:
         Tool execution result
     """
     try:
         logger.info(f"Executing tool: {request.tool_name} with parameters: {request.parameters}")
-        
+
         # Execute tool with dependency injection
         result = execute_tool(request.tool_name, client, **request.parameters)
-        
+
         return {
             "success": True,
             "tool_name": request.tool_name,
             "result": result
         }
-        
+
     except ValueError as e:
         # Tool not found
         logger.warning(f"Tool not found: {request.tool_name}")
         raise HTTPException(status_code=404, detail=str(e))
-        
+
     except Exception as e:
         logger.error(f"Tool execution failed for {request.tool_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
@@ -201,22 +199,22 @@ async def get_system_status(
 ) -> Dict[str, Any]:
     """
     Health/Status endpoint: Get MCP system status and NetBox connectivity.
-    
+
     Returns:
         System status including NetBox connection, tool registry stats, and performance metrics
     """
     try:
         # Get NetBox health status
         netbox_status = client.health_check()
-        
+
         # Get tool registry statistics
         from .registry import get_registry_stats
         registry_stats = get_registry_stats()
-        
+
         # Get client status
         from .dependencies import get_client_status
         client_status = get_client_status()
-        
+
         return {
             "service": "NetBox MCP",
             "version": "0.9.7",
@@ -233,12 +231,12 @@ async def get_system_status(
             "client": client_status,
             "cache_stats": netbox_status.cache_stats if hasattr(netbox_status, 'cache_stats') else None
         }
-        
+
     except Exception as e:
         logger.error(f"Status check failed: {e}")
         return {
             "service": "NetBox MCP",
-            "version": "0.9.7", 
+            "version": "0.9.7",
             "status": "error",
             "error": str(e),
             "error_type": type(e).__name__
@@ -248,7 +246,7 @@ async def get_system_status(
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     """HTTP handler for health check endpoints."""
-    
+
     def do_GET(self):
         """Handle GET requests for health check endpoints."""
         try:
@@ -257,14 +255,14 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                
+
                 response = {
                     "status": "OK",
                     "service": "netbox-mcp",
                     "version": "0.9.7"
                 }
                 self.wfile.write(json.dumps(response).encode())
-                
+
             elif self.path == '/readyz':
                 # Readiness check - test NetBox connection
                 try:
@@ -291,28 +289,28 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
                         "netbox_connected": False,
                         "error": str(e)
                     }
-                
+
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps(response).encode())
-                
+
             else:
                 self.send_response(404)
                 self.send_header('Content-Type', 'application/json')
                 self.end_headers()
-                
+
                 response = {"error": "Not Found"}
                 self.wfile.write(json.dumps(response).encode())
-                
+
         except Exception as e:
             logger.error(f"Health check handler error: {e}")
             self.send_response(500)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            
+
             response = {"error": "Internal Server Error", "details": str(e)}
             self.wfile.write(json.dumps(response).encode())
-    
+
     def log_message(self, format, *args):
         """Override to use our logger."""
         logger.debug(f"Health check: {format % args}")
@@ -328,7 +326,7 @@ def start_health_server(port: int):
             server.serve_forever()
         except Exception as e:
             logger.error(f"Health check server failed: {e}")
-    
+
     health_thread = threading.Thread(target=run_server, daemon=True)
     health_thread.start()
 
@@ -339,22 +337,22 @@ def initialize_server():
         # Load configuration
         config = load_config()
         logger.info(f"Configuration loaded successfully")
-        
+
         # Update logging level
         logging.getLogger().setLevel(getattr(logging, config.log_level.upper()))
         logger.info(f"Log level set to {config.log_level}")
-        
+
         # Log safety configuration
         if config.safety.dry_run_mode:
             logger.warning("🚨 NetBox MCP running in DRY-RUN mode - no actual writes will be performed")
-        
+
         if not config.safety.enable_write_operations:
             logger.info("🔒 Write operations are DISABLED - server is read-only")
-        
+
         # Initialize NetBox client using Gemini's singleton pattern
         NetBoxClientManager.initialize(config)
         logger.info("NetBox client initialized successfully via singleton manager")
-        
+
         # Test connection (graceful degradation if NetBox is unavailable)
         client = NetBoxClientManager.get_client()
         try:
@@ -366,16 +364,16 @@ def initialize_server():
         except Exception as e:
             logger.warning(f"⚠️ NetBox connection failed during startup, running in degraded mode: {e}")
             # Continue startup - health server should still start for liveness probes
-        
+
         # Async task system removed - using synchronous operations only
         logger.info("NetBox MCP server using synchronous operations")
-        
+
         # Start health check server if enabled
         if config.enable_health_server:
             start_health_server(config.health_check_port)
-        
+
         logger.info("NetBox MCP server initialization complete")
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize NetBox MCP server: {e}")
         raise
@@ -386,7 +384,7 @@ def main():
     try:
         # Initialize server
         initialize_server()
-        
+
         # Define the MCP server task to run in a thread
         def run_mcp_server():
             try:
@@ -399,17 +397,17 @@ def main():
         mcp_thread = threading.Thread(target=run_mcp_server)
         mcp_thread.daemon = True
         mcp_thread.start()
-        
+
         # Keep the main thread alive to allow daemon threads to run
         logger.info("NetBox MCP server is ready and listening")
         logger.info("Health endpoints: /health, /healthz (liveness), /readyz (readiness)")
-        
+
         try:
             while True:
                 time.sleep(3600)  # Sleep for a long time
         except KeyboardInterrupt:
             logger.info("Shutting down NetBox MCP server...")
-        
+
     except Exception as e:
         logger.error(f"NetBox MCP server error: {e}")
         raise

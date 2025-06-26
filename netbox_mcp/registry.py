@@ -350,5 +350,9 @@ def execute_tool(tool_name: str, client, **parameters) -> Any:
     
     tool_function = tool_metadata["function"]
     
+    # Filter out 'client' parameter from parameters to avoid duplicate argument error
+    # The client is injected separately as named parameter
+    filtered_parameters = {k: v for k, v in parameters.items() if k != 'client'}
+    
     # Inject client as first parameter
-    return tool_function(client=client, **parameters)
+    return tool_function(client=client, **filtered_parameters)

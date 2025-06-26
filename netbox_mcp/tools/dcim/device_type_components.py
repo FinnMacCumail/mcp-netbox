@@ -1177,7 +1177,8 @@ def netbox_add_front_port_template_to_device_type(
             "description": new_template.get('description') if isinstance(new_template, dict) else new_template.description,
             "rear_port_template": rear_port_template,
             "rear_port_position": rear_port_position,
-            "rear_port_max_positions": rear_port_template_obj.positions,
+            "rear_port_max_positions": rear_port_positions,
+            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type_id}/front-port-templates/"
         }
     }
 
