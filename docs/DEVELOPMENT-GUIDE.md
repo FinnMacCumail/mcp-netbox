@@ -323,6 +323,54 @@ except Exception as e:
     raise ValidationError(f"NetBox API error during operation: {e}")
 ```
 
+#### **Bug #4: Incorrect NetBox API Update/Delete Patterns**
+
+**Cause**: Using incorrect pynetbox patterns for UPDATE and DELETE operations instead of the established NetBox MCP patterns.
+
+**Critical Discovery**: During inventory management implementation, a critical bug was discovered where the wrong API patterns were used for update/delete operations, causing `NetBoxValidationError: Write operation requires confirm=True`.
+
+**Root Cause Analysis**:
+- Used individual record operations: `get()` + `setattr()` + `save()` 
+- This pattern is NOT used anywhere else in the NetBox MCP codebase
+- All proven working modules use direct ID-based operations with confirm parameter
+
+**Prevention**: ALWAYS follow the established NetBox MCP patterns by checking existing working modules:
+
+```python
+# ❌ WRONG - Individual record pattern (not used in NetBox MCP)
+inventory_record = client.dcim.inventory_items.get(item_id)
+for field, value in update_payload.items():
+    setattr(inventory_record, field, value)
+updated_item = inventory_record.save()
+
+# ✅ CORRECT - Direct ID-based pattern (used by ALL working modules)
+updated_item = client.dcim.inventory_items.update(item_id, confirm=confirm, **update_payload)
+```
+
+**Proven Working Patterns** (validated in devices.py, tenancy/resources.py):
+
+```python
+# UPDATE operations
+client.dcim.devices.update(device_id, confirm=True, **update_data)
+client.ipam.ip_addresses.update(ip_id, confirm=True, **update_data)
+endpoint.update(resource_id, confirm=True, **update_data)
+
+# DELETE operations
+client.dcim.cables.delete(cable_id, confirm=True)
+client.dcim.inventory_items.delete(item_id, confirm=confirm)
+
+# CREATE operations (for reference)
+client.dcim.inventory_items.create(confirm=confirm, **create_payload)
+```
+
+**Validation Process**:
+1. **Before implementing**: Check 2-3 similar functions in existing working modules
+2. **Pattern matching**: Ensure UPDATE/DELETE operations follow the exact same syntax
+3. **Parameter consistency**: Use `confirm=confirm` or `confirm=True` consistently
+4. **Testing validation**: If similar functions work, your pattern should work too
+
+**Key Insight**: The NetBox MCP codebase has established patterns that MUST be followed. Never assume pynetbox patterns from documentation - always check working NetBox MCP functions first.
+
 ### **5.5 Enterprise Safety Requirements**
 
 All write operations must include a `confirm` parameter and logic to check for conflicts.
@@ -333,7 +381,65 @@ Tools are automatically discovered and registered via the `@mcp_tool` decorator 
 
 ## **7. Testing and Validation**
 
+### **7.1 Codebase Pattern Validation**
+
+**CRITICAL**: Before implementing any UPDATE or DELETE operations, ALWAYS validate against existing working functions to ensure consistent patterns.
+
+#### **Validation Methodology**
+
+**Step 1: Pattern Discovery**
+```bash
+# Find all files with update/delete/save operations
+find netbox_mcp/tools -name "*.py" -exec grep -l "\.update\|\.delete\|\.save" {} \;
+
+# Check specific patterns in proven working modules
+grep -A3 -B3 "\.update.*confirm=True" netbox_mcp/tools/dcim/devices.py
+grep -A3 -B3 "\.delete.*confirm=True" netbox_mcp/tools/dcim/devices.py
+```
+
+**Step 2: Pattern Analysis**
+```bash
+# Extract actual working patterns
+grep -n "\.update(" netbox_mcp/tools/dcim/devices.py
+grep -n "\.delete(" netbox_mcp/tools/dcim/devices.py
+grep -n "\.create(" netbox_mcp/tools/dcim/inventory.py
+```
+
+**Step 3: Pattern Comparison**
+- ✅ **CREATE**: `client.endpoint.create(confirm=confirm, **payload)` - CONSISTENT
+- ✅ **UPDATE**: `client.endpoint.update(id, confirm=confirm, **payload)` - CONSISTENT  
+- ✅ **DELETE**: `client.endpoint.delete(id, confirm=confirm)` - CONSISTENT
+
+#### **Live Validation Example**
+
+From inventory management development:
+
+```python
+# DISCOVERED working patterns in devices.py:
+client.dcim.devices.update(device_id, confirm=True, **device_update_data)
+client.dcim.cables.delete(cable["id"], confirm=True)
+
+# DISCOVERED working patterns in tenancy/resources.py:
+endpoint.update(resource_id, confirm=True, **update_data)
+
+# APPLIED to inventory functions:
+client.dcim.inventory_items.update(item_id, confirm=confirm, **update_payload)
+client.dcim.inventory_items.delete(item_id, confirm=confirm)
+```
+
+### **7.2 Testing Protocol**
+
 Test tool registration and functionality locally against the test instance and via the MCP interface.
+
+#### **Pre-Implementation Testing**
+1. **Pattern Validation**: Confirm your API patterns match 2-3 working functions
+2. **Syntax Check**: Verify parameter order and confirm usage consistency  
+3. **Similar Function Test**: If similar functions work, yours should too
+
+#### **Post-Implementation Testing**
+1. **Functionality Test**: Test actual CRUD operations
+2. **Error Handling Test**: Test with invalid parameters
+3. **Integration Test**: Test within live NetBox MCP environment
 
 ## **8. Common Patterns and Examples**
 
