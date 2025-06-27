@@ -2,6 +2,10 @@
 """
 DCIM Inventory Management Tools
 
+⚠️ **DEPRECATION WARNING**: NetBox v4.3+ has deprecated inventory items in favor of modules.
+These tools will become obsolete in future NetBox releases. Consider using module 
+management tools instead for new implementations.
+
 Enterprise-grade tools for managing NetBox inventory items and inventory item templates.
 These tools enable comprehensive tracking of device components, assets, and hierarchical
 inventory management for complete device lifecycle documentation.
@@ -18,6 +22,10 @@ Inventory Components Supported:
 - Rack Components: Power supplies, fans, controllers
 - Network Components: Transceivers, line cards, modules
 - Custom Components: Any trackable asset or component
+
+Migration Path:
+- Inventory Item Templates → Module Types
+- Inventory Items → Modules with enhanced functionality and user-defined attributes
 """
 
 from typing import Dict, Optional, Any, List
@@ -155,6 +163,10 @@ def netbox_add_inventory_item_template_to_device_type(
 ) -> Dict[str, Any]:
     """
     Add inventory item template to a device type for standardized inventory definition.
+    
+    ⚠️ **DEPRECATION WARNING**: NetBox v4.3+ has deprecated inventory items in favor of modules.
+    This function will become obsolete in future NetBox releases. Consider using module 
+    management tools instead for new implementations.
     
     This enterprise-grade function enables device type standardization by defining
     inventory items that should be present on all devices of a specific type.
@@ -428,6 +440,10 @@ def netbox_add_inventory_item_to_device(
 ) -> Dict[str, Any]:
     """
     Add inventory item to a specific device for asset tracking and documentation.
+    
+    ⚠️ **DEPRECATION WARNING**: NetBox v4.3+ has deprecated inventory items in favor of modules.
+    This function will become obsolete in future NetBox releases. Consider using module 
+    management tools instead for new implementations.
     
     This enterprise-grade function enables comprehensive device asset tracking
     by documenting actual inventory items installed on devices. Supports
@@ -1102,6 +1118,10 @@ def netbox_bulk_add_standard_inventory(
 ) -> Dict[str, Any]:
     """
     Add standard inventory items to a device based on predefined presets.
+    
+    ⚠️ **DEPRECATION WARNING**: NetBox v4.3+ has deprecated inventory items in favor of modules.
+    This function will become obsolete in future NetBox releases. Consider using module 
+    management tools instead for new implementations.
     
     This enterprise-grade function enables rapid deployment of standardized
     inventory configurations, reducing manual work and ensuring consistency

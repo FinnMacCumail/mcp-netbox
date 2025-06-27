@@ -69,6 +69,33 @@ return tool_function(client=client, **filtered_parameters)
 
 **Status**: ✅ **COMPLETED** - All inventory functions now use correct component_type validation.
 
+## ⚠️ NetBox Deprecation Notice (2025-06-27)
+
+**CRITICAL**: NetBox v4.3+ Inventory Items Deprecation Discovered
+
+**NetBox Official Warning**:
+> "Beginning in NetBox v4.3, the use of inventory items has been deprecated. They are planned for removal in a future NetBox release. Users are strongly encouraged to begin using modules and module types in place of inventory items. Modules provide enhanced functionality and can be configured with user-defined attributes."
+
+**Impact Assessment**:
+- **Current Status**: Inventory Management Suite fully functional on NetBox 4.2.9
+- **Future Risk**: Functions will become obsolete in future NetBox versions
+- **Migration Path**: Transition to Module Management Suite required
+
+**Action Plan**:
+1. **Immediate**: Document deprecation status in all inventory tools
+2. **Short-term**: Add deprecation warnings to function docstrings  
+3. **Long-term**: Implement Module Management Suite as replacement
+4. **Migration**: Provide transition tools from inventory items to modules
+
+**Affected Functions** (7 tools):
+- `netbox_add_inventory_item_template_to_device_type` → Future: Module Type management
+- `netbox_list_inventory_item_templates_for_device_type` → Future: Module Type listing
+- `netbox_add_inventory_item_to_device` → Future: Module installation
+- `netbox_list_device_inventory` → Future: Device module listing
+- `netbox_update_inventory_item` → Future: Module updates
+- `netbox_remove_inventory_item` → Future: Module removal
+- `netbox_bulk_add_standard_inventory` → Future: Bulk module deployment
+
 ## Device Types Created
 1. **Test Device** (Test Device model) - has interface, power, console, rear port, console server, power outlet, module bay templates
 2. **Test Chassis** (Test Chassis model) - has device bay template (subdevice_role set to "parent" via UI)
