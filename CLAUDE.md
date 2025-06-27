@@ -1,4 +1,26 @@
-# NetBox MCP Testing Session Progress
+# NetBox MCP Development Instructions
+
+## 🧪 **Testing Structure Update (2025-06-27)**
+
+**IMPORTANT**: NetBox MCP nu heeft een **dedicated test team** voor comprehensive functional testing.
+
+### **Developer Responsibilities** (Code Level Only):
+- ✅ **Code compilation**: No import/syntax errors
+- ✅ **Tool registration**: Functions register correctly in `TOOL_REGISTRY`  
+- ✅ **Pattern compliance**: Code follows DEVELOPMENT-GUIDE.md standards
+- ❌ **Functional testing**: Handled by dedicated test team
+- ❌ **NetBox API validation**: Handled by dedicated test team
+
+### **Test Team Handoff**:
+**CRITICAL**: All PRs must include detailed test instructions following the format in DEVELOPMENT-GUIDE.md Section 7.2.
+
+**Required in every PR**:
+- Tool functions to test
+- Test scenarios (dry-run, parameters, success path, conflicts, errors)
+- Test data requirements 
+- Expected results
+
+# Previous Testing Session Progress (Historical)
 
 ## Completed Tests ✅
 - **Health Check**: NetBox MCP connected, version 4.2.9, ~190ms response time

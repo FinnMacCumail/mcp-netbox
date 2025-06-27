@@ -429,17 +429,61 @@ client.dcim.inventory_items.delete(item_id, confirm=confirm)
 
 ### **7.2 Testing Protocol**
 
-Test tool registration and functionality locally against the test instance and via the MCP interface.
+**IMPORTANT**: NetBox MCP development now uses a **dedicated test team** for comprehensive functional testing. Developers are responsible for **code-level validation only**.
 
-#### **Pre-Implementation Testing**
+#### **Developer Testing Responsibilities** (Code Level Only)
 1. **Pattern Validation**: Confirm your API patterns match 2-3 working functions
 2. **Syntax Check**: Verify parameter order and confirm usage consistency  
 3. **Similar Function Test**: If similar functions work, yours should too
+4. **Tool Registration**: Verify tools load correctly in registry without errors
+5. **Basic Import Test**: Ensure no import/syntax errors when loading modules
 
-#### **Post-Implementation Testing**
-1. **Functionality Test**: Test actual CRUD operations
-2. **Error Handling Test**: Test with invalid parameters
-3. **Integration Test**: Test within live NetBox MCP environment
+#### **Test Team Handoff Requirements**
+
+**CRITICAL**: All PRs must include detailed test instructions for the dedicated test team.
+
+**Required Test Documentation Format**:
+```markdown
+## Test Plan
+
+### **Tool Functions to Test**
+- `function_name_1` - Brief description
+- `function_name_2` - Brief description
+
+### **Test Scenarios**
+1. **Dry Run Validation**: Test confirm=False behavior
+2. **Parameter Validation**: Test with invalid/missing parameters
+3. **Success Path**: Test normal operation with valid data
+4. **Conflict Detection**: Test with existing resources (if applicable)
+5. **Error Handling**: Test NetBox API error scenarios
+
+### **Test Data Requirements**
+- Device types needed: [list specific requirements]
+- Sites needed: [list specific requirements]  
+- Other prerequisites: [list any setup requirements]
+
+### **Expected Results**
+- Success: [describe expected successful outcomes]
+- Errors: [describe expected error conditions and messages]
+- Side effects: [describe what should be created/modified/deleted]
+```
+
+#### **Developer Testing Scope** (Minimal Code Validation)
+- ✅ **Code compiles**: No import or syntax errors
+- ✅ **Tool registration**: Functions register correctly in `TOOL_REGISTRY`
+- ✅ **Pattern compliance**: Code follows DEVELOPMENT-GUIDE.md patterns
+- ❌ **Functional testing**: NOT developer responsibility
+- ❌ **NetBox API testing**: Handled by dedicated test team
+- ❌ **Integration testing**: Handled by dedicated test team
+- ❌ **Error scenario testing**: Handled by dedicated test team
+
+#### **Test Team Integration**
+
+**Workflow**:
+1. **Developer**: Implements function with comprehensive test instructions
+2. **PR Creation**: Includes detailed test plan for test team
+3. **Test Team**: Executes comprehensive functional testing
+4. **Feedback Loop**: Test team reports results back to developer if issues found
 
 ## **8. Common Patterns and Examples**
 

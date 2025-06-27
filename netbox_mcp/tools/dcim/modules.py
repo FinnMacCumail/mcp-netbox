@@ -27,6 +27,49 @@ logger = logging.getLogger(__name__)
 
 
 # ======================================================================
+# UTILITY FUNCTIONS
+# ======================================================================
+
+def get_expanded_modules(client: NetBoxClient, **filter_params) -> list:
+    """
+    TEMPORARILY DISABLED: Get modules with consistent field expansion.
+    
+    NOTE: Expand parameters are not supported by pynetbox library.
+    This utility function is disabled until architectural decision is made
+    about implementing direct REST API calls for expand functionality.
+    
+    See GitHub issue for expand parameter analysis and future implementation.
+    
+    Args:
+        client: NetBoxClient instance
+        **filter_params: Filter parameters for module query
+        
+    Returns:
+        List of modules (without expansion - same as normal filter)
+    """
+    # Temporarily fallback to normal filter without expand
+    return list(client.dcim.modules.filter(**filter_params))
+
+
+def get_expanded_module_types(client: NetBoxClient, **filter_params) -> list:
+    """
+    TEMPORARILY DISABLED: Get module types with consistent manufacturer expansion.
+    
+    NOTE: Expand parameters are not supported by pynetbox library.
+    This utility function is disabled until architectural decision is made.
+    
+    Args:
+        client: NetBoxClient instance
+        **filter_params: Filter parameters for module type query
+        
+    Returns:
+        List of module types (without expansion - same as normal filter)
+    """
+    # Temporarily fallback to normal filter without expand
+    return list(client.dcim.module_types.filter(**filter_params))
+
+
+# ======================================================================
 # MODULE TYPES MANAGEMENT
 # ======================================================================
 
@@ -250,11 +293,11 @@ def netbox_list_all_module_types(
                     }
                 }
         
-        # Fetch module types with filtering
+        # Fetch module types with filtering and expand manufacturer relationship
         if filter_params:
             module_types_raw = list(client.dcim.module_types.filter(**filter_params)[:limit])
         else:
-            module_types_raw = list(client.dcim.module_types.all()[:limit])
+            module_types_raw = list(client.dcim.module_types.filter()[:limit])
         
         # Process module types with defensive dict/object handling
         module_types = []
@@ -713,7 +756,7 @@ def netbox_list_device_modules(
         device_id = device.get('id') if isinstance(device, dict) else device.id
         device_name_actual = device.get('name') if isinstance(device, dict) else device.name
         
-        # Get all modules for this device
+        # Get all modules for this device with expanded relationships
         modules_raw = list(client.dcim.modules.filter(device_id=device_id)[:limit])
         
         # Process modules with defensive dict/object handling
@@ -794,10 +837,11 @@ def netbox_list_device_modules(
                 "status": status_label
             })
         
-        # Get available module bays
+        # Calculate accurate bay utilization
         all_bays = list(client.dcim.module_bays.filter(device_id=device_id))
         total_bays = len(all_bays)
-        occupied_bays = len([b for b in bay_usage.keys() if b != 'Unknown'])
+        # Count actual installed modules (each module occupies one bay)
+        occupied_bays = len(modules)  # modules list contains actual installed modules
         available_bays = total_bays - occupied_bays
         
         # Generate summary statistics
