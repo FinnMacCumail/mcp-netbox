@@ -410,14 +410,23 @@ class EndpointWrapper:
         Implements Gemini's caching strategy with cache lookup → API call → cache storage.
         Uses *args, **kwargs for universal pynetbox parameter compatibility.
         
+        EXPAND SUPPORT: If 'expand' parameter is used, returns raw pynetbox objects
+        to preserve expand functionality, bypassing serialization and caching.
+        
         Args:
             *args: Positional arguments for pynetbox filter()
             no_cache: If True, bypass cache and force fresh API call (for conflict detection)
             **kwargs: Keyword arguments for pynetbox filter()
             
         Returns:
-            List of serialized objects from cache or API
+            List of serialized objects from cache or API (or raw objects if expand used)
         """
+        # Check if expand parameter is used - if so, bypass caching and serialization
+        if 'expand' in kwargs:
+            logger.debug(f"EXPAND parameter detected for {self._obj_type} - bypassing cache and serialization")
+            # Return raw pynetbox objects to preserve expand functionality
+            return list(self._endpoint.filter(*args, **kwargs))
+        
         # Generate cache key from filter parameters (excluding no_cache)
         filter_kwargs = {k: v for k, v in kwargs.items() if k != 'no_cache'}
         cache_key = self.cache.generate_cache_key(self._obj_type, **filter_kwargs)

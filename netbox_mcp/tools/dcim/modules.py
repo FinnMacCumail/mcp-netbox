@@ -32,41 +32,40 @@ logger = logging.getLogger(__name__)
 
 def get_expanded_modules(client: NetBoxClient, **filter_params) -> list:
     """
-    TEMPORARILY DISABLED: Get modules with consistent field expansion.
+    Get modules with consistent field expansion for enhanced relational data display.
     
-    NOTE: Expand parameters are not supported by pynetbox library.
-    This utility function is disabled until architectural decision is made
-    about implementing direct REST API calls for expand functionality.
-    
-    See GitHub issue for expand parameter analysis and future implementation.
+    RESOLVED: pynetbox 7.5.0 supports expand parameters. This utility function
+    now provides expanded module data including module_type.model, manufacturer.name,
+    and module_bay.name for improved user experience.
     
     Args:
         client: NetBoxClient instance
         **filter_params: Filter parameters for module query
         
     Returns:
-        List of modules (without expansion - same as normal filter)
+        List of modules with expanded relational data
     """
-    # Temporarily fallback to normal filter without expand
-    return list(client.dcim.modules.filter(**filter_params))
+    # Use expand parameters to get full relational data
+    return list(client.dcim.modules.filter(expand="module_type,module_bay,device", **filter_params))
 
 
 def get_expanded_module_types(client: NetBoxClient, **filter_params) -> list:
     """
-    TEMPORARILY DISABLED: Get module types with consistent manufacturer expansion.
+    Get module types with consistent manufacturer expansion for enhanced display.
     
-    NOTE: Expand parameters are not supported by pynetbox library.
-    This utility function is disabled until architectural decision is made.
+    RESOLVED: pynetbox 7.5.0 supports expand parameters. This utility function
+    now provides expanded module type data including manufacturer.name for
+    improved relational data display.
     
     Args:
         client: NetBoxClient instance
         **filter_params: Filter parameters for module type query
         
     Returns:
-        List of module types (without expansion - same as normal filter)
+        List of module types with expanded manufacturer data
     """
-    # Temporarily fallback to normal filter without expand
-    return list(client.dcim.module_types.filter(**filter_params))
+    # Use expand parameters to get full manufacturer data
+    return list(client.dcim.module_types.filter(expand="manufacturer", **filter_params))
 
 
 # ======================================================================
@@ -295,9 +294,9 @@ def netbox_list_all_module_types(
         
         # Fetch module types with filtering and expand manufacturer relationship
         if filter_params:
-            module_types_raw = list(client.dcim.module_types.filter(**filter_params)[:limit])
+            module_types_raw = get_expanded_module_types(client, **filter_params)[:limit]
         else:
-            module_types_raw = list(client.dcim.module_types.filter()[:limit])
+            module_types_raw = get_expanded_module_types(client)[:limit]
         
         # Process module types with defensive dict/object handling
         module_types = []
@@ -430,8 +429,8 @@ def netbox_get_module_type_info(
         weight = module_type.get('weight') if isinstance(module_type, dict) else getattr(module_type, 'weight', None)
         weight_unit = module_type.get('weight_unit') if isinstance(module_type, dict) else getattr(module_type, 'weight_unit', None)
         
-        # Count installed modules of this type
-        installed_modules = list(client.dcim.modules.filter(module_type_id=module_type_id))
+        # Count installed modules of this type with expanded data
+        installed_modules = get_expanded_modules(client, module_type_id=module_type_id)
         
         return {
             "success": True,
@@ -455,6 +454,216 @@ def netbox_get_module_type_info(
     except Exception as e:
         logger.error(f"Failed to get module type info for '{model}' by '{manufacturer}': {e}")
         raise ValidationError(f"Failed to retrieve module type information: {e}")
+
+
+@mcp_tool(category="dcim")
+def netbox_list_all_modules(
+    client: NetBoxClient,
+    device_name: Optional[str] = None,
+    module_type: Optional[str] = None,
+    limit: int = 100
+) -> Dict[str, Any]:
+    """
+    List all modules in NetBox with comprehensive filtering and expanded data display.
+    
+    This discovery tool provides bulk module exploration across the NetBox infrastructure
+    with enhanced relational data display including module type models, manufacturer names,
+    and module bay names. Essential for module inventory management and planning.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Optional filter by device name
+        module_type: Optional filter by module type model
+        limit: Maximum number of modules to return (default: 100)
+        
+    Returns:
+        Comprehensive list of modules with expanded relational data
+        
+    Example:
+        netbox_list_all_modules(device_name="rtr-core-01", module_type="SFP-10G-LR")
+    """
+    
+    logger.info(f"Listing all modules (device: {device_name}, type: {module_type}, limit: {limit})")
+    
+    try:
+        # Build filter parameters
+        filter_params = {}
+        
+        if device_name:
+            # Resolve device to ID for filtering
+            devices = client.dcim.devices.filter(name=device_name)
+            if not devices:
+                logger.warning(f"Device '{device_name}' not found, returning empty results")
+                return {
+                    "success": True,
+                    "count": 0,
+                    "modules": [],
+                    "summary": {
+                        "total_modules": 0,
+                        "devices": {},
+                        "module_types": {},
+                        "filter_applied": {"device_name": device_name}
+                    }
+                }
+            
+            device = devices[0]
+            device_id = device.get('id') if isinstance(device, dict) else device.id
+            filter_params['device_id'] = device_id
+        
+        if module_type:
+            # Resolve module type to ID for filtering
+            module_types = client.dcim.module_types.filter(model=module_type)
+            if not module_types:
+                logger.warning(f"Module type '{module_type}' not found, returning empty results")
+                return {
+                    "success": True,
+                    "count": 0,
+                    "modules": [],
+                    "summary": {
+                        "total_modules": 0,
+                        "devices": {},
+                        "module_types": {},
+                        "filter_applied": {"module_type": module_type}
+                    }
+                }
+            
+            mod_type = module_types[0]
+            mod_type_id = mod_type.get('id') if isinstance(mod_type, dict) else mod_type.id
+            filter_params['module_type_id'] = mod_type_id
+        
+        # Fetch modules with expanded relationships
+        modules_raw = get_expanded_modules(client, **filter_params)[:limit]
+        
+        # Process modules with enhanced relational data display
+        modules = []
+        device_counts = {}
+        module_type_counts = {}
+        
+        for module in modules_raw:
+            # Apply defensive dict/object handling
+            module_id = module.get('id') if isinstance(module, dict) else module.id
+            serial = module.get('serial') if isinstance(module, dict) else getattr(module, 'serial', None)
+            asset_tag = module.get('asset_tag') if isinstance(module, dict) else getattr(module, 'asset_tag', None)
+            status = module.get('status') if isinstance(module, dict) else getattr(module, 'status', None)
+            
+            # Handle device object with expand support
+            device_obj = module.get('device') if isinstance(module, dict) else getattr(module, 'device', None)
+            if device_obj:
+                if isinstance(device_obj, dict):
+                    device_name_val = device_obj.get('name', 'Unknown')
+                    device_id_val = device_obj.get('id')
+                else:
+                    device_name_val = getattr(device_obj, 'name', 'Unknown')
+                    device_id_val = getattr(device_obj, 'id', None)
+            else:
+                device_name_val = 'Unknown'
+                device_id_val = None
+            
+            # Handle module type object with expand support
+            module_type_obj = module.get('module_type') if isinstance(module, dict) else getattr(module, 'module_type', None)
+            if module_type_obj:
+                if isinstance(module_type_obj, dict):
+                    module_type_model = module_type_obj.get('model', 'Unknown')
+                    module_type_id = module_type_obj.get('id')
+                    manufacturer_obj = module_type_obj.get('manufacturer', {})
+                    if isinstance(manufacturer_obj, dict):
+                        manufacturer_name = manufacturer_obj.get('name', 'Unknown')
+                    else:
+                        manufacturer_name = getattr(manufacturer_obj, 'name', 'Unknown')
+                elif hasattr(module_type_obj, 'model'):
+                    # pynetbox object with expand data
+                    module_type_model = getattr(module_type_obj, 'model', 'Unknown')
+                    module_type_id = getattr(module_type_obj, 'id', None)
+                    manufacturer_obj = getattr(module_type_obj, 'manufacturer', None)
+                    if hasattr(manufacturer_obj, 'name'):
+                        manufacturer_name = getattr(manufacturer_obj, 'name', 'Unknown')
+                    else:
+                        manufacturer_name = 'Unknown'
+                else:
+                    # Just an ID reference
+                    module_type_model = str(module_type_obj)
+                    module_type_id = module_type_obj
+                    manufacturer_name = 'Unknown'
+            else:
+                module_type_model = 'Unknown'
+                module_type_id = None
+                manufacturer_name = 'Unknown'
+            
+            # Handle module bay object with expand support
+            module_bay_obj = module.get('module_bay') if isinstance(module, dict) else getattr(module, 'module_bay', None)
+            if module_bay_obj:
+                if isinstance(module_bay_obj, dict):
+                    bay_name = module_bay_obj.get('name', 'Unknown')
+                    bay_id = module_bay_obj.get('id')
+                else:
+                    bay_name = getattr(module_bay_obj, 'name', 'Unknown')
+                    bay_id = getattr(module_bay_obj, 'id', None)
+            else:
+                bay_name = 'Unknown'
+                bay_id = None
+            
+            # Count devices and module types
+            device_counts[device_name_val] = device_counts.get(device_name_val, 0) + 1
+            module_type_counts[module_type_model] = module_type_counts.get(module_type_model, 0) + 1
+            
+            # Handle status
+            if status:
+                if isinstance(status, dict):
+                    status_label = status.get('label', 'Unknown')
+                else:
+                    status_label = str(status)
+            else:
+                status_label = 'Unknown'
+            
+            modules.append({
+                "id": module_id,
+                "device": {
+                    "name": device_name_val,
+                    "id": device_id_val
+                },
+                "module_type": {
+                    "model": module_type_model,
+                    "id": module_type_id,
+                    "manufacturer": manufacturer_name
+                },
+                "module_bay": {
+                    "name": bay_name,
+                    "id": bay_id
+                },
+                "serial": serial,
+                "asset_tag": asset_tag,
+                "status": status_label
+            })
+        
+        # Generate summary statistics
+        summary = {
+            "total_modules": len(modules),
+            "devices": device_counts,
+            "module_types": module_type_counts,
+            "filter_applied": {}
+        }
+        
+        if device_name:
+            summary["filter_applied"]["device_name"] = device_name
+        if module_type:
+            summary["filter_applied"]["module_type"] = module_type
+        
+        logger.info(f"Successfully retrieved {len(modules)} modules with expanded data")
+        
+        return {
+            "success": True,
+            "count": len(modules),
+            "modules": sorted(modules, key=lambda x: (x["device"]["name"], x["module_bay"]["name"])),
+            "summary": summary
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list modules: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 
 
 # ======================================================================
@@ -757,7 +966,7 @@ def netbox_list_device_modules(
         device_name_actual = device.get('name') if isinstance(device, dict) else device.name
         
         # Get all modules for this device with expanded relationships
-        modules_raw = list(client.dcim.modules.filter(device_id=device_id)[:limit])
+        modules_raw = get_expanded_modules(client, device_id=device_id)[:limit]
         
         # Process modules with defensive dict/object handling
         modules = []
@@ -927,8 +1136,8 @@ def netbox_get_module_info(
         bay = module_bays[0]
         bay_id = bay.get('id') if isinstance(bay, dict) else bay.id
         
-        # Find module in the bay
-        modules = client.dcim.modules.filter(module_bay_id=bay_id)
+        # Find module in the bay with expanded data
+        modules = get_expanded_modules(client, module_bay_id=bay_id)
         if not modules:
             raise NotFoundError(f"No module installed in bay '{module_bay}' on device '{device_name}'")
         
@@ -1118,8 +1327,8 @@ def netbox_update_module(
         bay = module_bays[0]
         bay_id = bay.get('id') if isinstance(bay, dict) else bay.id
         
-        # Find module in the bay
-        modules = client.dcim.modules.filter(module_bay_id=bay_id)
+        # Find module in the bay with expanded data
+        modules = get_expanded_modules(client, module_bay_id=bay_id)
         if not modules:
             raise NotFoundError(f"No module installed in bay '{module_bay}' on device '{device_name}'")
         
@@ -1245,8 +1454,8 @@ def netbox_remove_module_from_device(
         bay = module_bays[0]
         bay_id = bay.get('id') if isinstance(bay, dict) else bay.id
         
-        # Find module in the bay
-        modules = client.dcim.modules.filter(module_bay_id=bay_id)
+        # Find module in the bay with expanded data
+        modules = get_expanded_modules(client, module_bay_id=bay_id)
         if not modules:
             raise NotFoundError(f"No module installed in bay '{module_bay}' on device '{device_name}'")
         
@@ -1356,8 +1565,8 @@ def netbox_list_device_module_bays(
         # Get all module bays for this device
         module_bays_raw = list(client.dcim.module_bays.filter(device_id=device_id)[:limit])
         
-        # Get all installed modules to determine bay occupancy
-        installed_modules = list(client.dcim.modules.filter(device_id=device_id))
+        # Get all installed modules to determine bay occupancy with expanded data
+        installed_modules = get_expanded_modules(client, device_id=device_id)
         bay_occupancy = {}
         for module in installed_modules:
             module_bay_obj = module.get('module_bay') if isinstance(module, dict) else getattr(module, 'module_bay', None)
@@ -1503,8 +1712,8 @@ def netbox_get_module_bay_info(
         bay_position = bay.get('position') if isinstance(bay, dict) else getattr(bay, 'position', None)
         bay_description = bay.get('description') if isinstance(bay, dict) else getattr(bay, 'description', '')
         
-        # Check for installed module
-        modules = client.dcim.modules.filter(module_bay_id=bay_id)
+        # Check for installed module with expanded data
+        modules = get_expanded_modules(client, module_bay_id=bay_id)
         
         if modules:
             # Bay is occupied
