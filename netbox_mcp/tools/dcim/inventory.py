@@ -34,16 +34,97 @@ logger = logging.getLogger(__name__)
 
 
 # Validation Functions
-def validate_component_type(component_type: str) -> None:
-    """Validate component type parameter."""
-    if component_type:
-        valid_types = [
-            "Memory", "Storage", "CPU", "GPU", "Network Card", "Expansion Card",
-            "Power Supply", "Fan", "Controller", "Transceiver", "Line Card",
-            "Module", "Drive Bay", "Slot", "Port", "Other"
-        ]
-        if component_type not in valid_types:
-            logger.warning(f"Component type '{component_type}' not in standard list. Using as custom type.")
+def validate_component_type(component_type: str) -> Optional[str]:
+    """
+    Validate and convert component type to correct NetBox ContentType format.
+    
+    Args:
+        component_type: Input component type (can be simple string or app.model format)
+        
+    Returns:
+        Validated component type in 'app_label.model_name' format, or None for general inventory
+        
+    Raises:
+        ValidationError: If component_type is invalid
+    """
+    if not component_type:
+        return None
+    
+    # Valid NetBox ContentTypes for inventory items
+    valid_content_types = [
+        "dcim.interface", "dcim.powerport", "dcim.poweroutlet",
+        "dcim.consoleport", "dcim.frontport", "dcim.rearport", 
+        "dcim.modulebay", "dcim.devicebay",
+        "circuits.circuittermination",
+        "ipam.prefix", "ipam.ipaddress", "ipam.vlan"
+    ]
+    
+    # If already in correct format, validate and return
+    if '.' in component_type:
+        if component_type in valid_content_types:
+            return component_type
+        else:
+            raise ValidationError(
+                f"Invalid component_type '{component_type}'. "
+                f"Valid ContentTypes: {', '.join(valid_content_types)} or leave empty for general inventory."
+            )
+    
+    # Convert simple strings to ContentType format or None for general inventory
+    simple_to_contenttype = {
+        # Network components
+        "interface": "dcim.interface",
+        "network": "dcim.interface", 
+        "ethernet": "dcim.interface",
+        "nic": "dcim.interface",
+        
+        # Power components
+        "power": "dcim.powerport",
+        "powerport": "dcim.powerport",
+        "poweroutlet": "dcim.poweroutlet",
+        "psu": "dcim.powerport",
+        
+        # Console components
+        "console": "dcim.consoleport",
+        "serial": "dcim.consoleport",
+        
+        # Physical ports
+        "frontport": "dcim.frontport",
+        "rearport": "dcim.rearport",
+        
+        # Bays and modules
+        "module": "dcim.modulebay",
+        "modulebay": "dcim.modulebay",
+        "device": "dcim.devicebay",
+        "devicebay": "dcim.devicebay",
+        
+        # General components (return None for general inventory)
+        "general": None,
+        "generic": None,
+        "asset": None,
+        "component": None,
+        "storage": None,
+        "memory": None,
+        "cpu": None,
+        "ssd": None,
+        "hdd": None,
+        "ram": None,
+        "gpu": None,
+        "fan": None,
+        "controller": None,
+        "transceiver": None,
+        "expansion": None,
+        "slot": None,
+        "bay": None,
+        "other": None
+    }
+    
+    converted = simple_to_contenttype.get(component_type.lower())
+    if converted is not None or component_type.lower() in simple_to_contenttype:
+        return converted
+    else:
+        # Unknown component type - suggest using None for general inventory
+        logger.warning(f"Unknown component type '{component_type}', using as general inventory item (no specific ContentType)")
+        return None
 
 
 def normalize_device_name(device_name: str) -> str:
@@ -125,8 +206,10 @@ def netbox_add_inventory_item_template_to_device_type(
     if not name or not name.strip():
         raise ValidationError("Inventory item template name cannot be empty")
     
+    # Validate and convert component_type to correct NetBox ContentType format
+    validated_component_type = None
     if component_type:
-        validate_component_type(component_type)
+        validated_component_type = validate_component_type(component_type)
     
     logger.info(f"Creating Inventory Item Template '{name}' for Device Type '{device_type_model}'")
     
@@ -185,9 +268,9 @@ def netbox_add_inventory_item_template_to_device_type(
         "description": description or ""
     }
     
-    # Add optional fields
-    if component_type:
-        create_payload["component_type"] = component_type
+    # Add optional fields with validated component_type
+    if validated_component_type is not None:
+        create_payload["component_type"] = validated_component_type
     if component_id is not None:
         create_payload["component_id"] = component_id
     if part_id:
@@ -405,8 +488,10 @@ def netbox_add_inventory_item_to_device(
     if not name or not name.strip():
         raise ValidationError("Inventory item name cannot be empty")
     
+    # Validate and convert component_type to correct NetBox ContentType format
+    validated_component_type = None
     if component_type:
-        validate_component_type(component_type)
+        validated_component_type = validate_component_type(component_type)
     
     if serial:
         validate_serial_format(serial)
@@ -511,9 +596,9 @@ def netbox_add_inventory_item_to_device(
         "description": description or ""
     }
     
-    # Add optional fields
-    if component_type:
-        create_payload["component_type"] = component_type
+    # Add optional fields with validated component_type
+    if validated_component_type is not None:
+        create_payload["component_type"] = validated_component_type
     if component_id is not None:
         create_payload["component_id"] = component_id
     if part_id:
@@ -1048,50 +1133,50 @@ def netbox_bulk_add_standard_inventory(
     # Define standard inventory presets
     INVENTORY_PRESETS = {
         "server_standard": [
-            {"name": "CPU Socket 1", "component_type": "CPU", "description": "Primary CPU socket"},
-            {"name": "CPU Socket 2", "component_type": "CPU", "description": "Secondary CPU socket"},
-            {"name": "Memory Slot A1", "component_type": "Memory", "description": "DDR4/DDR5 memory slot"},
-            {"name": "Memory Slot A2", "component_type": "Memory", "description": "DDR4/DDR5 memory slot"},
-            {"name": "Memory Slot B1", "component_type": "Memory", "description": "DDR4/DDR5 memory slot"},
-            {"name": "Memory Slot B2", "component_type": "Memory", "description": "DDR4/DDR5 memory slot"},
-            {"name": "Drive Bay 1", "component_type": "Storage", "description": "Primary storage bay"},
-            {"name": "Drive Bay 2", "component_type": "Storage", "description": "Secondary storage bay"},
-            {"name": "Power Supply 1", "component_type": "Power Supply", "description": "Primary PSU"},
-            {"name": "Power Supply 2", "component_type": "Power Supply", "description": "Redundant PSU"}
+            {"name": "CPU Socket 1", "component_type": "cpu", "description": "Primary CPU socket"},
+            {"name": "CPU Socket 2", "component_type": "cpu", "description": "Secondary CPU socket"},
+            {"name": "Memory Slot A1", "component_type": "memory", "description": "DDR4/DDR5 memory slot"},
+            {"name": "Memory Slot A2", "component_type": "memory", "description": "DDR4/DDR5 memory slot"},
+            {"name": "Memory Slot B1", "component_type": "memory", "description": "DDR4/DDR5 memory slot"},
+            {"name": "Memory Slot B2", "component_type": "memory", "description": "DDR4/DDR5 memory slot"},
+            {"name": "Drive Bay 1", "component_type": "storage", "description": "Primary storage bay"},
+            {"name": "Drive Bay 2", "component_type": "storage", "description": "Secondary storage bay"},
+            {"name": "Power Supply 1", "component_type": "general", "description": "Primary PSU"},
+            {"name": "Power Supply 2", "component_type": "general", "description": "Redundant PSU"}
         ],
         "dell_poweredge_r750": [
-            {"name": "CPU1", "component_type": "CPU", "description": "Intel Xeon CPU Socket 1", "part_id": "INTEL-XEON"},
-            {"name": "CPU2", "component_type": "CPU", "description": "Intel Xeon CPU Socket 2", "part_id": "INTEL-XEON"},
-            {"name": "DIMM_A1", "component_type": "Memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
-            {"name": "DIMM_A2", "component_type": "Memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
-            {"name": "DIMM_B1", "component_type": "Memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
-            {"name": "DIMM_B2", "component_type": "Memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
-            {"name": "Drive_Bay_1", "component_type": "Storage", "description": "2.5-inch SATA/SAS/NVMe bay", "part_id": "DRIVE-BAY-2.5"},
-            {"name": "Drive_Bay_2", "component_type": "Storage", "description": "2.5-inch SATA/SAS/NVMe bay", "part_id": "DRIVE-BAY-2.5"},
-            {"name": "PSU1", "component_type": "Power Supply", "description": "800W 80+ Platinum PSU", "part_id": "PSU-800W"},
-            {"name": "PSU2", "component_type": "Power Supply", "description": "800W 80+ Platinum PSU", "part_id": "PSU-800W"}
+            {"name": "CPU1", "component_type": "cpu", "description": "Intel Xeon CPU Socket 1", "part_id": "INTEL-XEON"},
+            {"name": "CPU2", "component_type": "cpu", "description": "Intel Xeon CPU Socket 2", "part_id": "INTEL-XEON"},
+            {"name": "DIMM_A1", "component_type": "memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
+            {"name": "DIMM_A2", "component_type": "memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
+            {"name": "DIMM_B1", "component_type": "memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
+            {"name": "DIMM_B2", "component_type": "memory", "description": "32GB DDR4-3200 RDIMM", "part_id": "32GB-DDR4"},
+            {"name": "Drive_Bay_1", "component_type": "storage", "description": "2.5-inch SATA/SAS/NVMe bay", "part_id": "DRIVE-BAY-2.5"},
+            {"name": "Drive_Bay_2", "component_type": "storage", "description": "2.5-inch SATA/SAS/NVMe bay", "part_id": "DRIVE-BAY-2.5"},
+            {"name": "PSU1", "component_type": "general", "description": "800W 80+ Platinum PSU", "part_id": "PSU-800W"},
+            {"name": "PSU2", "component_type": "general", "description": "800W 80+ Platinum PSU", "part_id": "PSU-800W"}
         ],
         "network_switch": [
-            {"name": "Power Module 1", "component_type": "Power Supply", "description": "Primary power module"},
-            {"name": "Power Module 2", "component_type": "Power Supply", "description": "Redundant power module"},
-            {"name": "Fan Module 1", "component_type": "Fan", "description": "Primary cooling fan"},
-            {"name": "Fan Module 2", "component_type": "Fan", "description": "Secondary cooling fan"},
-            {"name": "Fan Module 3", "component_type": "Fan", "description": "Tertiary cooling fan"},
-            {"name": "Supervisor Module", "component_type": "Controller", "description": "Main control processor"},
-            {"name": "Line Card Slot 1", "component_type": "Slot", "description": "Modular line card slot"},
-            {"name": "Line Card Slot 2", "component_type": "Slot", "description": "Modular line card slot"}
+            {"name": "Power Module 1", "component_type": "power", "description": "Primary power module"},
+            {"name": "Power Module 2", "component_type": "power", "description": "Redundant power module"},
+            {"name": "Fan Module 1", "component_type": "fan", "description": "Primary cooling fan"},
+            {"name": "Fan Module 2", "component_type": "fan", "description": "Secondary cooling fan"},
+            {"name": "Fan Module 3", "component_type": "fan", "description": "Tertiary cooling fan"},
+            {"name": "Supervisor Module", "component_type": "controller", "description": "Main control processor"},
+            {"name": "Line Card Slot 1", "component_type": "general", "description": "Modular line card slot"},
+            {"name": "Line Card Slot 2", "component_type": "general", "description": "Modular line card slot"}
         ],
         "storage_array": [
-            {"name": "Controller A", "component_type": "Controller", "description": "Primary storage controller"},
-            {"name": "Controller B", "component_type": "Controller", "description": "Secondary storage controller"},
-            {"name": "Disk Shelf 1", "component_type": "Storage", "description": "Primary disk enclosure"},
-            {"name": "Disk Shelf 2", "component_type": "Storage", "description": "Secondary disk enclosure"},
-            {"name": "Cache Module A", "component_type": "Memory", "description": "Controller A cache memory"},
-            {"name": "Cache Module B", "component_type": "Memory", "description": "Controller B cache memory"},
-            {"name": "PSU A1", "component_type": "Power Supply", "description": "Controller A primary PSU"},
-            {"name": "PSU A2", "component_type": "Power Supply", "description": "Controller A backup PSU"},
-            {"name": "PSU B1", "component_type": "Power Supply", "description": "Controller B primary PSU"},
-            {"name": "PSU B2", "component_type": "Power Supply", "description": "Controller B backup PSU"}
+            {"name": "Controller A", "component_type": "controller", "description": "Primary storage controller"},
+            {"name": "Controller B", "component_type": "controller", "description": "Secondary storage controller"},
+            {"name": "Disk Shelf 1", "component_type": "storage", "description": "Primary disk enclosure"},
+            {"name": "Disk Shelf 2", "component_type": "storage", "description": "Secondary disk enclosure"},
+            {"name": "Cache Module A", "component_type": "memory", "description": "Controller A cache memory"},
+            {"name": "Cache Module B", "component_type": "memory", "description": "Controller B cache memory"},
+            {"name": "PSU A1", "component_type": "general", "description": "Controller A primary PSU"},
+            {"name": "PSU A2", "component_type": "general", "description": "Controller A backup PSU"},
+            {"name": "PSU B1", "component_type": "general", "description": "Controller B primary PSU"},
+            {"name": "PSU B2", "component_type": "general", "description": "Controller B backup PSU"}
         ]
     }
     
@@ -1165,14 +1250,21 @@ def netbox_bulk_add_standard_inventory(
                 logger.info(f"Skipping existing item: {item_spec['name']}")
                 continue
             
-            # Create inventory item
+            # Create inventory item with validated component_type
+            validated_component_type = None
+            if item_spec.get("component_type"):
+                validated_component_type = validate_component_type(item_spec.get("component_type"))
+                
             create_payload = {
                 "device": device_id,
                 "name": item_spec["name"],
-                "component_type": item_spec.get("component_type"),
                 "description": item_spec.get("description", ""),
                 "part_id": item_spec.get("part_id")
             }
+            
+            # Add validated component_type if available
+            if validated_component_type is not None:
+                create_payload["component_type"] = validated_component_type
             
             # Remove None values
             create_payload = {k: v for k, v in create_payload.items() if v is not None}

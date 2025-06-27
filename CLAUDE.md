@@ -34,7 +34,40 @@ filtered_parameters = {k: v for k, v in parameters.items() if k != 'client'}
 return tool_function(client=client, **filtered_parameters)
 ```
 
-**Status**: Fix implemented, requires Claude Code restart to activate new MCP code.
+**Status**: ✅ **COMPLETED** - Registry Bridge fix implemented and activated.
+
+## 🚀 Inventory Management Suite Component Type Fix (2025-06-27) ✅
+
+**Issue**: Inventory functions using incorrect component_type format causing NetBox ContentType validation errors.
+
+**Root Cause**: Inventory functions were using simple strings like "CPU", "Memory", "Storage" instead of correct NetBox ContentType format (`app_label.model_name`).
+
+**Fix Applied**: Updated `validate_component_type()` function and all inventory functions to use correct NetBox ContentType format:
+
+**Files Modified**:
+- `/Users/elvis/Developer/github/netbox-mcp/netbox_mcp/tools/dcim/inventory.py`:
+  - ✅ **Component Type Validation**: Updated to return correct ContentType format or None for general inventory
+  - ✅ **Template Creation**: `netbox_add_inventory_item_template_to_device_type` uses validated component types
+  - ✅ **Device Inventory**: `netbox_add_inventory_item_to_device` uses validated component types  
+  - ✅ **Bulk Operations**: `netbox_bulk_add_standard_inventory` validates all preset component types
+  - ✅ **Preset Updates**: All 4 inventory presets updated with correct component_type values
+
+**Technical Implementation**:
+```python
+# Before: Simple strings causing validation errors
+"component_type": "CPU"  # ❌ Invalid
+
+# After: Correct NetBox ContentType format or None for general inventory
+"component_type": None   # ✅ General inventory (cpu, memory, storage map to None)
+"component_type": "dcim.interface"  # ✅ Specific NetBox ContentType
+```
+
+**Affected Functions Fixed**:
+- `netbox_add_inventory_item_template_to_device_type`
+- `netbox_add_inventory_item_to_device`  
+- `netbox_bulk_add_standard_inventory`
+
+**Status**: ✅ **COMPLETED** - All inventory functions now use correct component_type validation.
 
 ## Device Types Created
 1. **Test Device** (Test Device model) - has interface, power, console, rear port, console server, power outlet, module bay templates
