@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-55-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-78-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **55 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with dual-tool pattern architecture
+- **78 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with dual-tool pattern architecture
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -45,7 +45,7 @@ pip install .
 
 **Version**: 0.10.2 - Core Modules Stabilized
 
-**📦 NEW: INVENTORY MANAGEMENT SUITE**: 7 comprehensive inventory management tools added for complete device asset tracking and lifecycle management.
+**📦 NEW: MODULE MANAGEMENT SUITE**: 11 enterprise-grade module management tools added for comprehensive modular infrastructure lifecycle management, replacing deprecated NetBox inventory items.
 
 **🧹 CONTINUOUS OPTIMIZATION**: Maintained clean codebase architecture with enterprise-grade reliability and performance optimization.
 
