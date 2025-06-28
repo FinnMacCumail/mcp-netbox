@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-78-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-108+-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **78 MCP Tools**: Complete DCIM, IPAM, tenancy, extras, and system management with dual-tool pattern architecture
+- **108+ MCP Tools**: Complete DCIM, IPAM, tenancy, extras, system, and virtualization management with dual-tool pattern architecture
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -43,16 +43,17 @@ pip install .
 
 ## 📊 Current Status
 
-**Version**: 0.10.2 - Core Modules Stabilized
+**Version**: 0.11.0 - Virtualization Module Complete ⭐
 
-**📦 NEW: MODULE MANAGEMENT SUITE**: 11 enterprise-grade module management tools added for comprehensive modular infrastructure lifecycle management, replacing deprecated NetBox inventory items.
+**🎉 NEW: VIRTUALIZATION SUITE**: 30 production-ready virtualization tools added for complete VM infrastructure management across 6 domains with NetBox API schema compliance.
 
-**🧹 CONTINUOUS OPTIMIZATION**: Maintained clean codebase architecture with enterprise-grade reliability and performance optimization.
+**✅ PRODUCTION READY**: Complete virtualization module with test team verification and all critical bugs resolved. Enterprise-grade patterns and defensive programming throughout.
 
-**🔧 STABLE CORE MODULES**: 55 production-ready tools across three domains:
-- **DCIM Tools**: Complete device and infrastructure lifecycle management
+**🔧 COMPREHENSIVE COVERAGE**: 108+ production-ready tools across six domains:
+- **DCIM Tools**: Complete device and infrastructure lifecycle management  
 - **IPAM Tools**: IP address and network management with enterprise automation
 - **Tenancy Tools**: Multi-tenant resource management with hierarchical organization
+- **Virtualization Tools**: Complete VM infrastructure management (NEW) ⭐
 
 **🚀 DISCOVERY TOOLS**: 11 `list_all_*` tools enabling efficient bulk exploration:
 - `netbox_list_all_devices`, `netbox_list_all_sites`, `netbox_list_all_racks` (DCIM)
@@ -167,6 +168,14 @@ pip install .
 **Extras Tools** (2):
 - `netbox_create_journal_entry` - 🆕 Create audit trail entries for any NetBox object
 - `netbox_list_all_journal_entries` - 🆕 Bulk journal entry discovery with filtering
+
+**Virtualization Tools** (30) ⭐ **NEW**:
+- **Clusters** (5 tools): `netbox_create_cluster`, `netbox_get_cluster_info`, `netbox_list_all_clusters`, `netbox_update_cluster`, `netbox_delete_cluster`
+- **Virtual Machines** (5 tools): `netbox_create_virtual_machine`, `netbox_get_virtual_machine_info`, `netbox_list_all_virtual_machines`, `netbox_update_virtual_machine`, `netbox_delete_virtual_machine`
+- **Cluster Types** (5 tools): `netbox_create_cluster_type`, `netbox_get_cluster_type_info`, `netbox_list_all_cluster_types`, `netbox_update_cluster_type`, `netbox_delete_cluster_type`
+- **Cluster Groups** (5 tools): `netbox_create_cluster_group`, `netbox_get_cluster_group_info`, `netbox_list_all_cluster_groups`, `netbox_update_cluster_group`, `netbox_delete_cluster_group`
+- **VM Interfaces** (5 tools): `netbox_create_vm_interface`, `netbox_get_vm_interface_info`, `netbox_list_all_vm_interfaces`, `netbox_update_vm_interface`, `netbox_delete_vm_interface`
+- **Virtual Disks** (5 tools): `netbox_create_virtual_disk`, `netbox_get_virtual_disk_info`, `netbox_list_all_virtual_disks`, `netbox_update_virtual_disk`, `netbox_delete_virtual_disk`
 
 ## 🤝 Contributing
 
