@@ -40,6 +40,7 @@ def load_all_tools() -> List[str]:
         'ipam',
         'tenancy',
         'extras',
+        'virtualization',
     ]
     
     for domain in domain_packages:

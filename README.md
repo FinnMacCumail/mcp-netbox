@@ -12,7 +12,7 @@ A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol
 
 ## ✨ Key Features
 
-- **78 MCP Tools**: Complete DCIM, IPAM, tenancy, and system management with dual-tool pattern architecture
+- **78 MCP Tools**: Complete DCIM, IPAM, tenancy, extras, and system management with dual-tool pattern architecture
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -155,9 +155,18 @@ pip install .
   - `netbox_remove_inventory_item` - 🆕 Safe inventory item removal with validation
   - `netbox_bulk_add_standard_inventory` - 🆕 Rapid deployment with predefined presets
 
-**Tenancy Tools** (2):
+**Tenancy Tools** (8):
 - `netbox_create_contact_for_tenant` - 🆕 Contact management with role-based assignment
-- Plus 13 high-level enterprise automation tools for complete tenant lifecycle management
+- `netbox_onboard_new_tenant` - Complete tenant onboarding with contact integration
+- `netbox_create_tenant_group` - Hierarchical tenant organization
+- `netbox_assign_resources_to_tenant` - Cross-domain resource assignment
+- `netbox_get_tenant_resource_report` - Comprehensive tenant resource reporting
+- `netbox_list_all_tenants` - Bulk tenant discovery
+- `netbox_list_all_tenant_groups` - Tenant group exploration
+
+**Extras Tools** (2):
+- `netbox_create_journal_entry` - 🆕 Create audit trail entries for any NetBox object
+- `netbox_list_all_journal_entries` - 🆕 Bulk journal entry discovery with filtering
 
 ## 🤝 Contributing
 
