@@ -13,6 +13,11 @@ A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol
 ## ✨ Key Features
 
 - **108+ MCP Tools**: Complete DCIM, IPAM, tenancy, extras, system, and virtualization management with dual-tool pattern architecture
+- **🦜 Bridget - Your NetBox Infrastructure Guide**
+  - **Auto-Context Detection** - Intelligent environment detection (demo/staging/production)
+  - **Safety Guidance** - Context-aware operational recommendations
+  - **Persona-Based Assistance** - Friendly, professional infrastructure guidance
+  - **Enterprise Safety** - Automatic safety level assignment based on environment
 - **🔐 Safety First**: Built-in dry-run mode, confirmation requirements, and audit logging
 - **🏗️ Self-Describing**: Automatic tool discovery with REST API endpoints
 - **⚡ Enterprise Hardening**: Production-ready secrets management and structured logging
@@ -40,6 +45,14 @@ git clone https://github.com/Deployment-Team/netbox-mcp.git
 cd netbox-mcp
 pip install .
 ```
+
+### Bridget Auto-Context Experience
+
+For the optimal Bridget experience with full auto-context and persona guidance:
+- **Recommended**: Use Claude Code CLI for complete functionality
+- **Alternative**: Claude Desktop (tools work, limited prompt support)
+
+See the [Bridget Documentation](https://github.com/Deployment-Team/netbox-mcp/wiki/Bridget-Auto-Context) in our wiki for complete usage guide.
 
 ## 📊 Current Status
 
@@ -96,6 +109,11 @@ pip install .
 - **Registry Bridge Pattern**: Seamless connection between internal registry and FastMCP interface
 - **Dependency Injection**: Clean separation using FastAPI's Depends() system
 - **REST API Endpoints**: `/api/v1/tools`, `/api/v1/execute`, `/api/v1/status`
+
+#### Bridget Auto-Context Layer
+```
+Auto-Context Detection → Environment Assessment → Safety Assignment → Persona Guidance
+```
 
 ### Enterprise Security & Operations
 - **Secrets Management**: Docker secrets, Kubernetes secrets, environment variables

@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse
 
+from .bridget_i18n import get_localizer
+from .message_templates import get_template_manager, MessageContext
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,6 +43,8 @@ class BridgetContextManager:
     def __init__(self):
         self._context_state: Optional[ContextState] = None
         self._initialization_lock = False
+        self._template_manager = None
+        self._localizer = None
         
     def detect_environment(self, client) -> str:
         """
@@ -189,132 +194,60 @@ class BridgetContextManager:
             Formatted context message string
         """
         try:
-            environment_labels = {
-                'demo': 'Demo/Development',
-                'staging': 'Staging/Test',
-                'cloud': 'NetBox Cloud',
-                'production': 'Production',
-                'unknown': 'Onbekende omgeving'
-            }
+            # Initialize i18n components if not already done
+            if self._template_manager is None:
+                self._template_manager = get_template_manager()
+                self._localizer = get_localizer()
             
-            safety_descriptions = {
-                'standard': 'Standaard veiligheid - normale operaties toegestaan',
-                'high': 'Verhoogde veiligheid - extra confirmaties vereist',
-                'maximum': 'Maximale veiligheid - uitgebreide validatie en confirmaties'
-            }
+            # Create message context for template generation
+            message_context = MessageContext(
+                environment=context_state.environment,
+                safety_level=context_state.safety_level,
+                instance_type=context_state.instance_type,
+                netbox_url=context_state.netbox_url or "Unknown",
+                extra_params={
+                    'initialization_time': context_state.initialization_time.strftime('%H:%M:%S')
+                }
+            )
             
-            env_label = environment_labels.get(context_state.environment, context_state.environment)
-            safety_desc = safety_descriptions.get(context_state.safety_level, context_state.safety_level)
+            # Generate localized welcome message
+            welcome_message = self._template_manager.welcome_message(message_context)
             
-            # Environment-specific guidance
-            environment_guidance = self._get_environment_guidance(context_state.environment, context_state.safety_level)
-            
-            context_message = f"""🦜 **Hallo! Bridget hier - Context Automatisch Gedetecteerd!**
-
-*Ik heb automatisch jouw NetBox omgeving geanalyseerd en de juiste context ingesteld.*
-
----
-
-## 🎯 **Gedetecteerde Context:**
-
-**📍 Omgeving:** {env_label}  
-**🛡️ Veiligheidsniveau:** {context_state.safety_level.upper()}  
-**📊 Instance Type:** {context_state.instance_type.title()}  
-**⏰ Initialisatie:** {context_state.initialization_time.strftime('%H:%M:%S')}
-
----
-
-## 🔒 **Actieve Veiligheidsprotocollen:**
-
-{safety_desc}
-
-{environment_guidance}
-
----
-
-## 💡 **Bridget's Aanbevelingen:**
-
-{self._get_context_recommendations(context_state)}
-
----
-
-*Context automatisch ingesteld door Bridget Auto-Context System | NetBox MCP v0.11.0+*"""
-
-            return context_message
+            return welcome_message
             
         except Exception as e:
             logger.error(f"Error generating context message: {e}")
             return self._get_fallback_context_message()
     
-    def _get_environment_guidance(self, environment: str, safety_level: str) -> str:
-        """Get environment-specific guidance text."""
-        guidance_map = {
-            'demo': """
-**🧪 Demo/Development Modus:**
-• Experimenteren en testen is aangemoedigd
-• Beperkte veiligheidscontroles voor snelle development
-• Dry-run modus wordt aanbevolen voor nieuwe workflows""",
-            
-            'staging': """
-**🎭 Staging/Test Omgeving:**
-• Test scenario's worden verwacht
-• Verhoogde veiligheid om productie-impact te voorkomen  
-• Confirmatie vereist voor alle write operaties""",
-            
-            'cloud': """
-**☁️ NetBox Cloud Instance:**
-• Managed cloud omgeving gedetecteerd
-• Verhoogde veiligheid conform cloud best practices
-• Automatische backup en audit logging actief""",
-            
-            'production': """
-**🏭 Productie Omgeving - Maximale Voorzichtigheid:**
-• Alle wijzigingen vereisen expliciete confirmatie
-• Uitgebreide validatie en conflict detectie
-• Volledige audit logging en rollback mogelijkheden
-• 🚨 **ALTIJD** eerst dry-run mode gebruiken!""",
-            
-            'unknown': """
-**❓ Onbekende Omgeving - Maximale Veiligheid:**
-• Omgeving kon niet worden gedetecteerd
-• Hoogste veiligheidsniveau wordt gehanteerd
-• Extra voorzichtigheid bij alle operaties"""
-        }
-        
-        return guidance_map.get(environment, guidance_map['unknown'])
-    
-    def _get_context_recommendations(self, context_state: ContextState) -> str:
-        """Get context-specific recommendations."""
-        if context_state.environment in ['production', 'unknown']:
-            return """
-🔍 **Begin altijd met:** `confirm=False` (dry-run mode)  
-✅ **Valideer resultaten** voordat je `confirm=True` gebruikt  
-📋 **Controleer dependencies** voordat je resources wijzigt  
-🛡️ **Gebruik backup/rollback** planning voor kritieke wijzigingen"""
-        
-        elif context_state.environment == 'cloud':
-            return """
-☁️ **Cloud Best Practices:**  
-• Houd rekening met API rate limiting  
-• Gebruik batch operaties waar mogelijk  
-• Monitor audit logs voor compliance"""
-        
-        else:
-            return """
-🧪 **Development/Test Omgeving:**  
-• Experimenteer vrijuit met nieuwe workflows  
-• Test verschillende configuraties  
-• Gebruik deze omgeving om vertrouwd te raken met NetBox MCP"""
     
     def _get_fallback_context_message(self) -> str:
         """Get a safe fallback context message if generation fails."""
-        return """🦜 **Bridget Context System - Veilige Modus**
+        try:
+            # Try to use localized fallback message
+            if self._localizer is None:
+                self._localizer = get_localizer()
+            
+            fallback_message = self._localizer.get_message("welcome")
+            
+            # Create basic context information
+            fallback_context = """
 
-Er is een probleem opgetreden bij het detecteren van je omgeving.
-Maximale veiligheidsprotocollen zijn geactiveerd.
+🛡️ **MAXIMUM SAFETY ACTIVE**
+📋 **Recommendation:** Always use dry-run mode first
 
-🛡️ **Actief:** Alle operaties vereisen expliciete confirmatie
-📋 **Aanbeveling:** Gebruik altijd dry-run mode eerst
+*Bridget - NetBox Infrastructure Guide*"""
+            
+            return f"{fallback_message}{fallback_context}"
+            
+        except Exception:
+            # Ultimate fallback in case i18n system fails
+            return """🦜 **Bridget Context System - Safe Mode**
+
+A problem occurred while detecting your environment.
+Maximum safety protocols are activated.
+
+🛡️ **Active:** All operations require explicit confirmation
+📋 **Recommendation:** Always use dry-run mode first
 
 *Bridget - NetBox Infrastructure Guide*"""
     
@@ -449,7 +382,13 @@ def auto_initialize_bridget_context(client) -> str:
         
     except Exception as e:
         logger.error(f"Auto-context initialization failed: {e}")
-        return "🦜 **Bridget**: Context detectie tijdelijk niet beschikbaar. Standaard veiligheidsprotocollen actief."
+        try:
+            # Try to use localized error message
+            localizer = get_localizer()
+            return localizer.get_message("welcome") + "\n\n⚠️ " + localizer.get_message("safety_guidance.maximum")
+        except Exception:
+            # Ultimate fallback
+            return "🦜 **Bridget**: Context detection temporarily unavailable. Standard safety protocols active."
 
 
 def merge_context_with_result(original_result: Any, context_message: str) -> Any:
