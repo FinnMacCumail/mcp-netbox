@@ -9,5 +9,6 @@ intelligent orchestration and user guidance.
 from .workflows import *
 
 __all__ = [
-    'install_device_in_rack_prompt'
+    'install_device_in_rack_prompt',
+    'activate_bridget_prompt'
 ]
