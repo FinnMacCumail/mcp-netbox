@@ -21,6 +21,7 @@ from .registry import (
 )
 from .dependencies import NetBoxClientManager, get_netbox_client  # Use new dependency system
 import logging
+import os
 import threading
 import time
 import inspect
@@ -309,6 +310,112 @@ async def execute_mcp_prompt(request: PromptRequest) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Prompt execution failed for {request.prompt_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Prompt execution failed: {str(e)}")
+
+
+# === CONTEXT MANAGEMENT ENDPOINTS ===
+
+@api_app.get("/api/v1/context/status")
+async def get_context_status(
+    client: NetBoxClient = Depends(get_netbox_client)
+) -> Dict[str, Any]:
+    """
+    Get current auto-context status and configuration.
+    
+    Returns:
+        Context status including environment detection and safety level
+    """
+    try:
+        from .persona import get_context_manager
+        
+        context_manager = get_context_manager()
+        context_state = context_manager.get_context_state()
+        
+        if context_state:
+            return {
+                "context_initialized": True,
+                "environment": context_state.environment,
+                "safety_level": context_state.safety_level,
+                "instance_type": context_state.instance_type,
+                "initialization_time": context_state.initialization_time.isoformat(),
+                "netbox_url": context_state.netbox_url,
+                "netbox_version": context_state.netbox_version,
+                "auto_context_enabled": context_state.auto_context_enabled,
+                "user_preferences": context_state.user_preferences
+            }
+        else:
+            return {
+                "context_initialized": False,
+                "auto_context_enabled": os.getenv('NETBOX_AUTO_CONTEXT', 'true').lower() == 'true',
+                "environment_override": os.getenv('NETBOX_ENVIRONMENT'),
+                "safety_level_override": os.getenv('NETBOX_SAFETY_LEVEL')
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting context status: {e}")
+        raise HTTPException(status_code=500, detail=f"Context status error: {str(e)}")
+
+
+@api_app.post("/api/v1/context/initialize")
+async def initialize_context(
+    client: NetBoxClient = Depends(get_netbox_client)
+) -> Dict[str, Any]:
+    """
+    Manually initialize Bridget auto-context system.
+    
+    Returns:
+        Context initialization result
+    """
+    try:
+        from .persona import get_context_manager
+        
+        context_manager = get_context_manager()
+        
+        # Reset context if already initialized
+        if context_manager.is_context_initialized():
+            context_manager.reset_context()
+        
+        # Initialize context
+        context_state = context_manager.initialize_context(client)
+        context_message = context_manager.generate_context_message(context_state)
+        
+        return {
+            "success": True,
+            "message": "Context initialized successfully",
+            "context": {
+                "environment": context_state.environment,
+                "safety_level": context_state.safety_level,
+                "instance_type": context_state.instance_type,
+                "initialization_time": context_state.initialization_time.isoformat()
+            },
+            "bridget_message": context_message
+        }
+        
+    except Exception as e:
+        logger.error(f"Error initializing context: {e}")
+        raise HTTPException(status_code=500, detail=f"Context initialization failed: {str(e)}")
+
+
+@api_app.post("/api/v1/context/reset")
+async def reset_context() -> Dict[str, Any]:
+    """
+    Reset the auto-context system state.
+    
+    Returns:
+        Reset operation result
+    """
+    try:
+        from .registry import reset_context_state
+        
+        reset_context_state()
+        
+        return {
+            "success": True,
+            "message": "Context state reset successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error resetting context: {e}")
+        raise HTTPException(status_code=500, detail=f"Context reset failed: {str(e)}")
 
 
 @api_app.get("/api/v1/status")

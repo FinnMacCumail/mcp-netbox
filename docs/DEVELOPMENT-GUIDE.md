@@ -585,18 +585,267 @@ This structured workflow, powered by the GitHub CLI and enhanced by Gemini Code 
 
 -----
 
-## **11. Future Development**
+## **11. MCP Prompts Development - Lessons Learned**
 
-### **11.1 Extension Points**
+**Status**: Production Ready (PR #72 merged) - First MCP Prompt implementation with Bridget persona system
+
+The NetBox MCP Prompts feature represents a major architectural evolution, adding intelligent workflow orchestration and user guidance on top of our 108+ tools foundation. This section documents critical lessons learned during implementation.
+
+### **11.1 The MCP Prompt Architecture**
+
+#### **Prompt vs Tools Distinction**
+
+**MCP Tools**: Atomic operations that perform specific NetBox API calls
+**MCP Prompts**: Intelligent workflow orchestrators that guide users through multi-step processes
+
+```python
+# Tools do this:
+@mcp_tool(category="dcim")
+def netbox_create_device(...) -> Dict[str, Any]:
+    # Single API operation
+    return client.dcim.devices.create(...)
+
+# Prompts do this:
+@mcp_prompt(name="install_device_in_rack", description="...")
+async def install_device_in_rack_prompt() -> str:
+    # Workflow guidance that orchestrates multiple tools
+    return "Step-by-step workflow instructions..."
+```
+
+#### **Registry Bridge Extension**
+
+The existing Registry Bridge pattern was successfully extended to support prompts:
+
+```python
+# Registry supports both tools and prompts
+TOOL_REGISTRY: Dict[str, Dict[str, Any]] = {}
+PROMPT_REGISTRY: Dict[str, Dict[str, Any]] = {}  # NEW
+
+# Bridge functions for both
+bridge_tools_to_fastmcp()
+bridge_prompts_to_fastmcp()  # NEW
+```
+
+### **11.2 Critical MCP Client Compatibility Lessons**
+
+#### **Lesson #1: MCP Rendering Limitations**
+
+**Problem Discovered**: MCP clients cannot render complex JSON objects returned by prompts.
+
+**Original Implementation** (FAILED):
+```python
+@mcp_prompt(...)
+async def example_prompt() -> Dict[str, Any]:
+    return {
+        "persona_active": True,
+        "workflow_steps": [...],
+        "nested_objects": {...}
+    }
+```
+
+**Error**: `MCP error 0: Error rendering prompt: Could not convert prompt result to message`
+
+**Solution** (SUCCESS):
+```python
+@mcp_prompt(...)
+async def example_prompt() -> str:
+    return """🦜 **Formatted Message String**
+    
+    All content as markdown-formatted string
+    that MCP clients can render directly."""
+```
+
+**Critical Rule**: **MCP prompts MUST return simple strings, never complex JSON objects.**
+
+#### **Lesson #2: Async Function Handling in Registry**
+
+**Problem**: The `execute_prompt` function wasn't properly handling async prompt functions.
+
+**Solution**: Enhanced registry with proper async detection:
+```python
+async def execute_prompt(prompt_name: str, **arguments) -> Any:
+    prompt_function = prompt_metadata["function"]
+    
+    # Handle both sync and async functions
+    if inspect.iscoroutinefunction(prompt_function):
+        return await prompt_function(**arguments)
+    else:
+        return prompt_function(**arguments)
+```
+
+### **11.3 Persona System Implementation**
+
+#### **The Bridget Persona Architecture**
+
+**Challenge**: Test team feedback indicated users couldn't identify they were using NetBox MCP.
+
+**Solution**: Implemented comprehensive persona system with:
+
+1. **BridgetPersona Class** (`netbox_mcp/persona/bridget.py`)
+   - Standardized introduction methods
+   - Dutch localization for consistent user experience
+   - Clear NetBox MCP branding throughout interactions
+
+2. **Persona Integration Pattern**:
+```python
+# Every workflow prompt includes Bridget
+bridget_intro = BridgetPersona.get_introduction(
+    workflow_name="Install Device in Rack",
+    user_context="Device installation workflow"
+)
+
+# Consistent branding in output
+workflow_message = f"""🦜 **Bridget's {workflow_name} Workflow**
+
+*Hallo! Bridget hier, jouw NetBox Infrastructure Guide!*
+
+[Workflow content with clear NetBox MCP branding]
+
+---
+*Bridget - NetBox Infrastructure Guide | NetBox MCP v0.11.0+ | 🦜 LEGO Parrot Mascotte*"""
+```
+
+#### **Persona System Benefits**
+
+- **Clear System Identification**: Users always know they're using NetBox MCP
+- **Consistent Experience**: Same persona across all workflows
+- **Localization Support**: Dutch language for local user base
+- **Expert Guidance**: Bridget provides context and explanations for each step
+
+### **11.4 Prompt Development Template**
+
+Based on successful implementation, use this template for new prompts:
+
+```python
+@mcp_prompt(
+    name="prompt_name",
+    description="Brief description for MCP client discovery"
+)
+async def prompt_function() -> str:  # MUST return str, not Dict
+    """
+    Detailed docstring explaining the prompt's purpose.
+    """
+    
+    # 1. Include Bridget persona introduction
+    bridget_intro = BridgetPersona.get_introduction(
+        workflow_name="Your Workflow Name",
+        user_context="Context for this specific workflow"
+    )
+    
+    # 2. Build comprehensive workflow guidance
+    workflow_content = {
+        # Structure your workflow data
+    }
+    
+    # 3. CRITICAL: Format as simple string for MCP compatibility
+    formatted_message = f"""🦜 **Bridget's {workflow_name} Workflow**
+
+*Hallo! Bridget hier, jouw NetBox Infrastructure Guide!*
+
+{workflow_guidance_content}
+
+---
+*Bridget - NetBox Infrastructure Guide | NetBox MCP v0.11.0+ | 🦜 LEGO Parrot Mascotte*"""
+    
+    return formatted_message  # Simple string - MCP compatible
+```
+
+### **11.5 Testing Methodology for Prompts**
+
+#### **MCP Client Testing Requirements**
+
+**Developer Testing** (Code Level):
+1. **Import Test**: Verify prompt loads without errors
+2. **Registration Test**: Confirm prompt appears in PROMPT_REGISTRY
+3. **Return Type Test**: Ensure prompt returns string, not complex object
+4. **Syntax Validation**: Check for proper async/sync handling
+
+**Test Team Testing** (Functional):
+1. **MCP Client Rendering**: Verify prompt displays correctly in MCP clients
+2. **Persona Consistency**: Confirm Bridget branding appears throughout
+3. **Workflow Usability**: Test user experience with guided workflows
+4. **Content Accuracy**: Validate technical accuracy of workflow instructions
+
+#### **Test Documentation Template**
+
+```markdown
+## Prompt Test Plan
+
+### **Prompts to Test**
+- `prompt_name` - Brief description of prompt functionality
+
+### **MCP Client Compatibility Tests**
+1. **Rendering Test**: Prompt displays as formatted text (not error)
+2. **Persona Test**: Bridget introduction and branding visible
+3. **Content Test**: All workflow steps readable and actionable
+4. **Trigger Test**: Prompt activates with expected trigger phrase
+
+### **Expected Results**
+- Prompt renders as formatted markdown text
+- Bridget persona consistently present
+- Clear NetBox MCP branding throughout
+- User guidance actionable and technically accurate
+```
+
+### **11.6 Architecture Integration Points**
+
+#### **Server Integration**
+
+Prompts integrate seamlessly with existing server architecture:
+
+```python
+# FastAPI endpoints automatically created
+@api_app.get("/api/v1/prompts")  # Discovery endpoint
+@api_app.post("/api/v1/prompts/execute")  # Execution endpoint
+
+# FastMCP integration via bridge
+bridge_prompts_to_fastmcp()  # Automatic registration
+```
+
+#### **Registry Integration**
+
+Prompts use the same decorator pattern as tools:
+
+```python
+# Same pattern, different registry
+@mcp_tool(category="dcim")      # -> TOOL_REGISTRY
+@mcp_prompt(name="prompt_name") # -> PROMPT_REGISTRY
+```
+
+### **11.7 Key Success Factors**
+
+1. **MCP Client Compatibility**: Always return simple strings from prompts
+2. **Persona Consistency**: Use BridgetPersona class for standardized branding
+3. **Comprehensive Testing**: Test both code-level and MCP client rendering
+4. **User Experience Focus**: Solve real user problems (system identification)
+5. **Architecture Reuse**: Leverage existing Registry Bridge pattern
+
+### **11.8 Future Prompt Development**
+
+**Recommended Next Prompts**:
+- Device decommissioning workflow
+- Network capacity planning workflow  
+- Troubleshooting assistant workflow
+- Infrastructure health check workflow
+
+**Pattern Validation**: Always check existing working prompts before implementing new ones.
+
+-----
+
+## **12. Future Development**
+
+### **12.1 Extension Points**
 
   - **New Domains**: Easy addition of new NetBox domains as they become available.
   - **Enhanced Tools**: Build upon the dual-tool pattern for domain-specific workflows.
   - **Integration Tools**: Create cross-domain operations leveraging multiple NetBox APIs.
+  - **Advanced Prompts**: Build upon the Bridget persona system for complex multi-domain workflows.
 
-### **11.2 Architecture Scalability**
+### **12.2 Architecture Scalability**
 
 The hierarchical domain structure and Registry Bridge pattern support:
 
   - **Unlimited Tool Growth**: No architectural limits on tool count.
   - **Domain Expansion**: Easy addition of new NetBox domains.
   - **Enterprise Features**: Built-in safety, caching, and performance optimization.
+  - **Prompt Orchestration**: Intelligent workflow guidance on top of atomic tools.

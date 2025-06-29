@@ -455,7 +455,10 @@ def load_prompts():
 
 def execute_tool(tool_name: str, client, **parameters) -> Any:
     """
-    Execute a registered tool with dependency injection.
+    Execute a registered tool with dependency injection and auto-context initialization.
+    
+    Automatically initializes Bridget context on first tool execution to provide
+    environment detection, safety level assignment, and user guidance.
     
     Args:
         tool_name: Name of the tool to execute
@@ -463,7 +466,7 @@ def execute_tool(tool_name: str, client, **parameters) -> Any:
         **parameters: Tool parameters
         
     Returns:
-        Tool execution result
+        Tool execution result (potentially merged with context information)
         
     Raises:
         ValueError: If tool not found
@@ -479,8 +482,54 @@ def execute_tool(tool_name: str, client, **parameters) -> Any:
     # The client is injected separately as named parameter
     filtered_parameters = {k: v for k, v in parameters.items() if k != 'client'}
     
-    # Inject client as first parameter
-    return tool_function(client=client, **filtered_parameters)
+    # Check for first-time context initialization
+    is_first_call = not getattr(execute_tool, '_context_initialized', False)
+    
+    # Execute the tool function
+    result = tool_function(client=client, **filtered_parameters)
+    
+    # Auto-initialize Bridget context on first call (graceful degradation)
+    if is_first_call:
+        try:
+            from .persona import auto_initialize_bridget_context, merge_context_with_result
+            
+            context_message = auto_initialize_bridget_context(client)
+            if context_message:
+                result = merge_context_with_result(result, context_message)
+                logger.info("Bridget auto-context successfully injected on first tool execution")
+            
+            # Mark context as initialized to prevent repeated initialization
+            execute_tool._context_initialized = True
+            
+        except Exception as e:
+            logger.warning(f"Auto-context initialization failed gracefully: {e}")
+            # Continue with normal tool execution - context failure should not block tools
+            execute_tool._context_initialized = True  # Prevent retry loops
+    
+    return result
+
+
+def reset_context_state() -> None:
+    """
+    Reset the context initialization state (useful for testing or session changes).
+    
+    This function resets the global context state, allowing context to be
+    re-initialized on the next tool execution.
+    """
+    try:
+        # Reset registry-level context flag
+        if hasattr(execute_tool, '_context_initialized'):
+            delattr(execute_tool, '_context_initialized')
+        
+        # Reset context manager state
+        from .persona import get_context_manager
+        context_manager = get_context_manager()
+        context_manager.reset_context()
+        
+        logger.info("Context state reset successfully")
+        
+    except Exception as e:
+        logger.warning(f"Error during context state reset: {e}")
 
 
 async def execute_prompt(prompt_name: str, **arguments) -> Any:
