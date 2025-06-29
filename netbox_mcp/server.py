@@ -13,7 +13,12 @@ from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel
 from .client import NetBoxClient
 from .config import load_config
-from .registry import TOOL_REGISTRY, load_tools, serialize_registry_for_api, execute_tool
+from .registry import (
+    TOOL_REGISTRY, PROMPT_REGISTRY, 
+    load_tools, load_prompts, 
+    serialize_registry_for_api, serialize_prompts_for_api,
+    execute_tool, execute_prompt
+)
 from .dependencies import NetBoxClientManager, get_netbox_client  # Use new dependency system
 import logging
 import threading
@@ -30,9 +35,11 @@ logger = logging.getLogger(__name__)
 
 # === REGISTRY BRIDGE IMPLEMENTATION ===
 
-# Step 1: Load all tools into our internal registry
+# Step 1: Load all tools and prompts into our internal registries
 load_tools()
+load_prompts()
 logger.info(f"Internal tool registry initialized with {len(TOOL_REGISTRY)} tools")
+logger.info(f"Internal prompt registry initialized with {len(PROMPT_REGISTRY)} prompts")
 
 # Step 2: Initialize FastMCP server (empty at first)
 mcp = FastMCP(
@@ -104,6 +111,59 @@ def bridge_tools_to_fastmcp():
 
 # Step 4: Execute the bridge function at server startup
 bridge_tools_to_fastmcp()
+
+# Step 5: Bridge prompts to FastMCP
+def bridge_prompts_to_fastmcp():
+    """
+    Bridge internal prompt registry to FastMCP interface.
+    
+    This function creates FastMCP-compatible prompt handlers for each
+    prompt in our internal PROMPT_REGISTRY and registers them with the FastMCP server.
+    """
+    bridged_count = 0
+    
+    for prompt_name, prompt_metadata in PROMPT_REGISTRY.items():
+        try:
+            original_func = prompt_metadata["function"]
+            description = prompt_metadata["description"]
+            
+            logger.debug(f"Bridging prompt: {prompt_name}")
+            
+            def create_prompt_wrapper(func, name):
+                """Create a wrapper function that FastMCP can call"""
+                async def prompt_wrapper(**kwargs):
+                    try:
+                        logger.debug(f"Executing prompt '{name}' with args: {kwargs}")
+                        
+                        # Execute the prompt function
+                        if inspect.iscoroutinefunction(func):
+                            result = await func(**kwargs)
+                        else:
+                            result = func(**kwargs)
+                        
+                        logger.debug(f"Prompt '{name}' executed successfully")
+                        return result
+                    
+                    except Exception as e:
+                        logger.error(f"Execution of prompt '{name}' failed: {e}", exc_info=True)
+                        return {"success": False, "error": str(e), "error_type": type(e).__name__}
+                
+                return prompt_wrapper
+            
+            # Register the wrapper with FastMCP
+            wrapped_prompt = create_prompt_wrapper(original_func, prompt_name)
+            mcp.prompt(name=prompt_name, description=description)(wrapped_prompt)
+            
+            bridged_count += 1
+            logger.debug(f"Bridged prompt: {prompt_name}")
+            
+        except Exception as e:
+            logger.error(f"Failed to bridge prompt '{prompt_name}' to FastMCP: {e}", exc_info=True)
+    
+    logger.info(f"Successfully bridged {bridged_count}/{len(PROMPT_REGISTRY)} prompts to the FastMCP interface")
+
+# Step 6: Execute the prompt bridge function at server startup
+bridge_prompts_to_fastmcp()
 
 # === FASTAPI SELF-DESCRIBING ENDPOINTS ===
 
@@ -191,6 +251,64 @@ async def execute_mcp_tool(
     except Exception as e:
         logger.error(f"Tool execution failed for {request.tool_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
+
+
+# === PROMPT ENDPOINTS ===
+
+class PromptRequest(BaseModel):
+    prompt_name: str
+    arguments: Dict[str, Any] = {}
+
+@api_app.get("/api/v1/prompts", response_model=List[Dict[str, Any]])
+async def get_prompts() -> List[Dict[str, Any]]:
+    """
+    Discovery endpoint: List all available MCP prompts.
+
+    Returns:
+        List of prompt metadata with descriptions and usage information
+    """
+    try:
+        prompts = serialize_prompts_for_api()
+        logger.info(f"Prompts discovery request: {len(prompts)} prompts returned")
+        return prompts
+
+    except Exception as e:
+        logger.error(f"Error in prompts discovery: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@api_app.post("/api/v1/prompts/execute")
+async def execute_mcp_prompt(request: PromptRequest) -> Dict[str, Any]:
+    """
+    Generic prompt execution endpoint: Execute any registered MCP prompt.
+
+    Request Body:
+        prompt_name: Name of the prompt to execute
+        arguments: Dictionary of prompt arguments (optional)
+
+    Returns:
+        Prompt execution result
+    """
+    try:
+        logger.info(f"Executing prompt: {request.prompt_name} with arguments: {request.arguments}")
+
+        # Execute prompt
+        result = await execute_prompt(request.prompt_name, **request.arguments)
+
+        return {
+            "success": True,
+            "prompt_name": request.prompt_name,
+            "result": result
+        }
+
+    except ValueError as e:
+        # Prompt not found
+        logger.warning(f"Prompt not found: {request.prompt_name}")
+        raise HTTPException(status_code=404, detail=str(e))
+
+    except Exception as e:
+        logger.error(f"Prompt execution failed for {request.prompt_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Prompt execution failed: {str(e)}")
 
 
 @api_app.get("/api/v1/status")

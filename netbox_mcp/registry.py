@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 # Global tool registry - contains all registered MCP tools
 TOOL_REGISTRY: Dict[str, Dict[str, Any]] = {}
 
+# Global prompt registry - contains all registered MCP prompts
+PROMPT_REGISTRY: Dict[str, Dict[str, Any]] = {}
+
 
 def extract_parameter_info(func: Callable) -> List[Dict[str, Any]]:
     """
@@ -216,6 +219,53 @@ def mcp_tool(
     return decorator
 
 
+def mcp_prompt(name: str, description: str) -> Callable:
+    """
+    Decorator for registering MCP prompts.
+    
+    Args:
+        name: Unique prompt name
+        description: Brief description of the prompt's purpose
+        
+    Returns:
+        The decorated function (unchanged functionality)
+        
+    Example:
+        @mcp_prompt(
+            name="install_device_in_rack",
+            description="Interactive workflow for installing a new device"
+        )
+        async def install_device_prompt() -> Dict[str, Any]:
+            # Implementation here
+            pass
+    """
+    def decorator(func: Callable) -> Callable:
+        # Get function signature and docstring
+        sig = inspect.signature(func)
+        doc = inspect.getdoc(func) or "No description available"
+        
+        # Register the prompt
+        PROMPT_REGISTRY[name] = {
+            "name": name,
+            "description": description,
+            "function": func,
+            "signature": sig,
+            "docstring": doc,
+            "module": func.__module__,
+            "source_file": inspect.getfile(func) if hasattr(func, '__code__') else "unknown"
+        }
+        
+        logger.info(f"Registered MCP prompt: {name}")
+        
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        
+        return wrapper
+    
+    return decorator
+
+
 def get_tool_registry() -> Dict[str, Dict[str, Any]]:
     """
     Get the complete tool registry.
@@ -311,6 +361,64 @@ def serialize_registry_for_api() -> List[Dict[str, Any]]:
     ]
 
 
+def get_prompt_registry() -> Dict[str, Dict[str, Any]]:
+    """
+    Get the complete prompt registry.
+    
+    Returns:
+        Dictionary mapping prompt names to their metadata
+    """
+    return PROMPT_REGISTRY.copy()
+
+
+def get_prompt_by_name(prompt_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a specific prompt by name.
+    
+    Args:
+        prompt_name: Name of the prompt to retrieve
+        
+    Returns:
+        Prompt metadata dictionary or None if not found
+    """
+    return PROMPT_REGISTRY.get(prompt_name)
+
+
+def serialize_prompt_for_api(prompt_name: str) -> Optional[Dict[str, Any]]:
+    """
+    Serialize a prompt's metadata for API consumption (excludes function reference).
+    
+    Args:
+        prompt_name: Name of the prompt to serialize
+        
+    Returns:
+        Serialized prompt metadata without the function reference
+    """
+    prompt = get_prompt_by_name(prompt_name)
+    if not prompt:
+        return None
+    
+    # Create a copy without the function reference
+    serialized = prompt.copy()
+    serialized.pop("function", None)  # Remove function reference for JSON serialization
+    serialized.pop("signature", None)  # Remove signature object
+    
+    return serialized
+
+
+def serialize_prompts_for_api() -> List[Dict[str, Any]]:
+    """
+    Serialize the entire prompt registry for API consumption.
+    
+    Returns:
+        List of prompt metadata dictionaries (without function references)
+    """
+    return [
+        serialize_prompt_for_api(prompt_name) 
+        for prompt_name in PROMPT_REGISTRY.keys()
+    ]
+
+
 def load_tools():
     """
     Load all tools from the tools package.
@@ -326,6 +434,23 @@ def load_tools():
         logger.warning(f"Failed to import tools package: {e}")
     except Exception as e:
         logger.error(f"Error loading tools: {e}")
+
+
+def load_prompts():
+    """
+    Load all prompts from the prompts package.
+    
+    This function imports the prompts package which automatically discovers
+    and registers all prompts using the @mcp_prompt decorator.
+    """
+    try:
+        # Import the prompts package - this triggers automatic prompt discovery
+        from . import prompts
+        logger.info(f"Prompts loaded via package import: {len(PROMPT_REGISTRY)} prompts registered")
+    except ImportError as e:
+        logger.warning(f"Failed to import prompts package: {e}")
+    except Exception as e:
+        logger.error(f"Error loading prompts: {e}")
 
 
 def execute_tool(tool_name: str, client, **parameters) -> Any:
@@ -356,3 +481,37 @@ def execute_tool(tool_name: str, client, **parameters) -> Any:
     
     # Inject client as first parameter
     return tool_function(client=client, **filtered_parameters)
+
+
+async def execute_prompt(prompt_name: str, **arguments) -> Any:
+    """
+    Execute a registered prompt.
+    
+    Args:
+        prompt_name: Name of the prompt to execute
+        **arguments: Prompt arguments (if any)
+        
+    Returns:
+        Prompt execution result
+        
+    Raises:
+        ValueError: If prompt not found
+        Exception: Prompt execution errors
+    """
+    prompt_metadata = get_prompt_by_name(prompt_name)
+    if not prompt_metadata:
+        raise ValueError(f"Prompt '{prompt_name}' not found in registry")
+    
+    prompt_function = prompt_metadata["function"]
+    
+    # Execute the prompt function with provided arguments, handling both sync and async functions
+    if inspect.iscoroutinefunction(prompt_function):
+        if arguments:
+            return await prompt_function(**arguments)
+        else:
+            return await prompt_function()
+    else:
+        if arguments:
+            return prompt_function(**arguments)
+        else:
+            return prompt_function()
