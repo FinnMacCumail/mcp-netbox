@@ -1,8 +1,8 @@
-certifi==2025.6.15
-charset-normalizer==3.4.2
-idna==3.10
-packaging==25.0
-pip==25.1.1
-pynetbox==7.5.0
-requests==2.32.4
-urllib3==2.5.0
+# NetBox MCP Server Dependencies
+# 
+# This project uses pyproject.toml as the primary dependency specification.
+# Install with: pip install -e .
+# For development: pip install -e .[dev]
+#
+# Direct installation (not recommended for development):
+-e .

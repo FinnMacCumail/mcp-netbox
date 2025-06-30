@@ -64,8 +64,8 @@ def bridge_tools_to_fastmcp():
             # Create a 'wrapper' that injects the client with EXACT function signature (Gemini's Fix)
             def create_tool_wrapper(original_func):
                 """
-                Creëert een wrapper voor een tool die de exacte signatuur van de originele functie nabootst,
-                terwijl de NetBox client automatisch wordt geïnjecteerd en argument-duplicaten voorkomt.
+                Creates a tool wrapper that mimics the exact signature of the original function,
+                while automatically injecting the NetBox client and preventing argument duplicates.
                 """
                 sig = inspect.signature(original_func)
                 wrapper_params = [p for p in sig.parameters.values() if p.name != 'client']
@@ -73,21 +73,21 @@ def bridge_tools_to_fastmcp():
                 @wraps(original_func)
                 def tool_wrapper(*args, **kwargs):
                     try:
-                        # ----- VEILIGE ARGUMENT-AFHANDELING -----
-                        # 1. Maak een lijst van de verwachte parameternamen (zonder 'client')
+                        # ----- SAFE ARGUMENT HANDLING -----
+                        # 1. Create a list of expected parameter names (excluding 'client')
                         param_names = [p.name for p in wrapper_params]
 
-                        # 2. Maak een dictionary van de positionele argumenten (*args)
+                        # 2. Create a dictionary from positional arguments (*args)
                         final_kwargs = dict(zip(param_names, args))
 
-                        # 3. Update met de keyword-argumenten (**kwargs).
-                        #    Dit overschrijft eventuele duplicaten en is de kern van de fix.
+                        # 3. Update with keyword arguments (**kwargs).
+                        #    This overwrites any duplicates and is the core of the fix.
                         final_kwargs.update(kwargs)
                         # ----------------------------------------
 
                         client = get_netbox_client()
 
-                        # Roep de originele functie aan met de schone, ontdubbelde argumenten.
+                        # Call the original function with clean, deduplicated arguments.
                         return original_func(client, **final_kwargs)
 
                     except Exception as e:
@@ -95,7 +95,8 @@ def bridge_tools_to_fastmcp():
                         return {"success": False, "error": str(e), "error_type": type(e).__name__}
 
                 new_sig = sig.replace(parameters=wrapper_params)
-                tool_wrapper.__signature__ = new_sig
+                # Use setattr to avoid type checker issues with __signature__
+                setattr(tool_wrapper, '__signature__', new_sig)
                 return tool_wrapper
 
             # Register the 'wrapper' with FastMCP with the correct metadata
@@ -316,7 +317,7 @@ async def execute_mcp_prompt(request: PromptRequest) -> Dict[str, Any]:
 
 @api_app.get("/api/v1/context/status")
 async def get_context_status(
-    client: NetBoxClient = Depends(get_netbox_client)
+    _client: NetBoxClient = Depends(get_netbox_client)
 ) -> Dict[str, Any]:
     """
     Get current auto-context status and configuration.
@@ -324,6 +325,9 @@ async def get_context_status(
     Returns:
         Context status including environment detection and safety level
     """
+    # Client parameter required by FastAPI dependency injection but not used in this endpoint
+    _ = _client  # Suppress unused parameter warning
+    
     try:
         from .persona import get_context_manager
         

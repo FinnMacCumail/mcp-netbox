@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netbox-mcp"
-version = "0.10.1"
+version = "1.0.0"
 description = "NetBox Read/Write MCP Server - A Model Context Protocol server for safe, intelligent NetBox automation"
 readme = "README.md"
 license = {text = "MIT"}
@@ -16,7 +16,7 @@ maintainers = [
 ]
 keywords = ["netbox", "mcp", "network", "automation", "api", "llm"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: System Administrators",
     "Intended Audience :: Developers", 
     "License :: OSI Approved :: MIT License",

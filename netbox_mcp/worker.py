@@ -16,7 +16,8 @@ try:
     from redis import Redis
     RQ_AVAILABLE = True
 except ImportError:
-    print("ERROR: Redis Queue (RQ) not available. Install with: pip install rq redis")
+    import logging
+    logging.error("Redis Queue (RQ) not available. Install with: pip install rq redis")
     sys.exit(1)
 
 from .config import load_config

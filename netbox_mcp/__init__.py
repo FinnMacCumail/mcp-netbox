@@ -11,13 +11,15 @@ Features:
 - Integration-ready as an agnostic NetBox specialist for automation platforms
 """
 
-__version__ = "0.9.7"
+from ._version import get_cached_version, get_version_tuple
+
+__version__ = get_cached_version()
 __author__ = "Deployment Team"
 __email__ = "info@deployment-team.nl"
 
 # Version information
-VERSION = (0, 9, 7)
-VERSION_STRING = ".".join(map(str, VERSION))
+VERSION = get_version_tuple()
+VERSION_STRING = __version__
 
 # Package exports
 from .exceptions import NetBoxError, NetBoxConnectionError, NetBoxAuthError
