@@ -1178,7 +1178,7 @@ def netbox_add_front_port_template_to_device_type(
             "rear_port_template": rear_port_template,
             "rear_port_position": rear_port_position,
             "rear_port_max_positions": rear_port_positions,
-            "netbox_url": f"{client.base_url}/dcim/device-types/{device_type_id}/front-port-templates/"
+            "netbox_url": f"{client.config.url}/dcim/device-types/{device_type_id}/front-port-templates/"
         }
     }
 
