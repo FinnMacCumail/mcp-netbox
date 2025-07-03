@@ -1084,6 +1084,791 @@ def netbox_list_all_devices(
         }
 
 
+@mcp_tool(category="dcim")
+def netbox_update_device(
+    client: NetBoxClient,
+    device_id: int,
+    name: Optional[str] = None,
+    status: Optional[str] = None,
+    role: Optional[str] = None,
+    site: Optional[str] = None,
+    rack: Optional[str] = None,
+    position: Optional[int] = None,
+    face: Optional[str] = None,
+    device_type: Optional[str] = None,
+    platform: Optional[str] = None,
+    tenant: Optional[str] = None,
+    serial: Optional[str] = None,
+    asset_tag: Optional[str] = None,
+    description: Optional[str] = None,
+    comments: Optional[str] = None,
+    oob_ip: Optional[str] = None,
+    primary_ip4: Optional[str] = None,
+    primary_ip6: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Update an existing device in NetBox DCIM.
+    
+    This function enables comprehensive device property updates with enterprise-grade
+    safety mechanisms and intelligent foreign key resolution for relationship fields.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_id: Device ID to update
+        name: Device name (hostname)
+        status: Device status (active, planned, staged, failed, inventory, decommissioning, offline)
+        role: Device role name or slug
+        site: Site name or slug  
+        rack: Rack name (will be resolved within the device's site)
+        position: Rack position (bottom U)
+        face: Rack face (front, rear)
+        device_type: Device type model or slug
+        platform: Platform name or slug
+        tenant: Tenant name or slug
+        serial: Serial number
+        asset_tag: Asset tag
+        description: Device description
+        comments: Device comments
+        oob_ip: Out-of-band management IP (e.g., BMC/iDRAC IP with CIDR notation)
+        primary_ip4: Primary IPv4 address (must be assigned to device interface)
+        primary_ip6: Primary IPv6 address (must be assigned to device interface)
+        confirm: Must be True to execute (safety mechanism)
+    
+    Returns:
+        Dict containing the updated device data and operation status
+        
+    Examples:
+        # Update device status and description
+        result = netbox_update_device(
+            device_id=123,
+            status="planned",
+            description="Updated via NetBox MCP",
+            confirm=True
+        )
+        
+        # Move device to different rack
+        result = netbox_update_device(
+            device_id=456,
+            rack="R01-A23",
+            position=42,
+            face="front",
+            confirm=True
+        )
+        
+        # Change device role and platform
+        result = netbox_update_device(
+            device_id=789,
+            role="server",
+            platform="Linux",
+            confirm=True
+        )
+        
+        # Set device OOB IP for BMC/iDRAC management
+        result = netbox_update_device(
+            device_id=456,
+            oob_ip="192.168.100.10/24",
+            description="Server with iDRAC configured",
+            confirm=True
+        )
+        
+        # Set primary IP addresses for device
+        result = netbox_update_device(
+            device_id=62,
+            primary_ip4="82.94.240.130/24",
+            primary_ip6="2001:888:2000:1450::82:94:240:130/64",
+            confirm=True
+        )
+    """
+    
+    # STEP 1: DRY RUN CHECK
+    if not confirm:
+        update_fields = {}
+        if name: update_fields["name"] = name
+        if status: update_fields["status"] = status
+        if role: update_fields["role"] = role
+        if site: update_fields["site"] = site
+        if rack: update_fields["rack"] = rack
+        if position is not None: update_fields["position"] = position
+        if face: update_fields["face"] = face
+        if device_type: update_fields["device_type"] = device_type
+        if platform: update_fields["platform"] = platform
+        if tenant: update_fields["tenant"] = tenant
+        if serial: update_fields["serial"] = serial
+        if asset_tag: update_fields["asset_tag"] = asset_tag
+        if description is not None: update_fields["description"] = description
+        if comments is not None: update_fields["comments"] = comments
+        if oob_ip: update_fields["oob_ip"] = oob_ip
+        if primary_ip4: update_fields["primary_ip4"] = primary_ip4
+        if primary_ip6: update_fields["primary_ip6"] = primary_ip6
+        
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": "DRY RUN: Device would be updated. Set confirm=True to execute.",
+            "would_update": {
+                "device_id": device_id,
+                "fields": update_fields
+            }
+        }
+    
+    # STEP 2: PARAMETER VALIDATION
+    if not device_id or device_id <= 0:
+        raise ValueError("device_id must be a positive integer")
+    
+    # Check that at least one field is provided for update
+    update_fields = [name, status, role, site, rack, position, face, device_type, platform, 
+                    tenant, serial, asset_tag, description, comments, oob_ip, primary_ip4, primary_ip6]
+    if not any(field is not None for field in update_fields):
+        raise ValueError("At least one field must be provided for update")
+    
+    # STEP 3: VERIFY DEVICE EXISTS
+    try:
+        existing_device = client.dcim.devices.get(device_id)
+        if not existing_device:
+            raise ValueError(f"Device with ID {device_id} not found")
+        
+        # Apply defensive dict/object handling
+        device_name = existing_device.get('name') if isinstance(existing_device, dict) else existing_device.name
+        device_site = existing_device.get('site') if isinstance(existing_device, dict) else existing_device.site
+        
+        # Extract site ID for rack resolution
+        if isinstance(device_site, dict):
+            current_site_id = device_site.get('id')
+            current_site_name = device_site.get('name', 'Unknown')
+        else:
+            current_site_id = getattr(device_site, 'id', None)
+            current_site_name = getattr(device_site, 'name', 'Unknown')
+            
+    except Exception as e:
+        raise ValueError(f"Could not retrieve device {device_id}: {e}")
+    
+    # STEP 4: BUILD UPDATE PAYLOAD WITH FOREIGN KEY RESOLUTION
+    update_payload = {}
+    
+    # Basic string fields
+    if name is not None:
+        if name and not name.strip():
+            raise ValueError("name cannot be empty")
+        update_payload["name"] = name
+    
+    if status:
+        valid_statuses = ["active", "planned", "staged", "failed", "inventory", "decommissioning", "offline"]
+        if status not in valid_statuses:
+            raise ValueError(f"status must be one of: {', '.join(valid_statuses)}")
+        update_payload["status"] = status
+    
+    if serial is not None:
+        update_payload["serial"] = serial
+        
+    if asset_tag is not None:
+        update_payload["asset_tag"] = asset_tag
+        
+    if description is not None:
+        update_payload["description"] = f"[NetBox-MCP] {description}" if description else ""
+        
+    if comments is not None:
+        update_payload["comments"] = f"[NetBox-MCP] {comments}" if comments else ""
+    
+    if face:
+        if face not in ["front", "rear"]:
+            raise ValueError("face must be 'front' or 'rear'")
+        update_payload["face"] = face
+    
+    if position is not None:
+        if position < 1:
+            raise ValueError("position must be 1 or greater")
+        update_payload["position"] = position
+    
+    # Foreign key resolution for relationship fields
+    if role:
+        try:
+            roles = client.dcim.device_roles.filter(name=role)
+            if not roles:
+                roles = client.dcim.device_roles.filter(slug=role)
+            if not roles:
+                raise ValueError(f"Device role '{role}' not found")
+            role_obj = roles[0]
+            role_id = role_obj.get('id') if isinstance(role_obj, dict) else role_obj.id
+            update_payload["role"] = role_id
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not find device role '{role}': {e}")
+    
+    if site:
+        try:
+            sites = client.dcim.sites.filter(name=site)
+            if not sites:
+                sites = client.dcim.sites.filter(slug=site)
+            if not sites:
+                raise ValueError(f"Site '{site}' not found")
+            site_obj = sites[0]
+            site_id = site_obj.get('id') if isinstance(site_obj, dict) else site_obj.id
+            update_payload["site"] = site_id
+            # Update current_site_id for rack resolution
+            current_site_id = site_id
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not find site '{site}': {e}")
+    
+    if device_type:
+        try:
+            device_types = client.dcim.device_types.filter(model=device_type)
+            if not device_types:
+                device_types = client.dcim.device_types.filter(slug=device_type)
+            if not device_types:
+                raise ValueError(f"Device type '{device_type}' not found")
+            dt_obj = device_types[0]
+            dt_id = dt_obj.get('id') if isinstance(dt_obj, dict) else dt_obj.id
+            update_payload["device_type"] = dt_id
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not find device type '{device_type}': {e}")
+    
+    if platform:
+        try:
+            platforms = client.dcim.platforms.filter(name=platform)
+            if not platforms:
+                platforms = client.dcim.platforms.filter(slug=platform)
+            if not platforms:
+                raise ValueError(f"Platform '{platform}' not found")
+            platform_obj = platforms[0]
+            platform_id = platform_obj.get('id') if isinstance(platform_obj, dict) else platform_obj.id
+            update_payload["platform"] = platform_id
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not find platform '{platform}': {e}")
+    
+    if tenant:
+        try:
+            tenants = client.tenancy.tenants.filter(name=tenant)
+            if not tenants:
+                tenants = client.tenancy.tenants.filter(slug=tenant)
+            if not tenants:
+                raise ValueError(f"Tenant '{tenant}' not found")
+            tenant_obj = tenants[0]
+            tenant_id = tenant_obj.get('id') if isinstance(tenant_obj, dict) else tenant_obj.id
+            update_payload["tenant"] = tenant_id
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not find tenant '{tenant}': {e}")
+    
+    if rack:
+        try:
+            # Rack resolution requires site context
+            if not current_site_id:
+                raise ValueError("Cannot resolve rack without a valid site context")
+            
+            racks = client.dcim.racks.filter(name=rack, site_id=current_site_id)
+            if not racks:
+                raise ValueError(f"Rack '{rack}' not found in site '{current_site_name}'")
+            rack_obj = racks[0]
+            rack_id = rack_obj.get('id') if isinstance(rack_obj, dict) else rack_obj.id
+            update_payload["rack"] = rack_id
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not find rack '{rack}': {e}")
+    
+    # OOB IP resolution for device-level management IP
+    if oob_ip:
+        try:
+            # Validate IP address format
+            import ipaddress
+            try:
+                ip_obj = ipaddress.ip_interface(oob_ip)
+                validated_oob_ip = str(ip_obj)
+            except ValueError as e:
+                raise ValueError(f"Invalid OOB IP address format '{oob_ip}': {e}")
+            
+            # Look for existing IP address with comprehensive search
+            existing_ips = client.ipam.ip_addresses.filter(address=validated_oob_ip)
+            if existing_ips:
+                # Use existing IP address
+                ip_obj = existing_ips[0]
+                oob_ip_id = ip_obj.get('id') if isinstance(ip_obj, dict) else ip_obj.id
+                
+                # Apply defensive dict/object handling for assigned_object_type check
+                assigned_object_type = ip_obj.get('assigned_object_type') if isinstance(ip_obj, dict) else getattr(ip_obj, 'assigned_object_type', None)
+                
+                # Check if IP is already assigned to an interface (OOB should be device-level only)
+                if assigned_object_type == 'dcim.interface':
+                    logger.warning(f"OOB IP {validated_oob_ip} is currently assigned to an interface, proceeding to use for device OOB field anyway")
+                
+                logger.debug(f"Using existing OOB IP address: {validated_oob_ip} (ID: {oob_ip_id})")
+                update_payload["oob_ip"] = oob_ip_id
+            else:
+                # Try alternative search without full CIDR (in case of format mismatch)
+                ip_without_cidr = validated_oob_ip.split('/')[0]
+                alternative_ips = client.ipam.ip_addresses.filter(address__net_contains=ip_without_cidr)
+                
+                if alternative_ips:
+                    # Found IP with different CIDR notation
+                    ip_obj = alternative_ips[0]
+                    oob_ip_id = ip_obj.get('id') if isinstance(ip_obj, dict) else ip_obj.id
+                    existing_address = ip_obj.get('address') if isinstance(ip_obj, dict) else getattr(ip_obj, 'address', None)
+                    
+                    logger.info(f"Found existing IP {existing_address} for OOB request {validated_oob_ip}, using existing IP")
+                    update_payload["oob_ip"] = oob_ip_id
+                else:
+                    # Only create new IP if absolutely not found
+                    ip_data = {
+                        "address": validated_oob_ip,
+                        "status": "active",
+                        "description": f"[NetBox-MCP] OOB IP for device {device_name}"
+                    }
+                    
+                    logger.debug(f"Creating new OOB IP address: {validated_oob_ip}")
+                    try:
+                        new_ip = client.ipam.ip_addresses.create(confirm=True, **ip_data)
+                        oob_ip_id = new_ip.get('id') if isinstance(new_ip, dict) else new_ip.id
+                        update_payload["oob_ip"] = oob_ip_id
+                    except Exception as create_error:
+                        # If creation fails due to duplicate, try one more search
+                        if "Duplicate IP address" in str(create_error):
+                            logger.warning(f"Duplicate IP detected during creation, retrying search for {validated_oob_ip}")
+                            retry_ips = client.ipam.ip_addresses.filter(address=validated_oob_ip)
+                            if retry_ips:
+                                ip_obj = retry_ips[0]
+                                oob_ip_id = ip_obj.get('id') if isinstance(ip_obj, dict) else ip_obj.id
+                                update_payload["oob_ip"] = oob_ip_id
+                                logger.info(f"Successfully found existing OOB IP on retry: {validated_oob_ip} (ID: {oob_ip_id})")
+                            else:
+                                raise create_error
+                        else:
+                            raise create_error
+                
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not resolve OOB IP '{oob_ip}': {e}")
+    
+    # Primary IP resolution for primary_ip4 and primary_ip6
+    if primary_ip4:
+        try:
+            # Use the same robust IP search logic as netbox_set_primary_ip
+            import ipaddress
+            try:
+                ip_obj = ipaddress.ip_interface(primary_ip4)
+                validated_primary_ip4 = str(ip_obj)
+            except ValueError as e:
+                raise ValueError(f"Invalid primary IPv4 address format '{primary_ip4}': {e}")
+            
+            # Search for existing IP with flexible search
+            existing_ips = client.ipam.ip_addresses.filter(address=validated_primary_ip4)
+            if not existing_ips:
+                ip_base = validated_primary_ip4.split('/')[0]
+                for search_ip in [f"{ip_base}/24", f"{ip_base}/32", f"{ip_base}/16"]:
+                    existing_ips = client.ipam.ip_addresses.filter(address=search_ip)
+                    if existing_ips:
+                        validated_primary_ip4 = search_ip
+                        break
+            
+            if not existing_ips:
+                raise ValueError(f"Primary IPv4 address {primary_ip4} not found in NetBox. Ensure IP is assigned to device interface first.")
+            
+            ip_address_obj = existing_ips[0]
+            primary_ip4_id = ip_address_obj.get('id') if isinstance(ip_address_obj, dict) else ip_address_obj.id
+            
+            # Verify IP is assigned to this device's interface
+            assigned_object_type = ip_address_obj.get('assigned_object_type') if isinstance(ip_address_obj, dict) else getattr(ip_address_obj, 'assigned_object_type', None)
+            assigned_object_id = ip_address_obj.get('assigned_object_id') if isinstance(ip_address_obj, dict) else getattr(ip_address_obj, 'assigned_object_id', None)
+            
+            if assigned_object_type == "dcim.interface" and assigned_object_id:
+                interface = client.dcim.interfaces.get(assigned_object_id)
+                interface_device_id = None
+                
+                if isinstance(interface, dict):
+                    interface_device = interface.get('device')
+                    if isinstance(interface_device, int):
+                        interface_device_id = interface_device
+                    elif isinstance(interface_device, dict):
+                        interface_device_id = interface_device.get('id')
+                else:
+                    interface_device = getattr(interface, 'device', None)
+                    if isinstance(interface_device, int):
+                        interface_device_id = interface_device
+                    else:
+                        interface_device_id = getattr(interface_device, 'id', None) if interface_device else None
+                
+                if interface_device_id != device_id:
+                    raise ValueError(f"Primary IPv4 address {validated_primary_ip4} is not assigned to device {device_name}")
+            
+            update_payload["primary_ip4"] = primary_ip4_id
+            
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not resolve primary IPv4 '{primary_ip4}': {e}")
+    
+    if primary_ip6:
+        try:
+            # Same logic for IPv6
+            import ipaddress
+            try:
+                ip_obj = ipaddress.ip_interface(primary_ip6)
+                validated_primary_ip6 = str(ip_obj)
+            except ValueError as e:
+                raise ValueError(f"Invalid primary IPv6 address format '{primary_ip6}': {e}")
+            
+            # Search for existing IP
+            existing_ips = client.ipam.ip_addresses.filter(address=validated_primary_ip6)
+            if not existing_ips:
+                ip_base = validated_primary_ip6.split('/')[0]
+                for search_ip in [f"{ip_base}/64", f"{ip_base}/128", f"{ip_base}/48"]:
+                    existing_ips = client.ipam.ip_addresses.filter(address=search_ip)
+                    if existing_ips:
+                        validated_primary_ip6 = search_ip
+                        break
+            
+            if not existing_ips:
+                raise ValueError(f"Primary IPv6 address {primary_ip6} not found in NetBox. Ensure IP is assigned to device interface first.")
+            
+            ip_address_obj = existing_ips[0]
+            primary_ip6_id = ip_address_obj.get('id') if isinstance(ip_address_obj, dict) else ip_address_obj.id
+            
+            # Verify IP is assigned to this device's interface (same logic as IPv4)
+            assigned_object_type = ip_address_obj.get('assigned_object_type') if isinstance(ip_address_obj, dict) else getattr(ip_address_obj, 'assigned_object_type', None)
+            assigned_object_id = ip_address_obj.get('assigned_object_id') if isinstance(ip_address_obj, dict) else getattr(ip_address_obj, 'assigned_object_id', None)
+            
+            if assigned_object_type == "dcim.interface" and assigned_object_id:
+                interface = client.dcim.interfaces.get(assigned_object_id)
+                interface_device_id = None
+                
+                if isinstance(interface, dict):
+                    interface_device = interface.get('device')
+                    if isinstance(interface_device, int):
+                        interface_device_id = interface_device
+                    elif isinstance(interface_device, dict):
+                        interface_device_id = interface_device.get('id')
+                else:
+                    interface_device = getattr(interface, 'device', None)
+                    if isinstance(interface_device, int):
+                        interface_device_id = interface_device
+                    else:
+                        interface_device_id = getattr(interface_device, 'id', None) if interface_device else None
+                
+                if interface_device_id != device_id:
+                    raise ValueError(f"Primary IPv6 address {validated_primary_ip6} is not assigned to device {device_name}")
+            
+            update_payload["primary_ip6"] = primary_ip6_id
+            
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Could not resolve primary IPv6 '{primary_ip6}': {e}")
+    
+    # STEP 5: CONFLICT DETECTION FOR RACK POSITION
+    if rack and position is not None:
+        try:
+            # Check if the position is already occupied by another device
+            rack_id = update_payload.get("rack")
+            if rack_id:
+                existing_devices = client.dcim.devices.filter(
+                    rack_id=rack_id, 
+                    position=position,
+                    no_cache=True  # Force live check
+                )
+                
+                for existing in existing_devices:
+                    existing_id = existing.get('id') if isinstance(existing, dict) else existing.id
+                    if existing_id != device_id:  # Different device occupying the position
+                        existing_name = existing.get('name') if isinstance(existing, dict) else existing.name
+                        raise ValueError(f"Position {position} in rack is already occupied by device '{existing_name}' (ID: {existing_id})")
+                        
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.warning(f"Could not check rack position conflicts: {e}")
+    
+    # STEP 6: UPDATE DEVICE
+    try:
+        updated_device = client.dcim.devices.update(device_id, confirm=confirm, **update_payload)
+        
+        # Apply defensive dict/object handling to response
+        device_id_updated = updated_device.get('id') if isinstance(updated_device, dict) else updated_device.id
+        device_name_updated = updated_device.get('name') if isinstance(updated_device, dict) else updated_device.name
+        device_status_updated = updated_device.get('status') if isinstance(updated_device, dict) else getattr(updated_device, 'status', None)
+        
+        # Handle status object/dict
+        if isinstance(device_status_updated, dict):
+            status_label = device_status_updated.get('label', device_status_updated.get('value', 'Unknown'))
+        else:
+            status_label = str(device_status_updated) if device_status_updated else 'Unknown'
+        
+    except Exception as e:
+        raise ValueError(f"NetBox API error during device update: {e}")
+    
+    # STEP 7: RETURN SUCCESS
+    return {
+        "success": True,
+        "message": f"Device ID {device_id} successfully updated.",
+        "data": {
+            "device_id": device_id_updated,
+            "name": device_name_updated,
+            "status": status_label,
+            "serial": updated_device.get('serial') if isinstance(updated_device, dict) else getattr(updated_device, 'serial', None),
+            "asset_tag": updated_device.get('asset_tag') if isinstance(updated_device, dict) else getattr(updated_device, 'asset_tag', None),
+            "description": updated_device.get('description') if isinstance(updated_device, dict) else getattr(updated_device, 'description', None)
+        }
+    }
+
+
+@mcp_tool(category="dcim")
+def netbox_set_primary_ip(
+    client: NetBoxClient,
+    device_name: str,
+    ip_address: str,
+    ip_version: str = "auto",
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Set primary IP address for a device in NetBox DCIM.
+    
+    This tool sets the primary IPv4 or IPv6 address for a device by updating the 
+    device's primary_ip4 or primary_ip6 field. The IP address must already be 
+    assigned to an interface on the device.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the device
+        ip_address: IP address with CIDR notation (e.g., "10.0.1.100/24")
+        ip_version: IP version selection ("auto", "ipv4", "ipv6")
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Dict containing the primary IP assignment result and device information
+        
+    Examples:
+        # Auto-detect IP version
+        netbox_set_primary_ip("server-01", "10.0.1.100/24", confirm=True)
+        
+        # Force IPv4 assignment
+        netbox_set_primary_ip("server-01", "10.0.1.100/24", "ipv4", confirm=True)
+        
+        # IPv6 primary assignment
+        netbox_set_primary_ip("server-01", "2001:db8::1/64", "ipv6", confirm=True)
+        
+        # Management IP as primary
+        netbox_set_primary_ip("switch-01", "192.168.100.20/24", confirm=True)
+    """
+    
+    # STEP 1: DRY RUN CHECK
+    if not confirm:
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": "DRY RUN: Primary IP would be set. Set confirm=True to execute.",
+            "would_update": {
+                "device": device_name,
+                "ip_address": ip_address,
+                "ip_version": ip_version
+            }
+        }
+    
+    # STEP 2: PARAMETER VALIDATION
+    if not device_name or not device_name.strip():
+        raise ValueError("device_name cannot be empty")
+    
+    if not ip_address or not ip_address.strip():
+        raise ValueError("ip_address cannot be empty")
+    
+    if ip_version not in ["auto", "ipv4", "ipv6"]:
+        raise ValueError("ip_version must be 'auto', 'ipv4', or 'ipv6'")
+    
+    # STEP 3: VALIDATE IP ADDRESS FORMAT AND DETERMINE VERSION
+    try:
+        import ipaddress
+        ip_obj = ipaddress.ip_interface(ip_address)
+        validated_ip = str(ip_obj)
+        
+        # Determine IP version
+        if ip_version == "auto":
+            detected_version = "ipv4" if ip_obj.version == 4 else "ipv6"
+        elif ip_version == "ipv4" and ip_obj.version != 4:
+            raise ValueError(f"IP address {ip_address} is not IPv4 but ip_version is set to 'ipv4'")
+        elif ip_version == "ipv6" and ip_obj.version != 6:
+            raise ValueError(f"IP address {ip_address} is not IPv6 but ip_version is set to 'ipv6'")
+        else:
+            detected_version = ip_version
+            
+    except ValueError as e:
+        if "cannot be empty" in str(e) or "must be" in str(e):
+            raise  # Re-raise our parameter validation errors
+        else:
+            raise ValueError(f"Invalid IP address format '{ip_address}': {e}")
+    
+    # STEP 4: LOOKUP DEVICE
+    try:
+        devices = client.dcim.devices.filter(name=device_name)
+        if not devices:
+            raise ValueError(f"Device '{device_name}' not found")
+        
+        device = devices[0]
+        device_id = device.get('id') if isinstance(device, dict) else device.id
+        device_display = device.get('display', device_name) if isinstance(device, dict) else getattr(device, 'display', device_name)
+        
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Could not find device '{device_name}': {e}")
+    
+    # STEP 5: FIND IP ADDRESS OBJECT WITH FLEXIBLE SEARCH
+    try:
+        existing_ips = client.ipam.ip_addresses.filter(address=validated_ip)
+        
+        if not existing_ips:
+            # If exact match failed, try alternative search methods
+            ip_base = validated_ip.split('/')[0]  # Get IP without subnet
+            
+            # Try searching for IP with common subnet masks
+            alternative_searches = []
+            if '/' not in ip_address:  # Original input had no subnet
+                # Try common subnets for the IP
+                alternative_searches = [f"{ip_base}/24", f"{ip_base}/32", f"{ip_base}/16"]
+            else:
+                # Try without subnet or with alternative subnets
+                alternative_searches = [ip_base, f"{ip_base}/24", f"{ip_base}/32"]
+            
+            for search_ip in alternative_searches:
+                existing_ips = client.ipam.ip_addresses.filter(address=search_ip)
+                if existing_ips:
+                    logger.info(f"Found IP address {search_ip} for search term {ip_address}")
+                    validated_ip = search_ip  # Update validated_ip to match what we found
+                    break
+            
+            if not existing_ips:
+                # Final attempt: search by IP address alone (network contains search)
+                try:
+                    existing_ips = client.ipam.ip_addresses.filter(address__net_contains=ip_base)
+                    if existing_ips:
+                        found_ip = existing_ips[0]
+                        found_address = found_ip.get('address') if isinstance(found_ip, dict) else getattr(found_ip, 'address', None)
+                        logger.info(f"Found IP address {found_address} using network search for {ip_base}")
+                        validated_ip = found_address
+                except Exception as search_error:
+                    logger.debug(f"Network search failed: {search_error}")
+        
+        if not existing_ips:
+            # Provide helpful error message
+            search_terms_tried = [validated_ip] + alternative_searches if 'alternative_searches' in locals() else [validated_ip]
+            raise ValueError(f"IP address not found in NetBox. Tried: {', '.join(search_terms_tried)}. Ensure IP is assigned to device interface first.")
+        
+        ip_address_obj = existing_ips[0]
+        ip_id = ip_address_obj.get('id') if isinstance(ip_address_obj, dict) else ip_address_obj.id
+        
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Could not find IP address '{validated_ip}': {e}")
+    
+    # STEP 6: VERIFY IP IS ASSIGNED TO DEVICE INTERFACE
+    try:
+        # Check if IP is assigned to an interface
+        assigned_object_type = ip_address_obj.get('assigned_object_type') if isinstance(ip_address_obj, dict) else getattr(ip_address_obj, 'assigned_object_type', None)
+        assigned_object_id = ip_address_obj.get('assigned_object_id') if isinstance(ip_address_obj, dict) else getattr(ip_address_obj, 'assigned_object_id', None)
+        
+        if assigned_object_type != "dcim.interface" or not assigned_object_id:
+            raise ValueError(f"IP address {validated_ip} is not assigned to any interface")
+        
+        # Get the interface and verify it belongs to our device
+        interface = client.dcim.interfaces.get(assigned_object_id)
+        
+        # Apply comprehensive defensive handling for interface → device resolution
+        interface_name = 'Unknown'
+        interface_device_id = None
+        interface_device_name = 'Unknown'
+        
+        if isinstance(interface, dict):
+            interface_name = interface.get('name', 'Unknown')
+            interface_device = interface.get('device')
+            
+            if isinstance(interface_device, dict):
+                # Device is a nested object with id and name
+                interface_device_id = interface_device.get('id')
+                interface_device_name = interface_device.get('name', 'Unknown')
+            elif isinstance(interface_device, int):
+                # Device is just an ID, need to fetch the device object
+                interface_device_id = interface_device
+                try:
+                    device_obj = client.dcim.devices.get(interface_device_id)
+                    interface_device_name = device_obj.get('name') if isinstance(device_obj, dict) else device_obj.name
+                except Exception as e:
+                    logger.warning(f"Could not fetch device name for ID {interface_device_id}: {e}")
+                    interface_device_name = f"Device-{interface_device_id}"
+            elif interface_device is not None:
+                # Device is some other object type
+                interface_device_id = getattr(interface_device, 'id', None)
+                interface_device_name = getattr(interface_device, 'name', 'Unknown')
+        else:
+            # Handle as object
+            interface_name = getattr(interface, 'name', 'Unknown')
+            interface_device = getattr(interface, 'device', None)
+            
+            if interface_device:
+                if isinstance(interface_device, int):
+                    # Device is just an ID
+                    interface_device_id = interface_device
+                    try:
+                        device_obj = client.dcim.devices.get(interface_device_id)
+                        interface_device_name = device_obj.get('name') if isinstance(device_obj, dict) else device_obj.name
+                    except Exception as e:
+                        logger.warning(f"Could not fetch device name for ID {interface_device_id}: {e}")
+                        interface_device_name = f"Device-{interface_device_id}"
+                else:
+                    # Device is an object
+                    interface_device_id = getattr(interface_device, 'id', None)
+                    interface_device_name = getattr(interface_device, 'name', 'Unknown')
+        
+        if interface_device_id != device_id:
+            raise ValueError(f"IP address {validated_ip} is assigned to device '{interface_device_name}', not '{device_name}'")
+        
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Could not verify IP assignment: {e}")
+    
+    # STEP 7: UPDATE DEVICE PRIMARY IP
+    primary_field = "primary_ip4" if detected_version == "ipv4" else "primary_ip6"
+    
+    try:
+        update_payload = {primary_field: ip_id}
+        
+        updated_device = client.dcim.devices.update(device_id, confirm=confirm, **update_payload)
+        
+        # Apply defensive dict/object handling to response
+        device_id_updated = updated_device.get('id') if isinstance(updated_device, dict) else updated_device.id
+        device_name_updated = updated_device.get('name') if isinstance(updated_device, dict) else updated_device.name
+        
+    except Exception as e:
+        raise ValueError(f"NetBox API error during primary IP update: {e}")
+    
+    # STEP 8: RETURN SUCCESS
+    return {
+        "success": True,
+        "message": f"Primary {detected_version.upper()} address successfully set for device '{device_name}'.",
+        "data": {
+            "device_id": device_id_updated,
+            "device_name": device_name_updated,
+            "primary_ip": {
+                "address": validated_ip,
+                "version": detected_version,
+                "field": primary_field,
+                "ip_id": ip_id
+            },
+            "assignment": {
+                "interface_name": interface_name,
+                "interface_id": assigned_object_id
+            }
+        }
+    }
+
+
 # TODO: Implement advanced device lifecycle management tools:
 # - netbox_configure_device_settings
 # - netbox_monitor_device_health

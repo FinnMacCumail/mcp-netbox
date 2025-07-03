@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-108+-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-112+-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **108+ MCP Tools**: Complete DCIM, IPAM, tenancy, extras, system, and virtualization management with dual-tool pattern architecture
+- **112+ MCP Tools**: Complete DCIM, IPAM, tenancy, extras, system, and virtualization management with dual-tool pattern architecture
 - **🦜 Bridget - Your NetBox Infrastructure Guide**
   - **Auto-Context Detection** - Intelligent environment detection (demo/staging/production)
   - **Safety Guidance** - Context-aware operational recommendations
@@ -56,17 +56,22 @@ See the [Bridget Documentation](https://github.com/Deployment-Team/netbox-mcp/wi
 
 ## 📊 Current Status
 
-**Version**: 0.11.0 - Virtualization Module Complete ⭐
+**Version**: 1.0.0 - Production Release! ⭐
 
-**🎉 NEW: VIRTUALIZATION SUITE**: 30 production-ready virtualization tools added for complete VM infrastructure management across 6 domains with NetBox API schema compliance.
+**🎉 NEW: MANAGEMENT IP SUITE**: Complete out-of-band and primary IP management tools for enterprise device automation:
+- `netbox_create_interface` with `mgmt_only` parameter for BMC/iDRAC/Console interfaces
+- Enhanced `netbox_update_device` with `oob_ip`, `primary_ip4`, `primary_ip6` support
+- `netbox_set_primary_ip` with flexible IP resolution and device validation
 
-**✅ PRODUCTION READY**: Complete virtualization module with test team verification and all critical bugs resolved. Enterprise-grade patterns and defensive programming throughout.
+**✅ PRODUCTION READY**: All management IP workflows tested against NetBox 4.3.2 with comprehensive bug fixes and enterprise safety features.
 
-**🔧 COMPREHENSIVE COVERAGE**: 108+ production-ready tools across six domains:
-- **DCIM Tools**: Complete device and infrastructure lifecycle management  
-- **IPAM Tools**: IP address and network management with enterprise automation
-- **Tenancy Tools**: Multi-tenant resource management with hierarchical organization
-- **Virtualization Tools**: Complete VM infrastructure management (NEW) ⭐
+**🔧 COMPREHENSIVE COVERAGE**: 112+ production-ready tools across six domains:
+- **DCIM Tools (54)**: Complete device and infrastructure lifecycle management with management IP support
+- **Virtualization Tools (30)**: Complete VM infrastructure management (NEW) ⭐
+- **IPAM Tools (16)**: IP address and network management with enterprise automation
+- **Tenancy Tools (8)**: Multi-tenant resource management with hierarchical organization
+- **Extras Tools (2)**: Journal entries and audit trail management
+- **System Tools (1)**: Health monitoring and system status
 
 **🚀 DISCOVERY TOOLS**: 11 `list_all_*` tools enabling efficient bulk exploration:
 - `netbox_list_all_devices`, `netbox_list_all_sites`, `netbox_list_all_racks` (DCIM)

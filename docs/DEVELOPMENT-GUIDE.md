@@ -2,7 +2,7 @@
 
 ## **1. Introduction**
 
-Welcome to the development guide for the **NetBox Model Context Protocol (MCP) Server v0.9.9**. This document is the central source of truth for developing new tools and extending the functionality of this enterprise-grade MCP server.
+Welcome to the development guide for the **NetBox Model Context Protocol (MCP) Server v1.0.0**. This document is the central source of truth for developing new tools and extending the functionality of this enterprise-grade MCP server.
 
 The NetBox MCP provides **specialized tools** that enable Large Language Models to interact intelligently with NetBox network documentation and IPAM systems through a sophisticated dual-tool pattern architecture.
 
@@ -10,7 +10,7 @@ The NetBox MCP provides **specialized tools** that enable Large Language Models 
 
 ### **2.1 Production Status**
 
-  - **Version**: 0.9.9 - Cable Management Suite Complete
+  - **Version**: 1.0.0 - Production Release Complete
   - **Tool Count**: 47 MCP tools covering all NetBox domains
   - **Architecture**: Hierarchical domain structure with Registry Bridge pattern
   - **Safety**: Enterprise-grade with dry-run mode, confirmation requirements, and audit logging
@@ -371,7 +371,100 @@ client.dcim.inventory_items.create(confirm=confirm, **create_payload)
 
 **Key Insight**: The NetBox MCP codebase has established patterns that MUST be followed. Never assume pynetbox patterns from documentation - always check working NetBox MCP functions first.
 
-### **5.5 Enterprise Safety Requirements**
+#### **Bug #5: Cable Termination API Format Errors (Issue #78)**
+
+**Problem**: Cable creation fails with "Must define A and B terminations when creating a new cable" error.
+
+**Root Cause**: NetBox API expects specific termination array format, not individual type/id fields that might seem intuitive.
+
+**Critical Discovery**: Through NetBox API schema validation (`docs/netbox-api-schema.yaml`), the correct format uses GenericObjectRequest arrays.
+
+```python
+# ❌ INCORRECT - Will fail with termination error  
+cable_data = {
+    "termination_a_type": "dcim.interface",
+    "termination_a_id": interface_a_id,
+    "termination_b_type": "dcim.interface", 
+    "termination_b_id": interface_b_id,
+    "type": cable_type,
+    "status": cable_status
+}
+
+# ✅ CORRECT - Uses GenericObjectRequest format
+cable_data = {
+    "a_terminations": [{"object_type": "dcim.interface", "object_id": interface_a_id}],
+    "b_terminations": [{"object_type": "dcim.interface", "object_id": interface_b_id}],
+    "type": cable_type,
+    "status": cable_status
+}
+```
+
+**Prevention Pattern**: Always validate against NetBox API schema for relationship fields:
+
+```bash
+# Validate cable creation format
+grep -n -A 30 "CableRequest:" docs/netbox-api-schema.yaml
+# Look for termination field requirements
+```
+
+**Key Pattern**: Relationship fields often require GenericObjectRequest format: `[{"object_type": "app.model", "object_id": <id>}]`
+
+#### **Bug #6: Client Property Access Errors**
+
+**Problem**: `client.base_url` causes AttributeError in URL generation.
+
+**Root Cause**: NetBox client wrapper doesn't expose `base_url` directly.
+
+```python
+# ❌ INCORRECT - AttributeError
+netbox_url = f"{client.base_url}/dcim/device-types/{device_type_id}/"
+
+# ✅ CORRECT - Use config.url
+netbox_url = f"{client.config.url}/dcim/device-types/{device_type_id}/"
+```
+
+**Prevention**: Always use `client.config.*` for configuration access, never assume direct property exposure.
+
+### **5.5 NetBox API Debugging Techniques**
+
+When encountering NetBox API errors, use these systematic debugging approaches:
+
+#### **Debug Logging Pattern**
+
+Always add comprehensive logging to understand API interactions:
+
+```python
+# Enable debug logging to see exact payload sent to NetBox
+logger.debug(f"Creating cable with payload: {cable_data}")
+result = client.dcim.cables.create(confirm=True, **cable_data)
+logger.debug(f"NetBox API response: {result}")
+```
+
+#### **Schema Validation Workflow**
+
+Before implementing new API integrations:
+
+```bash
+# 1. Find object schema in NetBox API documentation
+grep -n -A 30 "ObjectRequest:" docs/netbox-api-schema.yaml
+
+# 2. Check for GenericObjectRequest patterns (common for relationships)
+grep -n -A 10 "GenericObjectRequest:" docs/netbox-api-schema.yaml
+
+# 3. Validate field requirements and formats
+grep -n -A 20 "required:" docs/netbox-api-schema.yaml
+```
+
+#### **Error Pattern Recognition**
+
+Common NetBox API error patterns and solutions:
+
+- **"Must define A and B terminations"** → Use GenericObjectRequest arrays
+- **"AttributeError: ... has no application named 'base_url'"** → Use `client.config.url`
+- **"Write operation requires confirm=True"** → Check MCP pattern consistency
+- **"Field does not exist"** → Validate against schema (VM interfaces don't have 'type')
+
+### **5.6 Enterprise Safety Requirements**
 
 All write operations must include a `confirm` parameter and logic to check for conflicts.
 
@@ -589,7 +682,7 @@ This structured workflow, powered by the GitHub CLI and enhanced by Gemini Code 
 
 **Status**: Production Ready (PR #72 merged) - First MCP Prompt implementation with Bridget persona system
 
-The NetBox MCP Prompts feature represents a major architectural evolution, adding intelligent workflow orchestration and user guidance on top of our 108+ tools foundation. This section documents critical lessons learned during implementation.
+The NetBox MCP Prompts feature represents a major architectural evolution, adding intelligent workflow orchestration and user guidance on top of our 112+ tools foundation. This section documents critical lessons learned during implementation.
 
 ### **11.1 The MCP Prompt Architecture**
 
@@ -883,7 +976,7 @@ def detect_environment_from_url(self, netbox_url: str) -> Tuple[str, str, str]:
 
 #### **Seamless Auto-Injection**
 
-**Challenge**: Inject context without modifying 108+ existing tool functions.
+**Challenge**: Inject context without modifying 112+ existing tool functions.
 
 **Solution**: Enhanced registry `execute_tool()` with first-call detection:
 
@@ -1113,7 +1206,7 @@ def test_thread_safe_singleton():
 
 **Success**: 100% backward compatibility maintained with existing tools.
 
-- ✅ All 108+ tools work unchanged
+- ✅ All 112+ tools work unchanged
 - ✅ Existing tool signatures preserved  
 - ✅ No breaking changes in API responses
 - ✅ Optional context enhancement only
