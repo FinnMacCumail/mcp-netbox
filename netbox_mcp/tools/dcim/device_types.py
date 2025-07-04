@@ -257,8 +257,477 @@ def netbox_list_all_device_types(
         }
 
 
-# TODO: Implement advanced device type management tools:
-# - netbox_get_device_type_specifications
-# - netbox_update_device_type_properties
-# - netbox_get_compatible_device_types
-# - netbox_clone_device_type_template
+@mcp_tool(category="dcim")
+def netbox_get_device_type_info(
+    client: NetBoxClient,
+    manufacturer: str,
+    model: str
+) -> Dict[str, Any]:
+    """
+    Get detailed information about a specific device type.
+    
+    This inspection tool provides comprehensive device type details including
+    specifications, usage statistics, and component templates. Essential for
+    device selection, compatibility verification, and hardware planning.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        manufacturer: Manufacturer name
+        model: Device model name
+        
+    Returns:
+        Detailed device type information or error details
+        
+    Example:
+        netbox_get_device_type_info("Cisco", "ISR4331")
+    """
+    try:
+        if not manufacturer or not model:
+            return {
+                "success": False,
+                "error": "Manufacturer and model are required",
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Getting device type info for {model} by {manufacturer}")
+        
+        # Resolve manufacturer to ID
+        manufacturers = client.dcim.manufacturers.filter(name=manufacturer)
+        if not manufacturers:
+            manufacturers = client.dcim.manufacturers.filter(slug=manufacturer)
+        if not manufacturers:
+            return {
+                "success": False,
+                "error": f"Manufacturer '{manufacturer}' not found",
+                "error_type": "ManufacturerNotFound"
+            }
+        
+        manufacturer_obj = manufacturers[0]
+        manufacturer_id = manufacturer_obj.get('id') if isinstance(manufacturer_obj, dict) else manufacturer_obj.id
+        manufacturer_name = manufacturer_obj.get('name') if isinstance(manufacturer_obj, dict) else manufacturer_obj.name
+        
+        # Find device type
+        device_types = client.dcim.device_types.filter(manufacturer_id=manufacturer_id, model=model)
+        if not device_types:
+            return {
+                "success": False,
+                "error": f"Device type '{model}' by '{manufacturer}' not found",
+                "error_type": "DeviceTypeNotFound"
+            }
+        
+        device_type = device_types[0]
+        
+        # Apply defensive dict/object handling
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+        device_model = device_type.get('model') if isinstance(device_type, dict) else device_type.model
+        u_height = device_type.get('u_height') if isinstance(device_type, dict) else device_type.u_height
+        is_full_depth = device_type.get('is_full_depth') if isinstance(device_type, dict) else device_type.is_full_depth
+        part_number = device_type.get('part_number') if isinstance(device_type, dict) else getattr(device_type, 'part_number', None)
+        description = device_type.get('description') if isinstance(device_type, dict) else getattr(device_type, 'description', '')
+        slug = device_type.get('slug') if isinstance(device_type, dict) else device_type.slug
+        
+        # Count devices using this device type
+        devices_using_type = list(client.dcim.devices.filter(device_type_id=device_type_id))
+        device_count = len(devices_using_type)
+        
+        # Get component templates count
+        interface_templates = list(client.dcim.interface_templates.filter(device_type_id=device_type_id))
+        power_port_templates = list(client.dcim.power_port_templates.filter(device_type_id=device_type_id))
+        console_port_templates = list(client.dcim.console_port_templates.filter(device_type_id=device_type_id))
+        console_server_port_templates = list(client.dcim.console_server_port_templates.filter(device_type_id=device_type_id))
+        power_outlet_templates = list(client.dcim.power_outlet_templates.filter(device_type_id=device_type_id))
+        front_port_templates = list(client.dcim.front_port_templates.filter(device_type_id=device_type_id))
+        rear_port_templates = list(client.dcim.rear_port_templates.filter(device_type_id=device_type_id))
+        device_bay_templates = list(client.dcim.device_bay_templates.filter(device_type_id=device_type_id))
+        module_bay_templates = list(client.dcim.module_bay_templates.filter(device_type_id=device_type_id))
+        
+        component_summary = {
+            "interface_templates": len(interface_templates),
+            "power_port_templates": len(power_port_templates),
+            "console_port_templates": len(console_port_templates),
+            "console_server_port_templates": len(console_server_port_templates),
+            "power_outlet_templates": len(power_outlet_templates),
+            "front_port_templates": len(front_port_templates),
+            "rear_port_templates": len(rear_port_templates),
+            "device_bay_templates": len(device_bay_templates),
+            "module_bay_templates": len(module_bay_templates),
+            "total_templates": (
+                len(interface_templates) + len(power_port_templates) + 
+                len(console_port_templates) + len(console_server_port_templates) +
+                len(power_outlet_templates) + len(front_port_templates) +
+                len(rear_port_templates) + len(device_bay_templates) +
+                len(module_bay_templates)
+            )
+        }
+        
+        return {
+            "success": True,
+            "device_type": {
+                "id": device_type_id,
+                "model": device_model,
+                "manufacturer": {
+                    "name": manufacturer_name,
+                    "id": manufacturer_id
+                },
+                "slug": slug,
+                "u_height": u_height,
+                "is_full_depth": is_full_depth,
+                "part_number": part_number,
+                "description": description,
+                "device_count": device_count,
+                "component_templates": component_summary
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get device type info for {model} by {manufacturer}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+@mcp_tool(category="dcim")
+def netbox_update_device_type(
+    client: NetBoxClient,
+    manufacturer: str,
+    model: str,
+    new_model: Optional[str] = None,
+    new_slug: Optional[str] = None,
+    u_height: Optional[int] = None,
+    is_full_depth: Optional[bool] = None,
+    part_number: Optional[str] = None,
+    description: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Update device type properties with enterprise safety validation.
+    
+    This enterprise-grade function enables device type updates including
+    model name, specifications, and metadata. Uses established NetBox MCP
+    update patterns with defensive error handling.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        manufacturer: Current manufacturer name
+        model: Current device model name
+        new_model: Updated model name
+        new_slug: Updated URL-friendly identifier
+        u_height: Updated height in rack units
+        is_full_depth: Updated full depth flag
+        part_number: Updated manufacturer part number
+        description: Updated description
+        confirm: Must be True to execute (enterprise safety)
+        
+    Returns:
+        Success status with updated device type details or error information
+        
+    Example:
+        netbox_update_device_type(
+            manufacturer="Cisco",
+            model="ISR4331",
+            description="Updated 4-port router",
+            u_height=2,
+            confirm=True
+        )
+    """
+    
+    # STEP 1: DRY RUN CHECK
+    if not confirm:
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": "DRY RUN: Device Type would be updated. Set confirm=True to execute.",
+            "would_update": {
+                "manufacturer": manufacturer,
+                "model": model,
+                "new_model": new_model,
+                "new_slug": new_slug,
+                "u_height": u_height,
+                "is_full_depth": is_full_depth,
+                "part_number": part_number,
+                "description": description
+            }
+        }
+    
+    # STEP 2: PARAMETER VALIDATION
+    if not manufacturer or not manufacturer.strip():
+        return {
+            "success": False,
+            "error": "Manufacturer cannot be empty",
+            "error_type": "ValidationError"
+        }
+    
+    if not model or not model.strip():
+        return {
+            "success": False,
+            "error": "Model cannot be empty",
+            "error_type": "ValidationError"
+        }
+    
+    if u_height is not None and not (1 <= u_height <= 100):
+        return {
+            "success": False,
+            "error": "U-height must be between 1 and 100",
+            "error_type": "ValidationError"
+        }
+    
+    if not any([new_model, new_slug, u_height, is_full_depth, part_number, description]):
+        return {
+            "success": False,
+            "error": "At least one field must be provided for update",
+            "error_type": "ValidationError"
+        }
+    
+    logger.info(f"Updating device type '{model}' by '{manufacturer}'")
+    
+    try:
+        # STEP 3: LOOKUP DEVICE TYPE (with defensive dict/object handling)
+        # Find manufacturer first
+        manufacturers = client.dcim.manufacturers.filter(name=manufacturer)
+        if not manufacturers:
+            manufacturers = client.dcim.manufacturers.filter(slug=manufacturer)
+        if not manufacturers:
+            return {
+                "success": False,
+                "error": f"Manufacturer '{manufacturer}' not found",
+                "error_type": "ManufacturerNotFound"
+            }
+        
+        manufacturer_obj = manufacturers[0]
+        manufacturer_id = manufacturer_obj.get('id') if isinstance(manufacturer_obj, dict) else manufacturer_obj.id
+        manufacturer_name = manufacturer_obj.get('name') if isinstance(manufacturer_obj, dict) else manufacturer_obj.name
+        
+        # Find device type
+        device_types = client.dcim.device_types.filter(manufacturer_id=manufacturer_id, model=model)
+        if not device_types:
+            return {
+                "success": False,
+                "error": f"Device type '{model}' by '{manufacturer}' not found",
+                "error_type": "DeviceTypeNotFound"
+            }
+        
+        device_type = device_types[0]
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+        
+        # STEP 4: CONFLICT DETECTION - Check for slug conflicts if new_slug provided
+        if new_slug:
+            existing_slugs = client.dcim.device_types.filter(slug=new_slug, no_cache=True)
+            # Exclude current device type from conflict check
+            conflicting_slugs = [dt for dt in existing_slugs if (
+                (dt.get('id') if isinstance(dt, dict) else dt.id) != device_type_id
+            )]
+            
+            if conflicting_slugs:
+                conflicting_type = conflicting_slugs[0]
+                conflicting_id = conflicting_type.get('id') if isinstance(conflicting_type, dict) else conflicting_type.id
+                return {
+                    "success": False,
+                    "error": f"Slug '{new_slug}' already exists for another device type (ID: {conflicting_id})",
+                    "error_type": "SlugConflictError"
+                }
+        
+        # STEP 5: BUILD UPDATE PAYLOAD
+        update_payload = {}
+        if new_model is not None:
+            update_payload["model"] = new_model
+        if new_slug is not None:
+            update_payload["slug"] = new_slug
+        if u_height is not None:
+            update_payload["u_height"] = u_height
+        if is_full_depth is not None:
+            update_payload["is_full_depth"] = is_full_depth
+        if part_number is not None:
+            update_payload["part_number"] = part_number
+        if description is not None:
+            update_payload["description"] = description
+        
+        logger.info(f"Updating device type {device_type_id} with payload: {update_payload}")
+        
+        # STEP 6: UPDATE DEVICE TYPE - Use proven NetBox MCP update pattern
+        updated_device_type = client.dcim.device_types.update(device_type_id, confirm=confirm, **update_payload)
+        
+        # Handle both dict and object responses
+        updated_model = updated_device_type.get('model') if isinstance(updated_device_type, dict) else updated_device_type.model
+        updated_slug = updated_device_type.get('slug') if isinstance(updated_device_type, dict) else updated_device_type.slug
+        updated_u_height = updated_device_type.get('u_height') if isinstance(updated_device_type, dict) else updated_device_type.u_height
+        
+        logger.info(f"Successfully updated device type '{model}' by '{manufacturer}'")
+        
+        # STEP 7: RETURN SUCCESS
+        return {
+            "success": True,
+            "message": f"Device Type '{model}' by '{manufacturer}' successfully updated.",
+            "data": {
+                "device_type_id": device_type_id,
+                "manufacturer": {
+                    "name": manufacturer_name,
+                    "id": manufacturer_id
+                },
+                "original_model": model,
+                "updated_fields": {
+                    "model": updated_model,
+                    "slug": updated_slug,
+                    "u_height": updated_u_height,
+                    "part_number": update_payload.get("part_number"),
+                    "description": update_payload.get("description"),
+                    "is_full_depth": update_payload.get("is_full_depth")
+                }
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update device type '{model}' by '{manufacturer}': {e}")
+        return {
+            "success": False,
+            "error": f"NetBox API error during device type update: {e}",
+            "error_type": type(e).__name__
+        }
+
+
+@mcp_tool(category="dcim")
+def netbox_delete_device_type(
+    client: NetBoxClient,
+    manufacturer: str,
+    model: str,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Delete a device type with enterprise safety validation.
+    
+    This enterprise-grade function enables safe device type removal with comprehensive
+    validation and dependency checking. Uses established NetBox MCP delete patterns
+    with defensive error handling.
+    
+    SAFETY WARNING: This operation cannot be undone. Ensure no devices are using
+    this device type before deletion.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        manufacturer: Manufacturer name
+        model: Device model name to delete
+        confirm: Must be True to execute (enterprise safety)
+        
+    Returns:
+        Success status with deletion details or error information
+        
+    Example:
+        netbox_delete_device_type(
+            manufacturer="Cisco",
+            model="ISR4331",
+            confirm=True
+        )
+    """
+    
+    # STEP 1: DRY RUN CHECK
+    if not confirm:
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": "DRY RUN: Device Type would be deleted. Set confirm=True to execute.",
+            "would_delete": {
+                "manufacturer": manufacturer,
+                "model": model
+            },
+            "warning": "This operation cannot be undone. Ensure no devices are using this device type."
+        }
+    
+    # STEP 2: PARAMETER VALIDATION
+    if not manufacturer or not manufacturer.strip():
+        return {
+            "success": False,
+            "error": "Manufacturer cannot be empty",
+            "error_type": "ValidationError"
+        }
+    
+    if not model or not model.strip():
+        return {
+            "success": False,
+            "error": "Model cannot be empty",
+            "error_type": "ValidationError"
+        }
+    
+    logger.info(f"Deleting device type '{model}' by '{manufacturer}'")
+    
+    try:
+        # STEP 3: LOOKUP DEVICE TYPE (with defensive dict/object handling)
+        # Find manufacturer first
+        manufacturers = client.dcim.manufacturers.filter(name=manufacturer)
+        if not manufacturers:
+            manufacturers = client.dcim.manufacturers.filter(slug=manufacturer)
+        if not manufacturers:
+            return {
+                "success": False,
+                "error": f"Manufacturer '{manufacturer}' not found",
+                "error_type": "ManufacturerNotFound"
+            }
+        
+        manufacturer_obj = manufacturers[0]
+        manufacturer_id = manufacturer_obj.get('id') if isinstance(manufacturer_obj, dict) else manufacturer_obj.id
+        manufacturer_name = manufacturer_obj.get('name') if isinstance(manufacturer_obj, dict) else manufacturer_obj.name
+        
+        # Find device type
+        device_types = client.dcim.device_types.filter(manufacturer_id=manufacturer_id, model=model)
+        if not device_types:
+            return {
+                "success": False,
+                "error": f"Device type '{model}' by '{manufacturer}' not found",
+                "error_type": "DeviceTypeNotFound"
+            }
+        
+        device_type = device_types[0]
+        device_type_id = device_type.get('id') if isinstance(device_type, dict) else device_type.id
+        device_type_model = device_type.get('model') if isinstance(device_type, dict) else device_type.model
+        device_type_slug = device_type.get('slug') if isinstance(device_type, dict) else device_type.slug
+        
+        # STEP 4: DEPENDENCY CHECK - Check for devices using this device type
+        devices_using_type = list(client.dcim.devices.filter(device_type_id=device_type_id, no_cache=True))
+        if devices_using_type:
+            device_names = []
+            for device in devices_using_type[:5]:  # Show first 5 devices
+                device_name = device.get('name') if isinstance(device, dict) else device.name
+                device_names.append(device_name)
+            
+            return {
+                "success": False,
+                "error": f"Cannot delete device type '{model}' - {len(devices_using_type)} devices are using this type",
+                "error_type": "DependencyError",
+                "details": {
+                    "devices_using_type": len(devices_using_type),
+                    "example_devices": device_names,
+                    "action_required": "Remove or change device type for all devices before deletion"
+                }
+            }
+        
+        logger.info(f"Deleting device type {device_type_id} ('{device_type_model}') - no dependencies found")
+        
+        # STEP 5: DELETE DEVICE TYPE - Use proven NetBox MCP delete pattern
+        client.dcim.device_types.delete(device_type_id, confirm=confirm)
+        
+        logger.info(f"Successfully deleted device type '{model}' by '{manufacturer}'")
+        
+        # STEP 6: RETURN SUCCESS
+        return {
+            "success": True,
+            "message": f"Device Type '{model}' by '{manufacturer}' successfully deleted.",
+            "data": {
+                "deleted_device_type": {
+                    "id": device_type_id,
+                    "model": device_type_model,
+                    "slug": device_type_slug,
+                    "manufacturer": {
+                        "name": manufacturer_name,
+                        "id": manufacturer_id
+                    }
+                }
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to delete device type '{model}' by '{manufacturer}': {e}")
+        return {
+            "success": False,
+            "error": f"NetBox API error during device type deletion: {e}",
+            "error_type": type(e).__name__
+        }

@@ -5,14 +5,14 @@
   <img src="https://img.shields.io/docker/pulls/controlaltautomate/netbox-mcp" alt="Docker Pulls">
   <img src="https://img.shields.io/github/license/Deployment-Team/netbox-mcp" alt="License">
   <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python Version">
-  <img src="https://img.shields.io/badge/MCP%20Tools-112+-brightgreen" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP%20Tools-142+-brightgreen" alt="MCP Tools">
 </p>
 
 A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
-- **112+ MCP Tools**: Complete DCIM, IPAM, tenancy, extras, system, and virtualization management with dual-tool pattern architecture
+- **142+ MCP Tools**: Complete DCIM, IPAM, tenancy, extras, system, and virtualization management with dual-tool pattern architecture
 - **🦜 Bridget - Your NetBox Infrastructure Guide**
   - **Auto-Context Detection** - Intelligent environment detection (demo/staging/production)
   - **Safety Guidance** - Context-aware operational recommendations
@@ -65,16 +65,16 @@ See the [Bridget Documentation](https://github.com/Deployment-Team/netbox-mcp/wi
 
 **✅ PRODUCTION READY**: All management IP workflows tested against NetBox 4.3.2 with comprehensive bug fixes and enterprise safety features.
 
-**🔧 COMPREHENSIVE COVERAGE**: 112+ production-ready tools across six domains:
-- **DCIM Tools (54)**: Complete device and infrastructure lifecycle management with management IP support
+**🔧 COMPREHENSIVE COVERAGE**: 142+ production-ready tools across six domains:
+- **DCIM Tools (73)**: Complete device and infrastructure lifecycle management with power management and management IP support
 - **Virtualization Tools (30)**: Complete VM infrastructure management (NEW) ⭐
 - **IPAM Tools (16)**: IP address and network management with enterprise automation
 - **Tenancy Tools (8)**: Multi-tenant resource management with hierarchical organization
 - **Extras Tools (2)**: Journal entries and audit trail management
 - **System Tools (1)**: Health monitoring and system status
 
-**🚀 DISCOVERY TOOLS**: 11 `list_all_*` tools enabling efficient bulk exploration:
-- `netbox_list_all_devices`, `netbox_list_all_sites`, `netbox_list_all_racks` (DCIM)
+**🚀 DISCOVERY TOOLS**: 23+ `list_all_*` tools enabling efficient bulk exploration:
+- `netbox_list_all_devices`, `netbox_list_all_sites`, `netbox_list_all_racks`, `netbox_list_all_power_panels`, `netbox_list_all_power_feeds`, `netbox_list_all_power_outlets`, `netbox_list_all_power_cables`, `netbox_list_all_module_type_profiles` (DCIM)
 - `netbox_list_all_prefixes`, `netbox_list_all_vlans`, `netbox_list_all_vrfs` (IPAM)  
 - `netbox_list_all_tenants`, `netbox_list_all_tenant_groups` (Tenancy)
 - `netbox_list_all_manufacturers`, `netbox_list_all_device_types`, `netbox_list_all_device_roles` (Device Management)
@@ -158,26 +158,39 @@ Auto-Context Detection → Environment Assessment → Safety Assignment → Pers
 - `netbox_provision_vlan_with_prefix` - 🆕 Atomic VLAN/prefix coordination
 - `netbox_assign_ip_to_interface` - 🆕 Cross-domain IPAM/DCIM integration
 
-**DCIM Tools** (17):
-- `netbox_create_site` - Create and manage sites
-- `netbox_get_site_info` - Retrieve site information
-- `netbox_create_rack` - Create equipment racks
-- `netbox_get_rack_elevation` - Rack elevation view
-- `netbox_create_manufacturer` - Create manufacturers
-- `netbox_create_device_type` - Create device types
-- `netbox_create_device_role` - Create device roles
-- `netbox_create_device` - Create devices
-- `netbox_get_device_info` - Retrieve device details
-- `netbox_install_module_in_device` - 🆕 Device component installation with validation
-- `netbox_add_power_port_to_device` - 🆕 Power infrastructure documentation
+**DCIM Tools** (73):
+- **Core Infrastructure** (17 tools):
+  - `netbox_create_site`, `netbox_get_site_info` - Site management
+  - `netbox_create_rack`, `netbox_get_rack_elevation` - Rack management
+  - `netbox_create_manufacturer` - Manufacturer management
+  - `netbox_create_device_type`, `netbox_get_device_type_info`, `netbox_update_device_type`, `netbox_delete_device_type` - 🆕 Complete device type CRUD
+  - `netbox_create_device_role` - Device role management
+  - `netbox_create_device`, `netbox_get_device_info`, `netbox_update_device` - 🆕 Enhanced device management with management IP support
+  - `netbox_install_module_in_device` - Device component installation
+  - `netbox_add_power_port_to_device` - Power infrastructure documentation
+
+- **Management & OOB IP Suite** (3 tools) 🆕:
+  - `netbox_create_interface` - 🆕 Interface creation with `mgmt_only` support for BMC/iDRAC
+  - `netbox_set_primary_ip` - 🆕 Primary IP assignment with intelligent resolution
+  - Enhanced `netbox_update_device` with `oob_ip`, `primary_ip4`, `primary_ip6` parameters
+
+- **Module Type Profiles** (6 tools) 🆕 **NetBox 4.3.x**:
+  - `netbox_create_module_type_profile`, `netbox_get_module_type_profile_info`, `netbox_list_all_module_type_profiles`
+  - `netbox_update_module_type_profile`, `netbox_delete_module_type_profile`, `netbox_assign_module_type_profile`
+
+- **Module Management** (2 enhanced tools) 🆕:
+  - `netbox_update_module_type`, `netbox_delete_module_type` - Complete module type CRUD
+
+- **Power Management Infrastructure** (19 tools) 🆕:
+  - **Power Panels** (5): `netbox_create_power_panel`, `netbox_get_power_panel_info`, `netbox_list_all_power_panels`, `netbox_update_power_panel`, `netbox_delete_power_panel`
+  - **Power Feeds** (5): `netbox_create_power_feed`, `netbox_get_power_feed_info`, `netbox_list_all_power_feeds`, `netbox_update_power_feed`, `netbox_delete_power_feed`
+  - **Power Outlets** (5): `netbox_create_power_outlet`, `netbox_get_power_outlet_info`, `netbox_list_all_power_outlets`, `netbox_update_power_outlet`, `netbox_delete_power_outlet`
+  - **Power Connections** (4): `netbox_create_power_cable`, `netbox_get_power_connection_info`, `netbox_list_all_power_cables`, `netbox_disconnect_power_cable`
+
 - **Inventory Management Suite** (7 tools):
-  - `netbox_add_inventory_item_template_to_device_type` - 🆕 Define standard inventory for device types
-  - `netbox_list_inventory_item_templates_for_device_type` - 🆕 List device type inventory templates
-  - `netbox_add_inventory_item_to_device` - 🆕 Track actual inventory items on devices
-  - `netbox_list_device_inventory` - 🆕 Comprehensive device inventory reporting
-  - `netbox_update_inventory_item` - 🆕 Update asset information and serial numbers
-  - `netbox_remove_inventory_item` - 🆕 Safe inventory item removal with validation
-  - `netbox_bulk_add_standard_inventory` - 🆕 Rapid deployment with predefined presets
+  - `netbox_add_inventory_item_template_to_device_type`, `netbox_list_inventory_item_templates_for_device_type`
+  - `netbox_add_inventory_item_to_device`, `netbox_list_device_inventory`, `netbox_update_inventory_item`
+  - `netbox_remove_inventory_item`, `netbox_bulk_add_standard_inventory`
 
 **Tenancy Tools** (8):
 - `netbox_create_contact_for_tenant` - 🆕 Contact management with role-based assignment

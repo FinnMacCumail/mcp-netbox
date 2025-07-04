@@ -1800,3 +1800,292 @@ def netbox_get_module_bay_info(
     except Exception as e:
         logger.error(f"Failed to get module bay info for bay '{module_bay}' on device '{device_name}': {e}")
         raise ValidationError(f"Failed to retrieve module bay information: {e}")
+
+
+# ======================================================================
+# MODULE TYPE CRUD COMPLETION
+# ======================================================================
+
+@mcp_tool(category="dcim")
+def netbox_update_module_type(
+    client: NetBoxClient,
+    manufacturer: str,
+    model: str,
+    new_model: Optional[str] = None,
+    part_number: Optional[str] = None,
+    description: Optional[str] = None,
+    weight: Optional[float] = None,
+    weight_unit: Optional[str] = None,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Update module type properties with enterprise safety validation.
+    
+    This enterprise-grade function enables module type updates including
+    model name, specifications, and metadata. Uses established NetBox MCP
+    update patterns with defensive error handling.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        manufacturer: Current manufacturer name
+        model: Current module model name
+        new_model: Updated model name
+        part_number: Updated manufacturer part number
+        description: Updated description
+        weight: Updated physical weight
+        weight_unit: Updated weight unit (g, kg, lb, oz)
+        confirm: Must be True to execute (enterprise safety)
+        
+    Returns:
+        Success status with updated module type details or error information
+        
+    Example:
+        netbox_update_module_type(
+            manufacturer="Cisco",
+            model="SFP-10G-LR",
+            description="Updated 10GBASE-LR SFP+ Module",
+            weight=22.0,
+            confirm=True
+        )
+    """
+    
+    # STEP 1: DRY RUN CHECK
+    if not confirm:
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": "DRY RUN: Module Type would be updated. Set confirm=True to execute.",
+            "would_update": {
+                "manufacturer": manufacturer,
+                "model": model,
+                "new_model": new_model,
+                "part_number": part_number,
+                "description": description,
+                "weight": weight,
+                "weight_unit": weight_unit
+            }
+        }
+    
+    # STEP 2: PARAMETER VALIDATION
+    if not manufacturer or not manufacturer.strip():
+        raise ValidationError("Manufacturer cannot be empty")
+    
+    if not model or not model.strip():
+        raise ValidationError("Model cannot be empty")
+    
+    if weight is not None and weight < 0:
+        raise ValidationError("Weight cannot be negative")
+    
+    if weight_unit is not None:
+        valid_weight_units = ["g", "kg", "lb", "oz"]
+        if weight_unit not in valid_weight_units:
+            raise ValidationError(f"Weight unit must be one of: {', '.join(valid_weight_units)}")
+    
+    if not any([new_model, part_number, description, weight, weight_unit]):
+        raise ValidationError("At least one field must be provided for update")
+    
+    logger.info(f"Updating module type '{model}' by '{manufacturer}'")
+    
+    try:
+        # STEP 3: LOOKUP MODULE TYPE (with defensive dict/object handling)
+        # Find manufacturer first
+        manufacturers = client.dcim.manufacturers.filter(name=manufacturer)
+        if not manufacturers:
+            manufacturers = client.dcim.manufacturers.filter(slug=manufacturer.lower().replace(' ', '-'))
+        if not manufacturers:
+            raise NotFoundError(f"Manufacturer '{manufacturer}' not found")
+        
+        manufacturer_obj = manufacturers[0]
+        manufacturer_id = manufacturer_obj.get('id') if isinstance(manufacturer_obj, dict) else manufacturer_obj.id
+        manufacturer_name = manufacturer_obj.get('name') if isinstance(manufacturer_obj, dict) else manufacturer_obj.name
+        
+        # Find module type
+        module_types = client.dcim.module_types.filter(manufacturer_id=manufacturer_id, model=model)
+        if not module_types:
+            raise NotFoundError(f"Module type '{model}' by '{manufacturer}' not found")
+        
+        module_type = module_types[0]
+        module_type_id = module_type.get('id') if isinstance(module_type, dict) else module_type.id
+        
+        # STEP 4: BUILD UPDATE PAYLOAD
+        update_payload = {}
+        if new_model is not None:
+            update_payload["model"] = new_model
+        if part_number is not None:
+            update_payload["part_number"] = part_number
+        if description is not None:
+            update_payload["description"] = description
+        if weight is not None:
+            update_payload["weight"] = weight
+        if weight_unit is not None:
+            update_payload["weight_unit"] = weight_unit
+        
+        logger.info(f"Updating module type {module_type_id} with payload: {update_payload}")
+        
+        # STEP 5: UPDATE MODULE TYPE - Use proven NetBox MCP update pattern
+        updated_module_type = client.dcim.module_types.update(module_type_id, confirm=confirm, **update_payload)
+        
+        # Handle both dict and object responses
+        updated_model = updated_module_type.get('model') if isinstance(updated_module_type, dict) else updated_module_type.model
+        updated_part_number = updated_module_type.get('part_number') if isinstance(updated_module_type, dict) else getattr(updated_module_type, 'part_number', None)
+        updated_description = updated_module_type.get('description') if isinstance(updated_module_type, dict) else getattr(updated_module_type, 'description', '')
+        
+        logger.info(f"Successfully updated module type '{model}' by '{manufacturer}'")
+        
+        # STEP 6: RETURN SUCCESS
+        return {
+            "success": True,
+            "message": f"Module Type '{model}' by '{manufacturer}' successfully updated.",
+            "data": {
+                "module_type_id": module_type_id,
+                "manufacturer": {
+                    "name": manufacturer_name,
+                    "id": manufacturer_id
+                },
+                "original_model": model,
+                "updated_fields": {
+                    "model": updated_model,
+                    "part_number": updated_part_number,
+                    "description": updated_description,
+                    "weight": update_payload.get("weight"),
+                    "weight_unit": update_payload.get("weight_unit")
+                }
+            }
+        }
+        
+    except (NotFoundError, ValidationError):
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update module type '{model}' by '{manufacturer}': {e}")
+        raise ValidationError(f"NetBox API error during module type update: {e}")
+
+
+@mcp_tool(category="dcim")
+def netbox_delete_module_type(
+    client: NetBoxClient,
+    manufacturer: str,
+    model: str,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Delete a module type with enterprise safety validation.
+    
+    This enterprise-grade function enables safe module type removal with comprehensive
+    validation and dependency checking. Uses established NetBox MCP delete patterns
+    with defensive error handling.
+    
+    SAFETY WARNING: This operation cannot be undone. Ensure no modules are using
+    this module type before deletion.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        manufacturer: Manufacturer name
+        model: Module model name to delete
+        confirm: Must be True to execute (enterprise safety)
+        
+    Returns:
+        Success status with deletion details or error information
+        
+    Example:
+        netbox_delete_module_type(
+            manufacturer="Cisco",
+            model="SFP-10G-LR",
+            confirm=True
+        )
+    """
+    
+    # STEP 1: DRY RUN CHECK
+    if not confirm:
+        return {
+            "success": True,
+            "dry_run": True,
+            "message": "DRY RUN: Module Type would be deleted. Set confirm=True to execute.",
+            "would_delete": {
+                "manufacturer": manufacturer,
+                "model": model
+            },
+            "warning": "This operation cannot be undone. Ensure no modules are using this module type."
+        }
+    
+    # STEP 2: PARAMETER VALIDATION
+    if not manufacturer or not manufacturer.strip():
+        raise ValidationError("Manufacturer cannot be empty")
+    
+    if not model or not model.strip():
+        raise ValidationError("Model cannot be empty")
+    
+    logger.info(f"Deleting module type '{model}' by '{manufacturer}'")
+    
+    try:
+        # STEP 3: LOOKUP MODULE TYPE (with defensive dict/object handling)
+        # Find manufacturer first
+        manufacturers = client.dcim.manufacturers.filter(name=manufacturer)
+        if not manufacturers:
+            manufacturers = client.dcim.manufacturers.filter(slug=manufacturer.lower().replace(' ', '-'))
+        if not manufacturers:
+            raise NotFoundError(f"Manufacturer '{manufacturer}' not found")
+        
+        manufacturer_obj = manufacturers[0]
+        manufacturer_id = manufacturer_obj.get('id') if isinstance(manufacturer_obj, dict) else manufacturer_obj.id
+        manufacturer_name = manufacturer_obj.get('name') if isinstance(manufacturer_obj, dict) else manufacturer_obj.name
+        
+        # Find module type
+        module_types = client.dcim.module_types.filter(manufacturer_id=manufacturer_id, model=model)
+        if not module_types:
+            raise NotFoundError(f"Module type '{model}' by '{manufacturer}' not found")
+        
+        module_type = module_types[0]
+        module_type_id = module_type.get('id') if isinstance(module_type, dict) else module_type.id
+        module_type_model = module_type.get('model') if isinstance(module_type, dict) else module_type.model
+        module_type_part_number = module_type.get('part_number') if isinstance(module_type, dict) else getattr(module_type, 'part_number', None)
+        
+        # STEP 4: DEPENDENCY CHECK - Check for modules using this module type
+        modules_using_type = get_expanded_modules(client, module_type_id=module_type_id)
+        if modules_using_type:
+            device_names = []
+            for module in modules_using_type[:5]:  # Show first 5 modules
+                device_obj = module.get('device') if isinstance(module, dict) else getattr(module, 'device', None)
+                if device_obj:
+                    device_name = device_obj.get('name') if isinstance(device_obj, dict) else getattr(device_obj, 'name', 'Unknown')
+                    device_names.append(device_name)
+            
+            return {
+                "success": False,
+                "error": f"Cannot delete module type '{model}' - {len(modules_using_type)} modules are using this type",
+                "error_type": "DependencyError",
+                "details": {
+                    "modules_using_type": len(modules_using_type),
+                    "example_devices": device_names,
+                    "action_required": "Remove or change module type for all modules before deletion"
+                }
+            }
+        
+        logger.info(f"Deleting module type {module_type_id} ('{module_type_model}') - no dependencies found")
+        
+        # STEP 5: DELETE MODULE TYPE - Use proven NetBox MCP delete pattern
+        client.dcim.module_types.delete(module_type_id, confirm=confirm)
+        
+        logger.info(f"Successfully deleted module type '{model}' by '{manufacturer}'")
+        
+        # STEP 6: RETURN SUCCESS
+        return {
+            "success": True,
+            "message": f"Module Type '{model}' by '{manufacturer}' successfully deleted.",
+            "data": {
+                "deleted_module_type": {
+                    "id": module_type_id,
+                    "model": module_type_model,
+                    "part_number": module_type_part_number,
+                    "manufacturer": {
+                        "name": manufacturer_name,
+                        "id": manufacturer_id
+                    }
+                }
+            }
+        }
+        
+    except (NotFoundError, ValidationError):
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete module type '{model}' by '{manufacturer}': {e}")
+        raise ValidationError(f"NetBox API error during module type deletion: {e}")
