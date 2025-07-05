@@ -11,7 +11,7 @@ import logging
 
 from netbox_mcp.registry import mcp_tool
 from netbox_mcp.client import NetBoxClient
-from netbox_mcp.exceptions import ValidationError, NotFoundError, ConflictError
+from netbox_mcp.exceptions import NetBoxValidationError, NetBoxNotFoundError, NetBoxConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -94,56 +94,56 @@ def netbox_create_power_feed(
     
     # PARAMETER VALIDATION
     if not name or not name.strip():
-        raise ValidationError("Power feed name cannot be empty")
+        raise NetBoxValidationError("Power feed name cannot be empty")
     
     if not power_panel or not power_panel.strip():
-        raise ValidationError("Power panel is required for power feed creation")
+        raise NetBoxValidationError("Power panel is required for power feed creation")
     
     if not site or not site.strip():
-        raise ValidationError("Site is required for power feed creation")
+        raise NetBoxValidationError("Site is required for power feed creation")
     
     # Validate choice fields
     valid_statuses = ["planned", "active", "offline", "decommissioning"]
     if status not in valid_statuses:
-        raise ValidationError(f"Invalid status '{status}'. Valid options: {', '.join(valid_statuses)}")
+        raise NetBoxValidationError(f"Invalid status '{status}'. Valid options: {', '.join(valid_statuses)}")
     
     valid_types = ["primary", "redundant"]
     if feed_type not in valid_types:
-        raise ValidationError(f"Invalid type '{feed_type}'. Valid options: {', '.join(valid_types)}")
+        raise NetBoxValidationError(f"Invalid type '{feed_type}'. Valid options: {', '.join(valid_types)}")
     
     valid_supplies = ["ac", "dc"]
     if supply not in valid_supplies:
-        raise ValidationError(f"Invalid supply '{supply}'. Valid options: {', '.join(valid_supplies)}")
+        raise NetBoxValidationError(f"Invalid supply '{supply}'. Valid options: {', '.join(valid_supplies)}")
     
     valid_phases = ["single-phase", "three-phase"]
     if phase not in valid_phases:
-        raise ValidationError(f"Invalid phase '{phase}'. Valid options: {', '.join(valid_phases)}")
+        raise NetBoxValidationError(f"Invalid phase '{phase}'. Valid options: {', '.join(valid_phases)}")
     
     # LOOKUP SITE (with defensive dict/object handling)
     try:
         sites = client.dcim.sites.filter(name=site)
         if not sites:
-            raise NotFoundError(f"Site '{site}' not found")
+            raise NetBoxNotFoundError(f"Site '{site}' not found")
         
         site_obj = sites[0]
         site_id = site_obj.get('id') if isinstance(site_obj, dict) else site_obj.id
         site_display = site_obj.get('display', site) if isinstance(site_obj, dict) else getattr(site_obj, 'display', site)
         
     except Exception as e:
-        raise NotFoundError(f"Could not find site '{site}': {e}")
+        raise NetBoxNotFoundError(f"Could not find site '{site}': {e}")
     
     # LOOKUP POWER PANEL
     try:
         panels = client.dcim.power_panels.filter(site_id=site_id, name=power_panel)
         if not panels:
-            raise NotFoundError(f"Power panel '{power_panel}' not found in site '{site}'")
+            raise NetBoxNotFoundError(f"Power panel '{power_panel}' not found in site '{site}'")
         
         panel_obj = panels[0]
         panel_id = panel_obj.get('id') if isinstance(panel_obj, dict) else panel_obj.id
         panel_display = panel_obj.get('display', power_panel) if isinstance(panel_obj, dict) else getattr(panel_obj, 'display', power_panel)
         
     except Exception as e:
-        raise ValidationError(f"Failed to resolve power panel '{power_panel}': {e}")
+        raise NetBoxValidationError(f"Failed to resolve power panel '{power_panel}': {e}")
     
     # LOOKUP RACK (if provided)
     rack_id = None
@@ -152,14 +152,14 @@ def netbox_create_power_feed(
         try:
             racks = client.dcim.racks.filter(site_id=site_id, name=rack)
             if not racks:
-                raise NotFoundError(f"Rack '{rack}' not found in site '{site}'")
+                raise NetBoxNotFoundError(f"Rack '{rack}' not found in site '{site}'")
             
             rack_obj = racks[0]
             rack_id = rack_obj.get('id') if isinstance(rack_obj, dict) else rack_obj.id
             rack_display = rack_obj.get('display', rack) if isinstance(rack_obj, dict) else getattr(rack_obj, 'display', rack)
             
         except Exception as e:
-            raise ValidationError(f"Failed to resolve rack '{rack}': {e}")
+            raise NetBoxValidationError(f"Failed to resolve rack '{rack}': {e}")
     
     # CONFLICT DETECTION
     try:
@@ -172,7 +172,7 @@ def netbox_create_power_feed(
         if existing_feeds:
             existing_feed = existing_feeds[0]
             existing_id = existing_feed.get('id') if isinstance(existing_feed, dict) else existing_feed.id
-            raise ConflictError(
+            raise NetBoxConflictError(
                 resource_type="Power Feed",
                 identifier=f"{name} in power panel {power_panel}",
                 existing_id=existing_id
@@ -196,17 +196,17 @@ def netbox_create_power_feed(
     # Add optional parameters
     if voltage is not None:
         if voltage <= 0:
-            raise ValidationError("Voltage must be positive")
+            raise NetBoxValidationError("Voltage must be positive")
         create_payload["voltage"] = voltage
     
     if amperage is not None:
         if amperage <= 0:
-            raise ValidationError("Amperage must be positive")
+            raise NetBoxValidationError("Amperage must be positive")
         create_payload["amperage"] = amperage
     
     if max_utilization is not None:
         if not (0 <= max_utilization <= 100):
-            raise ValidationError("Max utilization must be between 0 and 100 percent")
+            raise NetBoxValidationError("Max utilization must be between 0 and 100 percent")
         create_payload["max_utilization"] = max_utilization
     
     if rack_id:
@@ -221,7 +221,7 @@ def netbox_create_power_feed(
         feed_id = new_feed.get('id') if isinstance(new_feed, dict) else new_feed.id
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power feed creation: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power feed creation: {e}")
     
     # RETURN SUCCESS
     return {
@@ -322,14 +322,14 @@ def netbox_get_power_feed_info(
                 identifier_desc += f" in power panel '{power_panel}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         feed = feeds[0]
         feed_id = feed.get('id') if isinstance(feed, dict) else feed.id
         feed_name = feed.get('name') if isinstance(feed, dict) else feed.name
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power feed: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power feed: {e}")
     
     # GET POWER OUTLETS
     power_outlets = []
@@ -732,7 +732,7 @@ def netbox_list_all_power_feeds(
         }
         
     except Exception as e:
-        raise ValidationError(f"Failed to retrieve power feeds: {e}")
+        raise NetBoxValidationError(f"Failed to retrieve power feeds: {e}")
 
 
 @mcp_tool(category="dcim")
@@ -851,14 +851,14 @@ def netbox_update_power_feed(
                 identifier_desc += f" in power panel '{power_panel}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         existing_feed = feeds[0]
         feed_id = existing_feed.get('id') if isinstance(existing_feed, dict) else existing_feed.id
         current_name = existing_feed.get('name') if isinstance(existing_feed, dict) else existing_feed.name
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power feed: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power feed: {e}")
     
     # BUILD UPDATE PAYLOAD
     update_payload = {}
@@ -866,48 +866,48 @@ def netbox_update_power_feed(
     # Handle name update
     if new_name:
         if not new_name.strip():
-            raise ValidationError("New power feed name cannot be empty")
+            raise NetBoxValidationError("New power feed name cannot be empty")
         update_payload["name"] = new_name.strip()
     
     # Handle choice field updates with validation
     if status:
         valid_statuses = ["planned", "active", "offline", "decommissioning"]
         if status not in valid_statuses:
-            raise ValidationError(f"Invalid status '{status}'. Valid options: {', '.join(valid_statuses)}")
+            raise NetBoxValidationError(f"Invalid status '{status}'. Valid options: {', '.join(valid_statuses)}")
         update_payload["status"] = status
     
     if feed_type:
         valid_types = ["primary", "redundant"]
         if feed_type not in valid_types:
-            raise ValidationError(f"Invalid type '{feed_type}'. Valid options: {', '.join(valid_types)}")
+            raise NetBoxValidationError(f"Invalid type '{feed_type}'. Valid options: {', '.join(valid_types)}")
         update_payload["type"] = feed_type
     
     if supply:
         valid_supplies = ["ac", "dc"]
         if supply not in valid_supplies:
-            raise ValidationError(f"Invalid supply '{supply}'. Valid options: {', '.join(valid_supplies)}")
+            raise NetBoxValidationError(f"Invalid supply '{supply}'. Valid options: {', '.join(valid_supplies)}")
         update_payload["supply"] = supply
     
     if phase:
         valid_phases = ["single-phase", "three-phase"]
         if phase not in valid_phases:
-            raise ValidationError(f"Invalid phase '{phase}'. Valid options: {', '.join(valid_phases)}")
+            raise NetBoxValidationError(f"Invalid phase '{phase}'. Valid options: {', '.join(valid_phases)}")
         update_payload["phase"] = phase
     
     # Handle numeric updates with validation
     if voltage is not None:
         if voltage <= 0:
-            raise ValidationError("Voltage must be positive")
+            raise NetBoxValidationError("Voltage must be positive")
         update_payload["voltage"] = voltage
     
     if amperage is not None:
         if amperage <= 0:
-            raise ValidationError("Amperage must be positive")
+            raise NetBoxValidationError("Amperage must be positive")
         update_payload["amperage"] = amperage
     
     if max_utilization is not None:
         if not (0 <= max_utilization <= 100):
-            raise ValidationError("Max utilization must be between 0 and 100 percent")
+            raise NetBoxValidationError("Max utilization must be between 0 and 100 percent")
         update_payload["max_utilization"] = max_utilization
     
     # Handle rack update
@@ -922,16 +922,16 @@ def netbox_update_power_feed(
                 if site_id:
                     racks = client.dcim.racks.filter(site_id=site_id, name=rack)
                     if not racks:
-                        raise NotFoundError(f"Rack '{rack}' not found in current site")
+                        raise NetBoxNotFoundError(f"Rack '{rack}' not found in current site")
                     
                     rack_obj = racks[0]
                     rack_id = rack_obj.get('id') if isinstance(rack_obj, dict) else rack_obj.id
                     update_payload["rack"] = rack_id
                 else:
-                    raise ValidationError("Cannot resolve rack - site information missing")
+                    raise NetBoxValidationError("Cannot resolve rack - site information missing")
                     
             except Exception as e:
-                raise ValidationError(f"Failed to resolve rack '{rack}': {e}")
+                raise NetBoxValidationError(f"Failed to resolve rack '{rack}': {e}")
         else:
             # Clear rack
             update_payload["rack"] = None
@@ -945,7 +945,7 @@ def netbox_update_power_feed(
     
     # Check if any updates provided
     if not update_payload:
-        raise ValidationError("No update parameters provided")
+        raise NetBoxValidationError("No update parameters provided")
     
     # CONFLICT DETECTION (if name is being changed)
     if "name" in update_payload:
@@ -964,7 +964,7 @@ def netbox_update_power_feed(
                 for existing in existing_feeds:
                     existing_id = existing.get('id') if isinstance(existing, dict) else existing.id
                     if existing_id != feed_id:
-                        raise ConflictError(
+                        raise NetBoxConflictError(
                             resource_type="Power Feed",
                             identifier=f"{update_payload['name']} in current power panel",
                             existing_id=existing_id
@@ -981,7 +981,7 @@ def netbox_update_power_feed(
         updated_name = updated_feed.get('name') if isinstance(updated_feed, dict) else updated_feed.name
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power feed update: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power feed update: {e}")
     
     # RETURN SUCCESS
     return {
@@ -1081,7 +1081,7 @@ def netbox_delete_power_feed(
                 identifier_desc += f" in power panel '{power_panel}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         feed_to_delete = feeds[0]
         feed_id = feed_to_delete.get('id') if isinstance(feed_to_delete, dict) else feed_to_delete.id
@@ -1098,7 +1098,7 @@ def netbox_delete_power_feed(
                 site_name = panel_site_data.get('name') if isinstance(panel_site_data, dict) else getattr(panel_site_data, 'name', 'Unknown')
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power feed: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power feed: {e}")
     
     # DEPENDENCY VALIDATION
     dependencies = []
@@ -1159,7 +1159,7 @@ def netbox_delete_power_feed(
         for dep in dependencies:
             dependency_list.append(f"- {dep['description']}")
         
-        raise ValidationError(
+        raise NetBoxValidationError(
             f"Cannot delete power feed '{feed_name}' - it has active dependencies:\n" +
             "\n".join(dependency_list) +
             "\n\nPlease remove or reassign these dependencies before deleting the power feed."
@@ -1171,7 +1171,7 @@ def netbox_delete_power_feed(
         client.dcim.power_feeds.delete(feed_id, confirm=confirm)
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power feed deletion: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power feed deletion: {e}")
     
     # RETURN SUCCESS
     return {

@@ -11,7 +11,7 @@ import logging
 
 from netbox_mcp.registry import mcp_tool
 from netbox_mcp.client import NetBoxClient
-from netbox_mcp.exceptions import ValidationError, NotFoundError, ConflictError
+from netbox_mcp.exceptions import NetBoxValidationError, NetBoxNotFoundError, NetBoxConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -73,23 +73,23 @@ def netbox_create_power_panel(
     
     # PARAMETER VALIDATION
     if not name or not name.strip():
-        raise ValidationError("Power panel name cannot be empty")
+        raise NetBoxValidationError("Power panel name cannot be empty")
     
     if not site or not site.strip():
-        raise ValidationError("Site is required for power panel creation")
+        raise NetBoxValidationError("Site is required for power panel creation")
     
     # LOOKUP SITE (with defensive dict/object handling)
     try:
         sites = client.dcim.sites.filter(name=site)
         if not sites:
-            raise NotFoundError(f"Site '{site}' not found")
+            raise NetBoxNotFoundError(f"Site '{site}' not found")
         
         site_obj = sites[0]
         site_id = site_obj.get('id') if isinstance(site_obj, dict) else site_obj.id
         site_display = site_obj.get('display', site) if isinstance(site_obj, dict) else getattr(site_obj, 'display', site)
         
     except Exception as e:
-        raise NotFoundError(f"Could not find site '{site}': {e}")
+        raise NetBoxNotFoundError(f"Could not find site '{site}': {e}")
     
     # LOOKUP LOCATION (if provided)
     location_id = None
@@ -98,14 +98,14 @@ def netbox_create_power_panel(
         try:
             locations = client.dcim.locations.filter(site_id=site_id, name=location)
             if not locations:
-                raise NotFoundError(f"Location '{location}' not found in site '{site}'")
+                raise NetBoxNotFoundError(f"Location '{location}' not found in site '{site}'")
             
             location_obj = locations[0]
             location_id = location_obj.get('id') if isinstance(location_obj, dict) else location_obj.id
             location_display = location_obj.get('display', location) if isinstance(location_obj, dict) else getattr(location_obj, 'display', location)
             
         except Exception as e:
-            raise ValidationError(f"Failed to resolve location '{location}': {e}")
+            raise NetBoxValidationError(f"Failed to resolve location '{location}': {e}")
     
     # LOOKUP RACK GROUP (if provided)
     rack_group_id = None
@@ -114,14 +114,14 @@ def netbox_create_power_panel(
         try:
             rack_groups = client.dcim.rack_groups.filter(site_id=site_id, name=rack_group)
             if not rack_groups:
-                raise NotFoundError(f"Rack group '{rack_group}' not found in site '{site}'")
+                raise NetBoxNotFoundError(f"Rack group '{rack_group}' not found in site '{site}'")
             
             rack_group_obj = rack_groups[0]
             rack_group_id = rack_group_obj.get('id') if isinstance(rack_group_obj, dict) else rack_group_obj.id
             rack_group_display = rack_group_obj.get('display', rack_group) if isinstance(rack_group_obj, dict) else getattr(rack_group_obj, 'display', rack_group)
             
         except Exception as e:
-            raise ValidationError(f"Failed to resolve rack group '{rack_group}': {e}")
+            raise NetBoxValidationError(f"Failed to resolve rack group '{rack_group}': {e}")
     
     # CONFLICT DETECTION
     try:
@@ -134,7 +134,7 @@ def netbox_create_power_panel(
         if existing_panels:
             existing_panel = existing_panels[0]
             existing_id = existing_panel.get('id') if isinstance(existing_panel, dict) else existing_panel.id
-            raise ConflictError(
+            raise NetBoxConflictError(
                 resource_type="Power Panel",
                 identifier=f"{name} in site {site}",
                 existing_id=existing_id
@@ -165,7 +165,7 @@ def netbox_create_power_panel(
         panel_id = new_panel.get('id') if isinstance(new_panel, dict) else new_panel.id
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power panel creation: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power panel creation: {e}")
     
     # RETURN SUCCESS
     return {
@@ -235,14 +235,14 @@ def netbox_get_power_panel_info(
             identifier_desc = f"power panel '{panel_identifier}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         panel = panels[0]
         panel_id = panel.get('id') if isinstance(panel, dict) else panel.id
         panel_name = panel.get('name') if isinstance(panel, dict) else panel.name
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power panel: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power panel: {e}")
     
     # GET POWER FEEDS
     power_feeds = []
@@ -511,7 +511,7 @@ def netbox_list_all_power_panels(
         }
         
     except Exception as e:
-        raise ValidationError(f"Failed to retrieve power panels: {e}")
+        raise NetBoxValidationError(f"Failed to retrieve power panels: {e}")
 
 
 @mcp_tool(category="dcim")
@@ -596,14 +596,14 @@ def netbox_update_power_panel(
             identifier_desc = f"power panel '{panel_identifier}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         existing_panel = panels[0]
         panel_id = existing_panel.get('id') if isinstance(existing_panel, dict) else existing_panel.id
         current_name = existing_panel.get('name') if isinstance(existing_panel, dict) else existing_panel.name
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power panel: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power panel: {e}")
     
     # BUILD UPDATE PAYLOAD
     update_payload = {}
@@ -611,7 +611,7 @@ def netbox_update_power_panel(
     # Handle name update
     if new_name:
         if not new_name.strip():
-            raise ValidationError("New power panel name cannot be empty")
+            raise NetBoxValidationError("New power panel name cannot be empty")
         update_payload["name"] = new_name.strip()
     
     # Handle site change
@@ -619,14 +619,14 @@ def netbox_update_power_panel(
         try:
             sites = client.dcim.sites.filter(name=new_site)
             if not sites:
-                raise NotFoundError(f"New site '{new_site}' not found")
+                raise NetBoxNotFoundError(f"New site '{new_site}' not found")
             
             new_site_obj = sites[0]
             new_site_id = new_site_obj.get('id') if isinstance(new_site_obj, dict) else new_site_obj.id
             update_payload["site"] = new_site_id
             
         except Exception as e:
-            raise ValidationError(f"Failed to resolve new site '{new_site}': {e}")
+            raise NetBoxValidationError(f"Failed to resolve new site '{new_site}': {e}")
     
     # Handle location update
     if location is not None:  # Allow empty string to clear location
@@ -642,16 +642,16 @@ def netbox_update_power_panel(
                     locations = client.dcim.locations.filter(site_id=target_site_id, name=location)
                     if not locations:
                         site_name = new_site if new_site else (site if site else "unknown")
-                        raise NotFoundError(f"Location '{location}' not found in site '{site_name}'")
+                        raise NetBoxNotFoundError(f"Location '{location}' not found in site '{site_name}'")
                     
                     location_obj = locations[0]
                     location_id = location_obj.get('id') if isinstance(location_obj, dict) else location_obj.id
                     update_payload["location"] = location_id
                 else:
-                    raise ValidationError("Cannot resolve location - site information missing")
+                    raise NetBoxValidationError("Cannot resolve location - site information missing")
                     
             except Exception as e:
-                raise ValidationError(f"Failed to resolve location '{location}': {e}")
+                raise NetBoxValidationError(f"Failed to resolve location '{location}': {e}")
         else:
             # Clear location
             update_payload["location"] = None
@@ -670,16 +670,16 @@ def netbox_update_power_panel(
                     rack_groups = client.dcim.rack_groups.filter(site_id=target_site_id, name=rack_group)
                     if not rack_groups:
                         site_name = new_site if new_site else (site if site else "unknown")
-                        raise NotFoundError(f"Rack group '{rack_group}' not found in site '{site_name}'")
+                        raise NetBoxNotFoundError(f"Rack group '{rack_group}' not found in site '{site_name}'")
                     
                     rack_group_obj = rack_groups[0]
                     rack_group_id = rack_group_obj.get('id') if isinstance(rack_group_obj, dict) else rack_group_obj.id
                     update_payload["rack_group"] = rack_group_id
                 else:
-                    raise ValidationError("Cannot resolve rack group - site information missing")
+                    raise NetBoxValidationError("Cannot resolve rack group - site information missing")
                     
             except Exception as e:
-                raise ValidationError(f"Failed to resolve rack group '{rack_group}': {e}")
+                raise NetBoxValidationError(f"Failed to resolve rack group '{rack_group}': {e}")
         else:
             # Clear rack group
             update_payload["rack_group"] = None
@@ -693,7 +693,7 @@ def netbox_update_power_panel(
     
     # Check if any updates provided
     if not update_payload:
-        raise ValidationError("No update parameters provided")
+        raise NetBoxValidationError("No update parameters provided")
     
     # CONFLICT DETECTION (if name is being changed)
     if "name" in update_payload:
@@ -714,7 +714,7 @@ def netbox_update_power_panel(
                 for existing in existing_panels:
                     existing_id = existing.get('id') if isinstance(existing, dict) else existing.id
                     if existing_id != panel_id:
-                        raise ConflictError(
+                        raise NetBoxConflictError(
                             resource_type="Power Panel",
                             identifier=f"{update_payload['name']} in target site",
                             existing_id=existing_id
@@ -731,7 +731,7 @@ def netbox_update_power_panel(
         updated_name = updated_panel.get('name') if isinstance(updated_panel, dict) else updated_panel.name
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power panel update: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power panel update: {e}")
     
     # RETURN SUCCESS
     return {
@@ -811,7 +811,7 @@ def netbox_delete_power_panel(
             identifier_desc = f"power panel '{panel_identifier}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         panel_to_delete = panels[0]
         panel_id = panel_to_delete.get('id') if isinstance(panel_to_delete, dict) else panel_to_delete.id
@@ -822,7 +822,7 @@ def netbox_delete_power_panel(
         site_name = site_data.get('name') if isinstance(site_data, dict) else getattr(site_data, 'name', 'Unknown')
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power panel: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power panel: {e}")
     
     # DEPENDENCY VALIDATION
     dependencies = []
@@ -855,7 +855,7 @@ def netbox_delete_power_panel(
         for dep in dependencies:
             dependency_list.append(f"- {dep['description']}")
         
-        raise ValidationError(
+        raise NetBoxValidationError(
             f"Cannot delete power panel '{panel_name}' - it has active dependencies:\n" +
             "\n".join(dependency_list) +
             "\n\nPlease remove or reassign these dependencies before deleting the power panel."
@@ -867,7 +867,7 @@ def netbox_delete_power_panel(
         client.dcim.power_panels.delete(panel_id, confirm=confirm)
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power panel deletion: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power panel deletion: {e}")
     
     # RETURN SUCCESS
     return {

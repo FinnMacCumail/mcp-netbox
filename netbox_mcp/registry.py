@@ -348,6 +348,25 @@ def serialize_tool_for_api(tool_name: str) -> Optional[Dict[str, Any]]:
     return serialized
 
 
+def list_tools() -> List[Dict[str, Any]]:
+    """
+    List all registered tools with their metadata.
+    
+    Returns:
+        List of tool metadata dictionaries for OpenAPI generation
+    """
+    tools = []
+    for tool_name, tool_metadata in TOOL_REGISTRY.items():
+        tool_info = {
+            "name": tool_name,
+            "description": tool_metadata.get("description", ""),
+            "category": tool_metadata.get("category", "general"),
+            "parameters": tool_metadata.get("parameters", [])
+        }
+        tools.append(tool_info)
+    return tools
+
+
 def serialize_registry_for_api() -> List[Dict[str, Any]]:
     """
     Serialize the entire registry for API consumption.

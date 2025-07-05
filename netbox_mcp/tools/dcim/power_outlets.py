@@ -11,7 +11,7 @@ import logging
 
 from netbox_mcp.registry import mcp_tool
 from netbox_mcp.client import NetBoxClient
-from netbox_mcp.exceptions import ValidationError, NotFoundError, ConflictError
+from netbox_mcp.exceptions import NetBoxValidationError, NetBoxNotFoundError, NetBoxConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +82,13 @@ def netbox_create_power_outlet(
     
     # PARAMETER VALIDATION
     if not name or not name.strip():
-        raise ValidationError("Power outlet name cannot be empty")
+        raise NetBoxValidationError("Power outlet name cannot be empty")
     
     if not device_name or not device_name.strip():
-        raise ValidationError("Device name is required for power outlet creation")
+        raise NetBoxValidationError("Device name is required for power outlet creation")
     
     if not site or not site.strip():
-        raise ValidationError("Site is required for power outlet creation")
+        raise NetBoxValidationError("Site is required for power outlet creation")
     
     # Validate outlet type (common types)
     valid_types = [
@@ -116,33 +116,33 @@ def netbox_create_power_outlet(
     
     # Validate feed leg
     if feed_leg and feed_leg not in ["A", "B", "C"]:
-        raise ValidationError(f"Invalid feed leg '{feed_leg}'. Valid options: A, B, C")
+        raise NetBoxValidationError(f"Invalid feed leg '{feed_leg}'. Valid options: A, B, C")
     
     # LOOKUP SITE (with defensive dict/object handling)
     try:
         sites = client.dcim.sites.filter(name=site)
         if not sites:
-            raise NotFoundError(f"Site '{site}' not found")
+            raise NetBoxNotFoundError(f"Site '{site}' not found")
         
         site_obj = sites[0]
         site_id = site_obj.get('id') if isinstance(site_obj, dict) else site_obj.id
         site_display = site_obj.get('display', site) if isinstance(site_obj, dict) else getattr(site_obj, 'display', site)
         
     except Exception as e:
-        raise NotFoundError(f"Could not find site '{site}': {e}")
+        raise NetBoxNotFoundError(f"Could not find site '{site}': {e}")
     
     # LOOKUP DEVICE
     try:
         devices = client.dcim.devices.filter(site_id=site_id, name=device_name)
         if not devices:
-            raise NotFoundError(f"Device '{device_name}' not found in site '{site}'")
+            raise NetBoxNotFoundError(f"Device '{device_name}' not found in site '{site}'")
         
         device_obj = devices[0]
         device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
         device_display = device_obj.get('display', device_name) if isinstance(device_obj, dict) else getattr(device_obj, 'display', device_name)
         
     except Exception as e:
-        raise ValidationError(f"Failed to resolve device '{device_name}': {e}")
+        raise NetBoxValidationError(f"Failed to resolve device '{device_name}': {e}")
     
     # LOOKUP POWER FEED (if provided)
     feed_id = None
@@ -164,10 +164,10 @@ def netbox_create_power_outlet(
                     break
             
             if not feed_found:
-                raise NotFoundError(f"Power feed '{power_feed}' not found in site '{site}'")
+                raise NetBoxNotFoundError(f"Power feed '{power_feed}' not found in site '{site}'")
                 
         except Exception as e:
-            raise ValidationError(f"Failed to resolve power feed '{power_feed}': {e}")
+            raise NetBoxValidationError(f"Failed to resolve power feed '{power_feed}': {e}")
     
     # CONFLICT DETECTION
     try:
@@ -180,7 +180,7 @@ def netbox_create_power_outlet(
         if existing_outlets:
             existing_outlet = existing_outlets[0]
             existing_id = existing_outlet.get('id') if isinstance(existing_outlet, dict) else existing_outlet.id
-            raise ConflictError(
+            raise NetBoxConflictError(
                 resource_type="Power Outlet",
                 identifier=f"{name} on device {device_name}",
                 existing_id=existing_id
@@ -215,7 +215,7 @@ def netbox_create_power_outlet(
         outlet_id = new_outlet.get('id') if isinstance(new_outlet, dict) else new_outlet.id
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power outlet creation: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power outlet creation: {e}")
     
     # RETURN SUCCESS
     return {
@@ -320,14 +320,14 @@ def netbox_get_power_outlet_info(
                 identifier_desc += f" on device '{device_name}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         outlet = outlets[0]
         outlet_id = outlet.get('id') if isinstance(outlet, dict) else outlet.id
         outlet_name = outlet.get('name') if isinstance(outlet, dict) else outlet.name
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power outlet: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power outlet: {e}")
     
     # GET CABLE CONNECTIONS
     cable_connections = []
@@ -701,7 +701,7 @@ def netbox_list_all_power_outlets(
         }
         
     except Exception as e:
-        raise ValidationError(f"Failed to retrieve power outlets: {e}")
+        raise NetBoxValidationError(f"Failed to retrieve power outlets: {e}")
 
 
 @mcp_tool(category="dcim")
@@ -808,7 +808,7 @@ def netbox_update_power_outlet(
                 identifier_desc += f" on device '{device_name}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         existing_outlet = outlets[0]
         outlet_id = existing_outlet.get('id') if isinstance(existing_outlet, dict) else existing_outlet.id
@@ -819,7 +819,7 @@ def netbox_update_power_outlet(
         current_device_id = current_device.get('id') if isinstance(current_device, dict) else getattr(current_device, 'id', None)
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power outlet: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power outlet: {e}")
     
     # BUILD UPDATE PAYLOAD
     update_payload = {}
@@ -827,7 +827,7 @@ def netbox_update_power_outlet(
     # Handle name update
     if new_name:
         if not new_name.strip():
-            raise ValidationError("New power outlet name cannot be empty")
+            raise NetBoxValidationError("New power outlet name cannot be empty")
         update_payload["name"] = new_name.strip()
     
     # Handle outlet type update
@@ -858,12 +858,12 @@ def netbox_update_power_outlet(
                             break
                     
                     if not feed_found:
-                        raise NotFoundError(f"Power feed '{power_feed}' not found in current site")
+                        raise NetBoxNotFoundError(f"Power feed '{power_feed}' not found in current site")
                 else:
-                    raise ValidationError("Cannot resolve power feed - site information missing")
+                    raise NetBoxValidationError("Cannot resolve power feed - site information missing")
                     
             except Exception as e:
-                raise ValidationError(f"Failed to resolve power feed '{power_feed}': {e}")
+                raise NetBoxValidationError(f"Failed to resolve power feed '{power_feed}': {e}")
         else:
             # Clear power feed
             update_payload["power_feed"] = None
@@ -872,7 +872,7 @@ def netbox_update_power_outlet(
     if feed_leg is not None:  # Allow empty string to clear feed leg
         if feed_leg:
             if feed_leg not in ["A", "B", "C"]:
-                raise ValidationError(f"Invalid feed leg '{feed_leg}'. Valid options: A, B, C")
+                raise NetBoxValidationError(f"Invalid feed leg '{feed_leg}'. Valid options: A, B, C")
             update_payload["feed_leg"] = feed_leg
         else:
             update_payload["feed_leg"] = None
@@ -889,7 +889,7 @@ def netbox_update_power_outlet(
     
     # Check if any updates provided
     if not update_payload:
-        raise ValidationError("No update parameters provided")
+        raise NetBoxValidationError("No update parameters provided")
     
     # CONFLICT DETECTION (if name is being changed)
     if "name" in update_payload:
@@ -904,7 +904,7 @@ def netbox_update_power_outlet(
             for existing in existing_outlets:
                 existing_id = existing.get('id') if isinstance(existing, dict) else existing.id
                 if existing_id != outlet_id:
-                    raise ConflictError(
+                    raise NetBoxConflictError(
                         resource_type="Power Outlet",
                         identifier=f"{update_payload['name']} on current device",
                         existing_id=existing_id
@@ -921,7 +921,7 @@ def netbox_update_power_outlet(
         updated_name = updated_outlet.get('name') if isinstance(updated_outlet, dict) else updated_outlet.name
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power outlet update: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power outlet update: {e}")
     
     # RETURN SUCCESS
     return {
@@ -1021,7 +1021,7 @@ def netbox_delete_power_outlet(
                 identifier_desc += f" on device '{device_name}'"
             if site:
                 identifier_desc += f" in site '{site}'"
-            raise NotFoundError(f"Could not find {identifier_desc}")
+            raise NetBoxNotFoundError(f"Could not find {identifier_desc}")
         
         outlet_to_delete = outlets[0]
         outlet_id = outlet_to_delete.get('id') if isinstance(outlet_to_delete, dict) else outlet_to_delete.id
@@ -1039,7 +1039,7 @@ def netbox_delete_power_outlet(
                 site_name = device_site_data.get('name') if isinstance(device_site_data, dict) else getattr(device_site_data, 'name', 'Unknown')
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find power outlet: {e}")
+        raise NetBoxNotFoundError(f"Failed to find power outlet: {e}")
     
     # DEPENDENCY VALIDATION
     dependencies = []
@@ -1076,7 +1076,7 @@ def netbox_delete_power_outlet(
         for dep in dependencies:
             dependency_list.append(f"- {dep['description']}")
         
-        raise ValidationError(
+        raise NetBoxValidationError(
             f"Cannot delete power outlet '{outlet_name}' - it has active dependencies:\n" +
             "\n".join(dependency_list) +
             "\n\nPlease remove these cable connections before deleting the power outlet."
@@ -1088,7 +1088,7 @@ def netbox_delete_power_outlet(
         client.dcim.power_outlets.delete(outlet_id, confirm=confirm)
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power outlet deletion: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power outlet deletion: {e}")
     
     # RETURN SUCCESS
     return {

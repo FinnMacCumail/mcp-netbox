@@ -20,6 +20,8 @@ from .registry import (
     execute_tool, execute_prompt
 )
 from .dependencies import NetBoxClientManager, get_netbox_client  # Use new dependency system
+from .monitoring import get_performance_monitor, MetricsCollector, HealthCheck, MetricsDashboard
+from .openapi_generator import OpenAPIGenerator, generate_api_documentation
 import logging
 import os
 import threading
@@ -72,27 +74,31 @@ def bridge_tools_to_fastmcp():
 
                 @wraps(original_func)
                 def tool_wrapper(*args, **kwargs):
-                    try:
-                        # ----- SAFE ARGUMENT HANDLING -----
-                        # 1. Create a list of expected parameter names (excluding 'client')
-                        param_names = [p.name for p in wrapper_params]
+                    # Get performance monitor for timing
+                    monitor = get_performance_monitor()
+                    
+                    with monitor.time_operation(tool_name, kwargs):
+                        try:
+                            # ----- SAFE ARGUMENT HANDLING -----
+                            # 1. Create a list of expected parameter names (excluding 'client')
+                            param_names = [p.name for p in wrapper_params]
 
-                        # 2. Create a dictionary from positional arguments (*args)
-                        final_kwargs = dict(zip(param_names, args))
+                            # 2. Create a dictionary from positional arguments (*args)
+                            final_kwargs = dict(zip(param_names, args))
 
-                        # 3. Update with keyword arguments (**kwargs).
-                        #    This overwrites any duplicates and is the core of the fix.
-                        final_kwargs.update(kwargs)
-                        # ----------------------------------------
+                            # 3. Update with keyword arguments (**kwargs).
+                            #    This overwrites any duplicates and is the core of the fix.
+                            final_kwargs.update(kwargs)
+                            # ----------------------------------------
 
-                        client = get_netbox_client()
+                            client = get_netbox_client()
 
-                        # Call the original function with clean, deduplicated arguments.
-                        return original_func(client, **final_kwargs)
+                            # Call the original function with clean, deduplicated arguments.
+                            return original_func(client, **final_kwargs)
 
-                    except Exception as e:
-                        logger.error(f"Execution of tool '{tool_name}' failed: {e}", exc_info=True)
-                        return {"success": False, "error": str(e), "error_type": type(e).__name__}
+                        except Exception as e:
+                            logger.error(f"Execution of tool '{tool_name}' failed: {e}", exc_info=True)
+                            return {"success": False, "error": str(e), "error_type": type(e).__name__}
 
                 new_sig = sig.replace(parameters=wrapper_params)
                 # Use setattr to avoid type checker issues with __signature__
@@ -311,6 +317,215 @@ async def execute_mcp_prompt(request: PromptRequest) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Prompt execution failed for {request.prompt_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Prompt execution failed: {str(e)}")
+
+
+# === MONITORING ENDPOINTS ===
+
+# Initialize monitoring components
+performance_monitor = get_performance_monitor()
+metrics_collector = MetricsCollector(performance_monitor)
+health_check = HealthCheck(performance_monitor)
+metrics_dashboard = MetricsDashboard(metrics_collector)
+
+@api_app.get("/api/v1/metrics")
+async def get_performance_metrics() -> Dict[str, Any]:
+    """
+    Get performance metrics and dashboard data.
+    
+    Returns:
+        Complete performance metrics including operations, cache, and system stats
+    """
+    try:
+        dashboard_data = metrics_dashboard.get_dashboard_data()
+        return dashboard_data
+    except Exception as e:
+        logger.error(f"Error getting performance metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Metrics error: {str(e)}")
+
+
+@api_app.get("/api/v1/health/detailed")
+async def get_detailed_health() -> Dict[str, Any]:
+    """
+    Get detailed health status including performance metrics.
+    
+    Returns:
+        Comprehensive health status with all checks and metrics
+    """
+    try:
+        # Set NetBox client for health check
+        health_check.netbox_client = get_netbox_client()
+        
+        # Get health status
+        health_status = health_check.get_health_status()
+        
+        # Add active alerts
+        alerts = metrics_dashboard.get_active_alerts()
+        health_status["active_alerts"] = alerts
+        
+        return health_status
+    except Exception as e:
+        logger.error(f"Error getting detailed health: {e}")
+        raise HTTPException(status_code=500, detail=f"Health check error: {str(e)}")
+
+
+@api_app.get("/api/v1/metrics/operations/{operation_name}")
+async def get_operation_metrics(operation_name: str) -> Dict[str, Any]:
+    """
+    Get metrics for a specific operation.
+    
+    Args:
+        operation_name: Name of the operation to get metrics for
+    
+    Returns:
+        Operation-specific metrics and statistics
+    """
+    try:
+        # Get operation statistics
+        stats = performance_monitor.get_operation_statistics(operation_name)
+        
+        if not stats or stats.get("total_operations", 0) == 0:
+            raise HTTPException(status_code=404, detail=f"No metrics found for operation '{operation_name}'")
+        
+        # Get operation history
+        history = performance_monitor.get_operation_history(operation_name)
+        recent_history = history[-10:]  # Last 10 executions
+        
+        return {
+            "operation_name": operation_name,
+            "statistics": stats,
+            "recent_history": [
+                {
+                    "timestamp": metric.timestamp.isoformat(),
+                    "duration": metric.duration,
+                    "success": metric.success,
+                    "error_details": metric.error_details
+                }
+                for metric in recent_history
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting operation metrics for {operation_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Operation metrics error: {str(e)}")
+
+
+@api_app.get("/api/v1/metrics/export")
+async def export_metrics(format: str = "json") -> Dict[str, Any]:
+    """
+    Export all metrics data.
+    
+    Args:
+        format: Export format (json or csv)
+    
+    Returns:
+        Exported metrics data
+    """
+    try:
+        if format.lower() == "csv":
+            csv_data = metrics_dashboard.export_data(format="csv")
+            return {
+                "format": "csv",
+                "data": csv_data,
+                "content_type": "text/csv"
+            }
+        else:
+            json_data = metrics_dashboard.export_data(format="json")
+            return {
+                "format": "json",
+                "data": json_data,
+                "content_type": "application/json"
+            }
+    except Exception as e:
+        logger.error(f"Error exporting metrics: {e}")
+        raise HTTPException(status_code=500, detail=f"Metrics export error: {str(e)}")
+
+
+# === API DOCUMENTATION ENDPOINTS ===
+
+@api_app.get("/api/v1/openapi.json")
+async def get_openapi_spec() -> Dict[str, Any]:
+    """
+    Get OpenAPI 3.0 specification for all NetBox MCP tools.
+    
+    Returns:
+        OpenAPI specification as JSON
+    """
+    try:
+        from .openapi_generator import OpenAPIConfig
+        
+        config = OpenAPIConfig(
+            title="NetBox MCP Server API",
+            description="Production-ready Model Context Protocol server for NetBox automation with 142+ enterprise-grade tools",
+            version="1.0.0",
+            server_url="http://localhost:8000"
+        )
+        
+        generator = OpenAPIGenerator(config)
+        spec = generator.generate_spec()
+        
+        return spec
+    except Exception as e:
+        logger.error(f"Error generating OpenAPI spec: {e}")
+        raise HTTPException(status_code=500, detail=f"OpenAPI generation error: {str(e)}")
+
+
+@api_app.get("/api/v1/openapi.yaml")
+async def get_openapi_spec_yaml() -> str:
+    """
+    Get OpenAPI 3.0 specification as YAML.
+    
+    Returns:
+        OpenAPI specification as YAML string
+    """
+    try:
+        from .openapi_generator import OpenAPIConfig
+        import yaml
+        
+        config = OpenAPIConfig(
+            title="NetBox MCP Server API",
+            description="Production-ready Model Context Protocol server for NetBox automation with 142+ enterprise-grade tools",
+            version="1.0.0",
+            server_url="http://localhost:8000"
+        )
+        
+        generator = OpenAPIGenerator(config)
+        spec = generator.generate_spec()
+        
+        yaml_content = yaml.dump(spec, default_flow_style=False, sort_keys=False)
+        
+        # Return as plain text with correct content type
+        from fastapi import Response
+        return Response(content=yaml_content, media_type="application/x-yaml")
+    except Exception as e:
+        logger.error(f"Error generating OpenAPI YAML: {e}")
+        raise HTTPException(status_code=500, detail=f"OpenAPI YAML generation error: {str(e)}")
+
+
+@api_app.get("/api/v1/postman")
+async def get_postman_collection() -> Dict[str, Any]:
+    """
+    Get Postman collection for all NetBox MCP tools.
+    
+    Returns:
+        Postman collection JSON
+    """
+    try:
+        from .openapi_generator import OpenAPIConfig
+        
+        config = OpenAPIConfig(
+            title="NetBox MCP Server API",
+            version="1.0.0",
+            server_url="http://localhost:8000"
+        )
+        
+        generator = OpenAPIGenerator(config)
+        collection = generator.generate_postman_collection()
+        
+        return collection
+    except Exception as e:
+        logger.error(f"Error generating Postman collection: {e}")
+        raise HTTPException(status_code=500, detail=f"Postman collection error: {str(e)}")
 
 
 # === CONTEXT MANAGEMENT ENDPOINTS ===

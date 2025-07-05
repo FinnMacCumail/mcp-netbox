@@ -42,6 +42,7 @@ dependencies = [
     "cachetools>=5.0.0",
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
+    "psutil>=5.9.0",
 ]
 
 [project.optional-dependencies]
@@ -114,7 +115,7 @@ addopts = [
     "--cov=netbox_mcp",
     "--cov-report=html",
     "--cov-report=term-missing",
-    "--cov-fail-under=80"
+    "--cov-fail-under=95"
 ]
 testpaths = ["tests"]
 markers = [

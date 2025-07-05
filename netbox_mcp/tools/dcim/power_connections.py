@@ -11,7 +11,7 @@ import logging
 
 from netbox_mcp.registry import mcp_tool
 from netbox_mcp.client import NetBoxClient
-from netbox_mcp.exceptions import ValidationError, NotFoundError, ConflictError
+from netbox_mcp.exceptions import NetBoxValidationError, NetBoxNotFoundError, NetBoxConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -104,25 +104,25 @@ def netbox_create_power_cable(
     # PARAMETER VALIDATION
     valid_statuses = ["planned", "connected", "decommissioning"]
     if status not in valid_statuses:
-        raise ValidationError(f"Invalid status '{status}'. Valid options: {', '.join(valid_statuses)}")
+        raise NetBoxValidationError(f"Invalid status '{status}'. Valid options: {', '.join(valid_statuses)}")
     
     valid_termination_types = ["poweroutlet", "powerfeed", "powerport"]
     if a_termination_type not in valid_termination_types:
-        raise ValidationError(f"Invalid A-side termination type '{a_termination_type}'. Valid options: {', '.join(valid_termination_types)}")
+        raise NetBoxValidationError(f"Invalid A-side termination type '{a_termination_type}'. Valid options: {', '.join(valid_termination_types)}")
     
     if b_termination_type not in valid_termination_types:
-        raise ValidationError(f"Invalid B-side termination type '{b_termination_type}'. Valid options: {', '.join(valid_termination_types)}")
+        raise NetBoxValidationError(f"Invalid B-side termination type '{b_termination_type}'. Valid options: {', '.join(valid_termination_types)}")
     
     # Device names are required for poweroutlet and powerport
     if a_termination_type in ["poweroutlet", "powerport"] and not a_device_name:
-        raise ValidationError(f"Device name is required for A-side termination type '{a_termination_type}'")
+        raise NetBoxValidationError(f"Device name is required for A-side termination type '{a_termination_type}'")
     
     if b_termination_type in ["poweroutlet", "powerport"] and not b_device_name:
-        raise ValidationError(f"Device name is required for B-side termination type '{b_termination_type}'")
+        raise NetBoxValidationError(f"Device name is required for B-side termination type '{b_termination_type}'")
     
     valid_length_units = ["mm", "cm", "m", "km", "in", "ft", "yd"]
     if length_unit not in valid_length_units:
-        raise ValidationError(f"Invalid length unit '{length_unit}'. Valid options: {', '.join(valid_length_units)}")
+        raise NetBoxValidationError(f"Invalid length unit '{length_unit}'. Valid options: {', '.join(valid_length_units)}")
     
     # LOOKUP SITE (if provided)
     site_id = None
@@ -130,13 +130,13 @@ def netbox_create_power_cable(
         try:
             sites = client.dcim.sites.filter(name=site)
             if not sites:
-                raise NotFoundError(f"Site '{site}' not found")
+                raise NetBoxNotFoundError(f"Site '{site}' not found")
             
             site_obj = sites[0]
             site_id = site_obj.get('id') if isinstance(site_obj, dict) else site_obj.id
             
         except Exception as e:
-            raise NotFoundError(f"Could not find site '{site}': {e}")
+            raise NetBoxNotFoundError(f"Could not find site '{site}': {e}")
     
     # RESOLVE A-SIDE TERMINATION
     a_termination_id = None
@@ -153,7 +153,7 @@ def netbox_create_power_cable(
             
             devices = client.dcim.devices.filter(**device_filter)
             if not devices:
-                raise NotFoundError(f"A-side device '{a_device_name}' not found")
+                raise NetBoxNotFoundError(f"A-side device '{a_device_name}' not found")
             
             device_obj = devices[0]
             device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
@@ -161,7 +161,7 @@ def netbox_create_power_cable(
             # Find power outlet on device
             outlets = client.dcim.power_outlets.filter(device_id=device_id, name=a_termination_name)
             if not outlets:
-                raise NotFoundError(f"A-side power outlet '{a_termination_name}' not found on device '{a_device_name}'")
+                raise NetBoxNotFoundError(f"A-side power outlet '{a_termination_name}' not found on device '{a_device_name}'")
             
             outlet_obj = outlets[0]
             a_termination_id = outlet_obj.get('id') if isinstance(outlet_obj, dict) else outlet_obj.id
@@ -176,7 +176,7 @@ def netbox_create_power_cable(
             
             devices = client.dcim.devices.filter(**device_filter)
             if not devices:
-                raise NotFoundError(f"A-side device '{a_device_name}' not found")
+                raise NetBoxNotFoundError(f"A-side device '{a_device_name}' not found")
             
             device_obj = devices[0]
             device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
@@ -184,7 +184,7 @@ def netbox_create_power_cable(
             # Find power port on device
             ports = client.dcim.power_ports.filter(device_id=device_id, name=a_termination_name)
             if not ports:
-                raise NotFoundError(f"A-side power port '{a_termination_name}' not found on device '{a_device_name}'")
+                raise NetBoxNotFoundError(f"A-side power port '{a_termination_name}' not found on device '{a_device_name}'")
             
             port_obj = ports[0]
             a_termination_id = port_obj.get('id') if isinstance(port_obj, dict) else port_obj.id
@@ -210,10 +210,10 @@ def netbox_create_power_cable(
             
             if not feed_found:
                 site_context = f" in site '{site}'" if site else ""
-                raise NotFoundError(f"A-side power feed '{a_termination_name}' not found{site_context}")
+                raise NetBoxNotFoundError(f"A-side power feed '{a_termination_name}' not found{site_context}")
         
     except Exception as e:
-        raise ValidationError(f"Failed to resolve A-side termination: {e}")
+        raise NetBoxValidationError(f"Failed to resolve A-side termination: {e}")
     
     # RESOLVE B-SIDE TERMINATION
     b_termination_id = None
@@ -230,7 +230,7 @@ def netbox_create_power_cable(
             
             devices = client.dcim.devices.filter(**device_filter)
             if not devices:
-                raise NotFoundError(f"B-side device '{b_device_name}' not found")
+                raise NetBoxNotFoundError(f"B-side device '{b_device_name}' not found")
             
             device_obj = devices[0]
             device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
@@ -238,7 +238,7 @@ def netbox_create_power_cable(
             # Find power outlet on device
             outlets = client.dcim.power_outlets.filter(device_id=device_id, name=b_termination_name)
             if not outlets:
-                raise NotFoundError(f"B-side power outlet '{b_termination_name}' not found on device '{b_device_name}'")
+                raise NetBoxNotFoundError(f"B-side power outlet '{b_termination_name}' not found on device '{b_device_name}'")
             
             outlet_obj = outlets[0]
             b_termination_id = outlet_obj.get('id') if isinstance(outlet_obj, dict) else outlet_obj.id
@@ -253,7 +253,7 @@ def netbox_create_power_cable(
             
             devices = client.dcim.devices.filter(**device_filter)
             if not devices:
-                raise NotFoundError(f"B-side device '{b_device_name}' not found")
+                raise NetBoxNotFoundError(f"B-side device '{b_device_name}' not found")
             
             device_obj = devices[0]
             device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
@@ -261,7 +261,7 @@ def netbox_create_power_cable(
             # Find power port on device
             ports = client.dcim.power_ports.filter(device_id=device_id, name=b_termination_name)
             if not ports:
-                raise NotFoundError(f"B-side power port '{b_termination_name}' not found on device '{b_device_name}'")
+                raise NetBoxNotFoundError(f"B-side power port '{b_termination_name}' not found on device '{b_device_name}'")
             
             port_obj = ports[0]
             b_termination_id = port_obj.get('id') if isinstance(port_obj, dict) else port_obj.id
@@ -287,10 +287,10 @@ def netbox_create_power_cable(
             
             if not feed_found:
                 site_context = f" in site '{site}'" if site else ""
-                raise NotFoundError(f"B-side power feed '{b_termination_name}' not found{site_context}")
+                raise NetBoxNotFoundError(f"B-side power feed '{b_termination_name}' not found{site_context}")
         
     except Exception as e:
-        raise ValidationError(f"Failed to resolve B-side termination: {e}")
+        raise NetBoxValidationError(f"Failed to resolve B-side termination: {e}")
     
     # CONFLICT DETECTION
     try:
@@ -307,7 +307,7 @@ def netbox_create_power_cable(
         )
         
         if existing_cables_a_a or existing_cables_a_b:
-            raise ConflictError(
+            raise NetBoxConflictError(
                 resource_type="Power Cable",
                 identifier=f"A-side termination {a_termination_name} is already connected",
                 existing_id="multiple"
@@ -326,7 +326,7 @@ def netbox_create_power_cable(
         )
         
         if existing_cables_b_a or existing_cables_b_b:
-            raise ConflictError(
+            raise NetBoxConflictError(
                 resource_type="Power Cable",
                 identifier=f"B-side termination {b_termination_name} is already connected",
                 existing_id="multiple"
@@ -354,7 +354,7 @@ def netbox_create_power_cable(
     # Add optional parameters
     if length is not None:
         if length <= 0:
-            raise ValidationError("Cable length must be positive")
+            raise NetBoxValidationError("Cable length must be positive")
         create_payload["length"] = length
         create_payload["length_unit"] = length_unit
     
@@ -373,7 +373,7 @@ def netbox_create_power_cable(
         cable_id = new_cable.get('id') if isinstance(new_cable, dict) else new_cable.id
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during power cable creation: {e}")
+        raise NetBoxValidationError(f"NetBox API error during power cable creation: {e}")
     
     # RETURN SUCCESS
     return {
@@ -444,10 +444,10 @@ def netbox_get_power_connection_info(
     # PARAMETER VALIDATION
     valid_termination_types = ["poweroutlet", "powerport", "powerfeed"]
     if termination_type not in valid_termination_types:
-        raise ValidationError(f"Invalid termination type '{termination_type}'. Valid options: {', '.join(valid_termination_types)}")
+        raise NetBoxValidationError(f"Invalid termination type '{termination_type}'. Valid options: {', '.join(valid_termination_types)}")
     
     if termination_type in ["poweroutlet", "powerport"] and not device_name:
-        raise ValidationError(f"Device name is required for termination type '{termination_type}'")
+        raise NetBoxValidationError(f"Device name is required for termination type '{termination_type}'")
     
     # LOOKUP SITE (if provided)
     site_id = None
@@ -455,13 +455,13 @@ def netbox_get_power_connection_info(
         try:
             sites = client.dcim.sites.filter(name=site)
             if not sites:
-                raise NotFoundError(f"Site '{site}' not found")
+                raise NetBoxNotFoundError(f"Site '{site}' not found")
             
             site_obj = sites[0]
             site_id = site_obj.get('id') if isinstance(site_obj, dict) else site_obj.id
             
         except Exception as e:
-            raise NotFoundError(f"Could not find site '{site}': {e}")
+            raise NetBoxNotFoundError(f"Could not find site '{site}': {e}")
     
     # RESOLVE TERMINATION
     termination_id = None
@@ -479,7 +479,7 @@ def netbox_get_power_connection_info(
             
             devices = client.dcim.devices.filter(**device_filter)
             if not devices:
-                raise NotFoundError(f"Device '{device_name}' not found")
+                raise NetBoxNotFoundError(f"Device '{device_name}' not found")
             
             device_obj = devices[0]
             device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
@@ -487,7 +487,7 @@ def netbox_get_power_connection_info(
             # Find power outlet on device
             outlets = client.dcim.power_outlets.filter(device_id=device_id, name=termination_name)
             if not outlets:
-                raise NotFoundError(f"Power outlet '{termination_name}' not found on device '{device_name}'")
+                raise NetBoxNotFoundError(f"Power outlet '{termination_name}' not found on device '{device_name}'")
             
             outlet_obj = outlets[0]
             termination_id = outlet_obj.get('id') if isinstance(outlet_obj, dict) else outlet_obj.id
@@ -511,7 +511,7 @@ def netbox_get_power_connection_info(
             
             devices = client.dcim.devices.filter(**device_filter)
             if not devices:
-                raise NotFoundError(f"Device '{device_name}' not found")
+                raise NetBoxNotFoundError(f"Device '{device_name}' not found")
             
             device_obj = devices[0]
             device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
@@ -519,7 +519,7 @@ def netbox_get_power_connection_info(
             # Find power port on device
             ports = client.dcim.power_ports.filter(device_id=device_id, name=termination_name)
             if not ports:
-                raise NotFoundError(f"Power port '{termination_name}' not found on device '{device_name}'")
+                raise NetBoxNotFoundError(f"Power port '{termination_name}' not found on device '{device_name}'")
             
             port_obj = ports[0]
             termination_id = port_obj.get('id') if isinstance(port_obj, dict) else port_obj.id
@@ -556,7 +556,7 @@ def netbox_get_power_connection_info(
             
             if not feed_found:
                 site_context = f" in site '{site}'" if site else ""
-                raise NotFoundError(f"Power feed '{termination_name}' not found{site_context}")
+                raise NetBoxNotFoundError(f"Power feed '{termination_name}' not found{site_context}")
             
             # Get feed details
             panel_data = feed_obj.get('power_panel') if isinstance(feed_obj, dict) else getattr(feed_obj, 'power_panel', {})
@@ -573,7 +573,7 @@ def netbox_get_power_connection_info(
             }
         
     except Exception as e:
-        raise ValidationError(f"Failed to resolve termination: {e}")
+        raise NetBoxValidationError(f"Failed to resolve termination: {e}")
     
     # GET CABLE CONNECTIONS
     cable_connections = []
@@ -1020,7 +1020,7 @@ def netbox_list_all_power_cables(
         }
         
     except Exception as e:
-        raise ValidationError(f"Failed to retrieve power cables: {e}")
+        raise NetBoxValidationError(f"Failed to retrieve power cables: {e}")
 
 
 @mcp_tool(category="dcim")
@@ -1066,7 +1066,7 @@ def netbox_disconnect_power_cable(
     try:
         cables = client.dcim.cables.filter(id=cable_id)
         if not cables:
-            raise NotFoundError(f"Cable with ID {cable_id} not found")
+            raise NetBoxNotFoundError(f"Cable with ID {cable_id} not found")
         
         cable_to_delete = cables[0]
         cable_id = cable_to_delete.get('id') if isinstance(cable_to_delete, dict) else cable_to_delete.id
@@ -1116,7 +1116,7 @@ def netbox_disconnect_power_cable(
                 b_termination_info = f"{b_type.replace('dcim.', '')} '{b_name}'"
         
     except Exception as e:
-        raise NotFoundError(f"Failed to find cable: {e}")
+        raise NetBoxNotFoundError(f"Failed to find cable: {e}")
     
     # PERFORM DISCONNECTION
     try:
@@ -1124,7 +1124,7 @@ def netbox_disconnect_power_cable(
         client.dcim.cables.delete(cable_id, confirm=confirm)
         
     except Exception as e:
-        raise ValidationError(f"NetBox API error during cable disconnection: {e}")
+        raise NetBoxValidationError(f"NetBox API error during cable disconnection: {e}")
     
     # RETURN SUCCESS
     return {
