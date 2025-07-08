@@ -630,3 +630,552 @@ Ik ben super blij dat je me hebt geactiveerd! Als specialist in NetBox operaties
 *Bridget - NetBox Infrastructure Guide | NetBox MCP v0.11.0+ | 🦜 LEGO Parrot Mascotte*"""
 
     return activation_message
+
+
+@mcp_prompt(
+    name="bulk_cable_installation",
+    description="Bridget's guided workflow for connecting all devices with matching interfaces in a rack to a switch with beautiful colored cables"
+)
+async def bulk_cable_installation_prompt() -> Dict[str, Any]:
+    """
+    Bulk Cable Installation Workflow - Guided by Bridget
+    
+    Bridget, your NetBox Infrastructure Guide, will personally walk you through
+    the complete process of connecting all devices with matching interfaces in a rack
+    to a target switch with bulk cable creation.
+    
+    This workflow solves the problem identified in GitHub issue #92 where single
+    device-to-device cable creation doesn't scale for bulk infrastructure operations.
+    
+    Workflow Overview:
+    1. Bridget introduces the bulk cable workflow
+    2. Source rack and interface pattern discovery
+    3. Target switch and port pattern validation
+    4. Intelligent interface mapping with algorithm selection
+    5. Cable specifications (type, color, labeling)
+    6. Dry-run validation and mapping preview
+    7. Bulk cable creation with progress tracking
+    8. Installation documentation and completion summary
+    
+    All NetBox API calls are handled by Bridget with clear explanations
+    and enterprise safety mechanisms (dry-run first, then confirmation).
+    """
+    
+    # Bridget's introduction for bulk cable workflow
+    bridget_intro = get_bridget_introduction(
+        workflow_name="Bulk Cable Installation",
+        user_context="Connecting all matching devices in a rack to switch ports with colored cables"
+    )
+    
+    workflow_steps = {
+        "persona_introduction": bridget_intro,
+        "workflow_name": "Bulk Cable Installation",
+        "guided_by": "Bridget - NetBox Infrastructure Guide",
+        "description": "Complete bulk cable installation workflow for rack-to-switch connections",
+        "netbox_integration": "Full API integration with intelligent interface mapping",
+        "github_issue": "#92 - Bulk Cable Connection Workflow Implementation",
+        "target_scenario": "Connect all lom1 interfaces in rack K3 to switch1.k3 with pink colored cables",
+        "steps": [
+            {
+                "step": 1,
+                "title": "Rack en Interface Discovery",
+                "bridget_header": get_bridget_workflow_header(1, "Rack en Interface Discovery", 7),
+                "bridget_guidance": "Ik ga eerst ontdekken welke devices in jouw rack zitten en welke interfaces overeenkomen met het gewenste patroon. Dit geeft ons een volledig overzicht van wat er verbonden kan worden.",
+                "description": "Bridget ontdekt alle devices in de doelrack en identificeert matching interfaces",
+                "user_inputs_required": [
+                    {
+                        "name": "source_rack_name",
+                        "type": "string",
+                        "required": True,
+                        "description": "Naam van de source rack (bijv. 'K3', 'Rack-A-01', 'R01')",
+                        "bridget_help": "Ik zal alle beschikbare racks voor je ophalen uit NetBox met hun device counts"
+                    },
+                    {
+                        "name": "interface_filter", 
+                        "type": "string",
+                        "required": True,
+                        "description": "Interface naam patroon om te matchen (bijv. 'lom1', 'eth0', 'Management1')",
+                        "default": "lom1",
+                        "bridget_help": "Dit kan een exacte naam zijn zoals 'lom1' of een patroon zoals 'eth*' voor meerdere interfaces"
+                    }
+                ],
+                "netbox_tools_executed": [
+                    "netbox_list_all_racks",
+                    "netbox_get_rack_inventory",
+                    "netbox_map_rack_to_switch_interfaces"
+                ],
+                "bridget_validations": [
+                    "Rack bestaat en bevat devices",
+                    "Devices hebben interfaces die matchen met het patroon", 
+                    "Interfaces zijn beschikbaar (geen bestaande kabels)",
+                    "Minimaal 1 beschikbare interface gevonden voor bulk operatie"
+                ],
+                "success_criteria": "Lijst van beschikbare interfaces klaar voor mapping"
+            },
+            {
+                "step": 2,
+                "title": "Target Switch en Port Validatie",
+                "bridget_header": get_bridget_workflow_header(2, "Target Switch en Port Validatie", 7),
+                "bridget_guidance": "Nu controleren we of de doelswitch bestaat en voldoende beschikbare poorten heeft voor alle gevonden interfaces. Ik zorg ervoor dat we een haalbaar plan maken.",
+                "description": "Bridget verifieert target switch en controleert beschikbare switch poorten",
+                "user_inputs_required": [
+                    {
+                        "name": "target_switch_name",
+                        "type": "string",
+                        "required": True,
+                        "description": "Naam van de target switch (bijv. 'switch1.k3', 'sw-access-01')",
+                        "bridget_help": "Ik controleer of deze switch bestaat en laat zien welke interface types beschikbaar zijn"
+                    },
+                    {
+                        "name": "switch_interface_pattern",
+                        "type": "string",
+                        "required": True,
+                        "description": "Switch port patroon (bijv. 'Te1/1/*', 'GigabitEthernet1/0/*', 'Ethernet1/*')",
+                        "default": "Te1/1/*",
+                        "bridget_help": "Dit patroon bepaalt welke switch poorten gebruikt worden. '*' betekent alle nummers in die reeks"
+                    }
+                ],
+                "netbox_tools_executed": [
+                    "netbox_get_device_info",
+                    "netbox_map_rack_to_switch_interfaces"
+                ],
+                "bridget_validations": [
+                    "Switch bestaat en is toegankelijk",
+                    "Switch heeft poorten die matchen met het patroon",
+                    "Voldoende beschikbare switch poorten voor alle rack interfaces",
+                    "Geen conflicterende bestaande verbindingen"
+                ],
+                "success_criteria": "Switch poorten beschikbaar en mapping mogelijk"
+            },
+            {
+                "step": 3,
+                "title": "Interface Mapping Algoritme Selectie",
+                "bridget_header": get_bridget_workflow_header(3, "Interface Mapping Algoritme Selectie", 7),
+                "bridget_guidance": "Ik ga nu de beste manier bepalen om rack interfaces aan switch poorten toe te wijzen. Dit zorgt voor een logische en onderhoudbare kabel layout.",
+                "description": "Bridget helpt bij het kiezen van het beste mapping algoritme voor optimale kabel organisatie",
+                "user_inputs_required": [
+                    {
+                        "name": "mapping_algorithm",
+                        "type": "string",
+                        "required": True,
+                        "description": "Mapping strategie: 'sequential' (rack positie volgorde), 'availability' (eerste beschikbare), 'position' (laagste rack positie eerst)",
+                        "default": "sequential",
+                        "bridget_help": "Ik leg alle opties uit en help je de beste keuze maken voor jouw situatie"
+                    }
+                ],
+                "bridget_explanations": {
+                    "sequential": "Verbindt devices op basis van rack positie en interface naam - meest voorspelbare layout",
+                    "availability": "Verbindt op basis van eerste beschikbare poorten - snelste implementatie",
+                    "position": "Verbindt laagste rack posities eerst aan laagste switch poorten - meest georganiseerd"
+                },
+                "netbox_tools_executed": [
+                    "netbox_map_rack_to_switch_interfaces"
+                ],
+                "success_criteria": "Interface mapping algoritme geselecteerd en gevalideerd"
+            },
+            {
+                "step": 4,
+                "title": "Cable Specificaties en Kleuren",
+                "bridget_header": get_bridget_workflow_header(4, "Cable Specificaties en Kleuren", 7),
+                "bridget_guidance": "Tijd om de kabel specificaties te bepalen! Ik help je kiezen welk type kabel en welke kleur het beste past bij jouw infrastructuur en documentatie standaarden.",
+                "description": "Bridget assisteert bij cable type selectie en kleur specificatie voor documentatie",
+                "user_inputs_required": [
+                    {
+                        "name": "cable_type",
+                        "type": "string",
+                        "required": True,
+                        "description": "Type kabel (cat6, cat6a, cat7, cat8, mmf, smf, dac-active, dac-passive)",
+                        "default": "cat6",
+                        "bridget_help": "Ik laat alle beschikbare kabel types zien met hun eigenschappen en gebruik cases"
+                    },
+                    {
+                        "name": "cable_color",
+                        "type": "string",
+                        "required": False,
+                        "description": "Kabel kleur voor alle verbindingen (pink, red, blue, green, yellow, orange, purple, grey, black, white, brown, cyan, magenta, lime, silver, gold)",
+                        "default": "pink",
+                        "bridget_help": "Kleur coding helpt bij kabel identificatie en onderhoud - ik adviseer welke kleuren beschikbaar zijn"
+                    },
+                    {
+                        "name": "cable_length",
+                        "type": "integer",
+                        "required": False,
+                        "description": "Geschatte kabel lengte in meters (optioneel voor documentatie)",
+                        "bridget_help": "Dit helpt bij materiaalbeheer en documentatie - kan later aangepast worden"
+                    },
+                    {
+                        "name": "label_prefix",
+                        "type": "string",
+                        "required": False,
+                        "description": "Prefix voor kabel labels (bijv. 'K3-SW1', 'RACK-UPLINK')",
+                        "bridget_help": "Automatische label generatie voor fysieke kabel identificatie"
+                    }
+                ],
+                "bridget_validations": [
+                    "Cable type is geldig en ondersteund door NetBox",
+                    "Cable kleur is geldig (indien gespecificeerd)",
+                    "Label prefix voldoet aan organisatie standaarden"
+                ],
+                "success_criteria": "Cable specificaties gedefinieerd en gevalideerd"
+            },
+            {
+                "step": 5,
+                "title": "Mapping Preview en Dry-Run Validatie",
+                "bridget_header": get_bridget_workflow_header(5, "Mapping Preview en Dry-Run Validatie", 7),
+                "bridget_guidance": "Perfect! Nu laat ik je precies zien wat er gaat gebeuren voordat we daadwerkelijk kabels aanmaken. Dit voorkomt verrassingen en laat je het plan controleren.",
+                "description": "Bridget genereert complete mapping preview en voert dry-run validatie uit",
+                "netbox_tools_executed": [
+                    "netbox_generate_bulk_cable_plan",
+                    "netbox_map_rack_to_switch_interfaces"
+                ],
+                "automated": True,
+                "bridget_deliverables": [
+                    "Volledige interface mapping tabel",
+                    "Cable specificatie overzicht",
+                    "Geschatte installatie tijd",
+                    "Mogelijke conflicten of waarschuwingen",
+                    "Rollback plan indien nodig"
+                ],
+                "bridget_validations": [
+                    "Alle interfaces correct gemapped",
+                    "Geen dubbele toewijzingen",
+                    "Alle switch poorten beschikbaar",
+                    "Cable specificaties consistent"
+                ],
+                "success_criteria": "Mapping plan gevalideerd en klaar voor uitvoering"
+            },
+            {
+                "step": 6,
+                "title": "Bulk Cable Creation Uitvoering",
+                "bridget_header": get_bridget_workflow_header(6, "Bulk Cable Creation Uitvoering", 7),
+                "bridget_guidance": "Nu gaan we de daadwerkelijke kabels aanmaken in NetBox! Ik voer alle verbindingen uit met progress tracking en error handling. Je kunt real-time zien hoe het gaat.",
+                "description": "Bridget voert bulk cable creation uit met enterprise safety en rollback ondersteuning",
+                "user_inputs_required": [
+                    {
+                        "name": "confirm_execution",
+                        "type": "boolean",
+                        "required": True,
+                        "description": "Bevestig uitvoering van bulk cable creation (true/false)",
+                        "bridget_help": "Dit is het laatste controlepunt - na bevestiging worden alle kabels daadwerkelijk aangemaakt"
+                    },
+                    {
+                        "name": "batch_size",
+                        "type": "integer",
+                        "required": False,
+                        "description": "Aantal kabels per batch (standaard: 10, max: 50)",
+                        "default": 10,
+                        "bridget_help": "Kleinere batches geven meer controle, grotere batches zijn sneller"
+                    }
+                ],
+                "netbox_tools_executed": [
+                    "netbox_bulk_create_cable_connections"
+                ],
+                "bridget_progress_tracking": [
+                    "Real-time progress updates per batch",
+                    "Success/failure status per kabel",
+                    "Rollback opties bij errors",
+                    "Performance metrics en timing"
+                ],
+                "error_handling": {
+                    "rollback_support": "Automatische rollback bij kritieke errors",
+                    "partial_success": "Continue met resterende kabels na error",
+                    "error_reporting": "Detailed error logs voor troubleshooting"
+                },
+                "success_criteria": "Alle kabels succesvol aangemaakt in NetBox"
+            },
+            {
+                "step": 7,
+                "title": "Installation Documentatie en Afsluiting",
+                "bridget_header": get_bridget_workflow_header(7, "Installation Documentatie en Afsluiting", 7),
+                "bridget_guidance": "Geweldig! Alle kabels zijn aangemaakt. Nu genereer ik alle documentatie die je technici nodig hebben voor de fysieke installatie en round ik de workflow compleet af.",
+                "description": "Bridget genereert volledige installatie documentatie en workflow samenvatting",
+                "netbox_tools_executed": [
+                    "netbox_create_journal_entry",
+                    "netbox_list_all_cables"
+                ],
+                "automated": True,
+                "bridget_deliverables": [
+                    "Technician installation checklist met alle kabel verbindingen",
+                    "Cable labeling schema met voorgedefinieerde labels",
+                    "Rack elevation diagram met nieuwe verbindingen",
+                    "Switch port allocation overzicht",
+                    "Installation timeline en prioriteiten",
+                    "Testing checklist voor commissioning",
+                    "Audit trail entry voor compliance"
+                ],
+                "success_criteria": "Complete documentatie gegenereerd en workflow afgerond"
+            }
+        ],
+        "bridget_completion_criteria": [
+            "Alle device interfaces correct geïdentificeerd in source rack",
+            "Switch poorten succesvol gereserveerd en toegewezen", 
+            "Bulk cables aangemaakt met gespecificeerde kleur en type",
+            "Interface mappings gedocumenteerd volgens gekozen algoritme",
+            "Installation documentatie gegenereerd voor datacenter technici",
+            "Journal entries aangemaakt voor volledige audit trail",
+            "Rollback informatie beschikbaar voor eventuele wijzigingen"
+        ],
+        
+        "bridget_next_steps": [
+            "Fysieke kabel installatie door datacenter technici volgens checklist",
+            "Cable testing en connectiviteit verificatie", 
+            "Network configuratie deployment op beide kanten",
+            "Device commissioning en service activatie",
+            "Cable status update naar 'connected' na succesvolle installatie"
+        ],
+        
+        "bridget_enterprise_features": {
+            "safety_mechanisms": "Dry-run mode, batch processing, rollback support",
+            "progress_tracking": "Real-time updates, success/failure metrics, timing analysis",
+            "error_handling": "Comprehensive validation, partial success handling, detailed error logs",
+            "documentation": "Auto-generated installation guides, testing checklists, audit trails",
+            "scalability": "Handles 1-100+ cables with optimized batch processing"
+        },
+        
+        "bridget_support": {
+            "rollback_help": "Als er iets misgaat kan ik je helpen met bulk cable disconnection en cleanup",
+            "troubleshooting": "Detailed logs en error analysis voor snelle probleem oplossing",
+            "documentation": "Alle acties volledig gedocumenteerd voor audit trails en troubleshooting",
+            "expert_guidance": "Ik help je met edge cases en complexe scenario's"
+        }
+    }
+    
+    # Format as comprehensive workflow guide for MCP compatibility
+    workflow_message = f"""🦜 **Bridget's Bulk Cable Installation Workflow**
+
+*Hallo! Bridget hier, jouw NetBox Infrastructure Guide!*
+
+Ik ga je persoonlijk begeleiden door de **Bulk Cable Installation** workflow. Deze workflow lost het probleem op uit GitHub issue #92 waar individuele kabel creatie niet schaalt voor bulk infrastructuur operaties.
+
+**Perfect voor scenario's zoals:** "Verbind alle lom1 interfaces in rack K3 met switch1.k3 met roze kabels" 🌸
+
+---
+
+## 🎯 **Wat We Gaan Doen:**
+
+Deze workflow handleidt je door het complete proces van bulk kabel installatie tussen rack devices en switch poorten, met intelligente interface mapping en enterprise safety features.
+
+**Geschatte tijd:** 20-45 minuten afhankelijk van aantal kabels
+**Complexiteit:** Advanced (maar ik maak het simpel!)
+**Schaalbaarheid:** 1-100+ cables met geoptimaliseerde batch processing
+**Ervaring:** Expert begeleiding met real-time progress tracking
+
+---
+
+## 🚀 **GitHub Issue #92 Oplossing:**
+
+**Probleem:** Huidige NetBox MCP tools vereisen individuele kabel creatie (37 separate calls voor 37 interfaces)
+**Oplossing:** Intelligente bulk workflow met mapping algoritmes en batch processing
+**Voordelen:** 10x sneller, minder errors, betere documentatie, enterprise safety
+
+---
+
+## 📋 **Workflow Stappen:**
+
+### **🔧 Stap 1/7: Rack en Interface Discovery**
+*Bridget:* "Prima! We beginnen met het ontdekken van alle devices en interfaces in jouw doelrack."
+
+**Wat ik ga doen:**
+• Rack bestaat en bevat devices controleren
+• Devices hebben interfaces die matchen met het patroon identificeren
+• Interfaces zijn beschikbaar (geen bestaande kabels) verifiëren
+• Minimaal 1 beschikbare interface voor bulk operatie vinden
+
+**NetBox tools die ik ga gebruiken:**
+• netbox_list_all_racks
+• netbox_get_rack_inventory
+• netbox_map_rack_to_switch_interfaces
+
+**Jouw input nodig:**
+• Source rack naam (bijv. 'K3', 'Rack-A-01', 'R01')
+• Interface naam patroon (bijv. 'lom1', 'eth0', 'Management1')
+
+*Ik haal alle beschikbare racks op en laat device counts zien*
+
+---
+
+### **🔧 Stap 2/7: Target Switch en Port Validatie**
+*Bridget:* "Nu controleren we of jouw doelswitch klaar is en voldoende poorten heeft voor alle gevonden interfaces."
+
+**Wat ik ga doen:**
+• Switch bestaat en is toegankelijk verifiëren
+• Switch heeft poorten die matchen met het patroon controleren
+• Voldoende beschikbare switch poorten voor alle rack interfaces bevestigen
+• Geen conflicterende bestaande verbindingen detecteren
+
+**NetBox tools die ik ga gebruiken:**
+• netbox_get_device_info
+• netbox_map_rack_to_switch_interfaces
+
+**Jouw input nodig:**
+• Target switch naam (bijv. 'switch1.k3', 'sw-access-01')
+• Switch port patroon (bijv. 'Te1/1/*', 'GigabitEthernet1/0/*')
+
+*Ik controleer switch beschikbaarheid en toon interface types*
+
+---
+
+### **🔧 Stap 3/7: Interface Mapping Algoritme Selectie**
+*Bridget:* "Tijd om de beste manier te kiezen voor het toewijzen van rack interfaces aan switch poorten!"
+
+**Mapping Strategieën:**
+• **Sequential**: Verbindt op basis van rack positie - meest voorspelbare layout
+• **Availability**: Verbindt eerste beschikbare poorten - snelste implementatie  
+• **Position**: Laagste rack posities eerst - meest georganiseerd
+
+**NetBox tools die ik ga gebruiken:**
+• netbox_map_rack_to_switch_interfaces
+
+**Jouw input nodig:**
+• Mapping algoritme keuze (sequential/availability/position)
+
+*Ik leg alle opties uit en help je de beste keuze maken*
+
+---
+
+### **🔧 Stap 4/7: Cable Specificaties en Kleuren**
+*Bridget:* "Nu het leuke gedeelte - kabel types en kleuren kiezen! Dit helpt bij documentatie en onderhoud."
+
+**Wat ik ga doen:**
+• Cable type valideren tegen NetBox opties
+• Cable kleur valideren (indien gespecificeerd)
+• Label prefix controleren tegen organisatie standaarden
+
+**Jouw input nodig:**
+• Cable type (cat6, cat6a, cat7, cat8, mmf, smf, dac-active, dac-passive)
+• Cable kleur (pink, red, blue, green, yellow, orange, purple, grey, etc.)
+• Cable lengte (optioneel, voor documentatie)
+• Label prefix (optioneel, voor automatische labeling)
+
+*Ik laat alle beschikbare opties zien met gebruik cases*
+
+---
+
+### **🔧 Stap 5/7: Mapping Preview en Dry-Run Validatie**
+*Bridget:* "Perfect! Nu laat ik je precies zien wat er gaat gebeuren voordat we beginnen. Safety first!"
+
+**Wat ik automatisch ga leveren:**
+• Volledige interface mapping tabel
+• Cable specificatie overzicht
+• Geschatte installatie tijd
+• Mogelijke conflicten of waarschuwingen
+• Rollback plan indien nodig
+
+**NetBox tools die ik ga gebruiken:**
+• netbox_generate_bulk_cable_plan
+• netbox_map_rack_to_switch_interfaces
+
+*Deze stap is volledig geautomatiseerd met comprehensive validation*
+
+---
+
+### **🔧 Stap 6/7: Bulk Cable Creation Uitvoering**
+*Bridget:* "Tijd voor actie! Ik voer alle kabel verbindingen uit met real-time progress tracking."
+
+**Enterprise Features:**
+• Real-time progress updates per batch
+• Success/failure status per kabel
+• Rollback opties bij errors
+• Performance metrics en timing
+
+**NetBox tools die ik ga gebruiken:**
+• netbox_bulk_create_cable_connections
+
+**Jouw input nodig:**
+• Uitvoering bevestiging (true/false)
+• Batch size (optioneel, standaard: 10)
+
+**Error Handling:**
+• Automatische rollback bij kritieke errors
+• Continue met resterende kabels na error
+• Detailed error logs voor troubleshooting
+
+---
+
+### **🔧 Stap 7/7: Installation Documentatie & Afsluiting**
+*Bridget:* "Geweldig! Alle kabels zijn aangemaakt. Nu genereer ik alle documentatie voor jouw technici."
+
+**Wat ik automatisch ga leveren:**
+• Technician installation checklist met alle kabel verbindingen
+• Cable labeling schema met voorgedefinieerde labels
+• Rack elevation diagram met nieuwe verbindingen
+• Switch port allocation overzicht
+• Installation timeline en prioriteiten
+• Testing checklist voor commissioning
+• Audit trail entry voor compliance
+
+**NetBox tools die ik ga gebruiken:**
+• netbox_create_journal_entry
+• netbox_list_all_cables
+
+---
+
+## ✅ **Voltooiing Criteria:**
+
+• Alle device interfaces correct geïdentificeerd in source rack
+• Switch poorten succesvol gereserveerd en toegewezen
+• Bulk cables aangemaakt met gespecificeerde kleur en type
+• Interface mappings gedocumenteerd volgens gekozen algoritme
+• Installation documentatie gegenereerd voor datacenter technici
+• Journal entries aangemaakt voor volledige audit trail
+• Rollback informatie beschikbaar voor eventuele wijzigingen
+
+---
+
+## 🚀 **Volgende Stappen:**
+
+Na voltooiing van deze workflow:
+• Fysieke kabel installatie door datacenter technici volgens checklist
+• Cable testing en connectiviteit verificatie
+• Network configuratie deployment op beide kanten
+• Device commissioning en service activatie
+• Cable status update naar 'connected' na succesvolle installatie
+
+---
+
+## 🏢 **Enterprise Features:**
+
+**Safety Mechanisms:** Dry-run mode, batch processing, rollback support
+**Progress Tracking:** Real-time updates, success/failure metrics, timing analysis
+**Error Handling:** Comprehensive validation, partial success handling, detailed error logs
+**Documentation:** Auto-generated installation guides, testing checklists, audit trails
+**Scalability:** Handles 1-100+ cables with optimized batch processing
+
+---
+
+## 🛡️ **Bridget's Support:**
+
+**Rollback hulp:** Als er iets misgaat kan ik je helpen met bulk cable disconnection en cleanup
+
+**Troubleshooting:** Detailed logs en error analysis voor snelle probleem oplossing
+
+**Documentatie:** Alle acties volledig gedocumenteerd voor audit trails en troubleshooting
+
+**Expert guidance:** Ik help je met edge cases en complexe scenario's
+
+---
+
+## 📋 **Vereisten:**
+
+• Source rack met devices en beschikbare interfaces
+• Target switch met beschikbare poorten
+• NetBox write permissions voor cable creation
+• Optioneel: Cable specificatie standaarden van organisatie
+
+---
+
+## 🌟 **Perfect Voor:**
+
+• Server rack to switch uplinks (lom1, eth0 interfaces)
+• Switch stacking en interconnects
+• Management network deployment
+• Datacenter migration projecten
+• Bulk equipment commissioning
+
+---
+
+**Klaar om bulk kabels aan te leggen? Laten we samen jouw infrastructuur perfect verbinden!** 🚀
+
+*Bridget - NetBox Infrastructure Guide | NetBox MCP v1.0.0+ | 🦜 LEGO Parrot Mascotte*"""
+
+    return workflow_message

@@ -6,10 +6,12 @@ High-level tools for managing NetBox cables, cable terminations,
 and physical connectivity documentation with comprehensive enterprise-grade functionality.
 """
 
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 import logging
+from datetime import datetime
 from ...registry import mcp_tool
 from ...client import NetBoxClient
+from ...validation import CableValidator
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,7 @@ def netbox_create_cable_connection(
     interface_b_name: str,
     cable_type: str = "cat6",
     cable_status: str = "connected",
+    cable_color: Optional[str] = None,
     cable_length: Optional[int] = None,
     cable_length_unit: str = "m",
     label: Optional[str] = None,
@@ -44,6 +47,7 @@ def netbox_create_cable_connection(
         interface_b_name: Name of the interface on device B
         cable_type: Type of cable (cat5e, cat6, cat6a, cat7, cat8, mmf, smf, dac-active, dac-passive, coaxial, power)
         cable_status: Cable status (planned, installed, connected, decommissioning)
+        cable_color: Cable color specification (e.g., "pink", "red", "blue", "green", "yellow", "orange", "purple", "grey")
         cable_length: Optional cable length
         cable_length_unit: Length unit (mm, cm, m, km, in, ft, mi)
         label: Optional cable label
@@ -60,6 +64,7 @@ def netbox_create_cable_connection(
             device_b_name="sw-core-01", 
             interface_b_name="GigabitEthernet1/1",
             cable_type="cat6",
+            cable_color="pink",
             cable_length=15,
             confirm=True
         )
@@ -80,18 +85,13 @@ def netbox_create_cable_connection(
                 "error_type": "ValidationError"
             }
         
-        # Validate cable type
-        valid_cable_types = [
-            "cat3", "cat5", "cat5e", "cat6", "cat6a", "cat7", "cat8",
-            "dac-active", "dac-passive", "mrj21-trunk", "coaxial", 
-            "mmf", "mmf-om1", "mmf-om2", "mmf-om3", "mmf-om4", "mmf-om5",
-            "smf", "smf-os1", "smf-os2", "aoc", "power", "usb"
-        ]
-        
-        if cable_type not in valid_cable_types:
+        # Validate cable type using shared validator
+        try:
+            cable_type = CableValidator.validate_type(cable_type)
+        except Exception as e:
             return {
                 "success": False,
-                "error": f"Invalid cable_type '{cable_type}'. Valid types: {valid_cable_types}",
+                "error": str(e),
                 "error_type": "ValidationError"
             }
         
@@ -110,6 +110,16 @@ def netbox_create_cable_connection(
             return {
                 "success": False,
                 "error": f"Invalid cable_length_unit '{cable_length_unit}'. Valid units: {valid_units}",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate cable color using shared validator
+        try:
+            cable_color = CableValidator.validate_color(cable_color)
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
                 "error_type": "ValidationError"
             }
         
@@ -194,6 +204,7 @@ def netbox_create_cable_connection(
                     "termination_b": {"device": device_b["name"], "interface": interface_b_dict["name"]},
                     "type": cable_type,
                     "status": cable_status,
+                    "color": cable_color,
                     "length": cable_length,
                     "length_unit": cable_length_unit,
                     "label": label,
@@ -218,6 +229,8 @@ def netbox_create_cable_connection(
             cable_data["label"] = label
         if description:
             cable_data["description"] = description
+        if cable_color:
+            cable_data["color"] = cable_color
         
         logger.info(f"Creating cable with termination IDs - A: {interface_a_id}, B: {interface_b_id}")
         logger.debug(f"Full cable payload: {cable_data}")
@@ -249,6 +262,7 @@ def netbox_create_cable_connection(
             "cable_specs": {
                 "type": cable_type,
                 "status": cable_status,
+                "color": cable_color,
                 "length": f"{cable_length}{cable_length_unit}" if cable_length else None,
                 "label": label
             },
@@ -690,8 +704,352 @@ def netbox_list_all_cables(
         }
 
 
+@mcp_tool(category="dcim")
+def netbox_bulk_create_cable_connections(
+    client: NetBoxClient,
+    cable_connections: List[Dict[str, str]],
+    cable_type: str = "cat6",
+    cable_color: Optional[str] = None,
+    cable_status: str = "connected",
+    cable_length: Optional[int] = None,
+    cable_length_unit: str = "m",
+    batch_size: int = 10,
+    rollback_on_error: bool = True,
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Create multiple cable connections in bulk operation with rollback support.
+    
+    This enterprise-grade bulk cable management tool handles mass cable creation
+    with comprehensive error handling, progress tracking, and rollback capabilities
+    for production infrastructure deployments.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        cable_connections: List of connection specifications:
+            [
+                {
+                    "device_a_name": "XM13",
+                    "interface_a_name": "lom1", 
+                    "device_b_name": "switch1.K3",
+                    "interface_b_name": "Te1/1/1"
+                },
+                ...
+            ]
+        cable_type: Type of cable for all connections (cat5e, cat6, cat6a, cat7, cat8, etc.)
+        cable_color: Color for all cables in batch (e.g., "pink", "red", "blue")
+        cable_status: Cable status for all connections (planned, installed, connected, decommissioning)
+        cable_length: Optional cable length for all connections
+        cable_length_unit: Length unit (mm, cm, m, km, in, ft, mi)
+        batch_size: Number of cables to create per batch (default: 10)
+        rollback_on_error: Remove successfully created cables if batch fails (default: True)
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Bulk operation results with success/failure details and rollback information
+        
+    Example:
+        netbox_bulk_create_cable_connections(
+            cable_connections=[
+                {
+                    "device_a_name": "XM13",
+                    "interface_a_name": "lom1",
+                    "device_b_name": "switch1.K3", 
+                    "interface_b_name": "Te1/1/1"
+                },
+                {
+                    "device_a_name": "XM14",
+                    "interface_a_name": "lom1",
+                    "device_b_name": "switch1.K3",
+                    "interface_b_name": "Te1/1/2"
+                }
+            ],
+            cable_type="cat6",
+            cable_color="pink",
+            batch_size=5,
+            confirm=True
+        )
+    """
+    
+    class BulkCableOperationResult:
+        def __init__(self):
+            self.successful_connections = []
+            self.failed_connections = []
+            self.rollback_actions = []
+            self.total_attempted = 0
+            self.start_time = datetime.now()
+            self.end_time = None
+            
+        def add_success(self, connection_spec, cable_result):
+            self.successful_connections.append({
+                "connection": connection_spec,
+                "cable_id": cable_result.get("cable", {}).get("id"),
+                "cable_result": cable_result,
+                "created_at": datetime.now()
+            })
+            
+        def add_failure(self, connection_spec, error):
+            self.failed_connections.append({
+                "connection": connection_spec,
+                "error": str(error),
+                "error_type": type(error).__name__,
+                "failed_at": datetime.now()
+            })
+            
+        def add_rollback(self, cable_id, rollback_result):
+            self.rollback_actions.append({
+                "cable_id": cable_id,
+                "rollback_result": rollback_result,
+                "rolled_back_at": datetime.now()
+            })
+            
+        def calculate_success_rate(self):
+            if self.total_attempted == 0:
+                return 0.0
+            return len(self.successful_connections) / self.total_attempted * 100
+            
+        def finalize(self):
+            self.end_time = datetime.now()
+            
+        def get_summary(self):
+            duration = (self.end_time - self.start_time).total_seconds() if self.end_time else 0
+            return {
+                "total_attempted": self.total_attempted,
+                "successful_count": len(self.successful_connections),
+                "failed_count": len(self.failed_connections),
+                "success_rate": f"{self.calculate_success_rate():.1f}%",
+                "rollback_count": len(self.rollback_actions),
+                "duration_seconds": duration,
+                "batch_size": batch_size
+            }
+    
+    try:
+        # Validate input parameters
+        if not cable_connections:
+            return {
+                "success": False,
+                "error": "No cable connections provided",
+                "error_type": "ValidationError"
+            }
+        
+        if not isinstance(cable_connections, list):
+            return {
+                "success": False,
+                "error": "cable_connections must be a list of connection specifications",
+                "error_type": "ValidationError"
+            }
+        
+        # Validate each connection specification
+        required_fields = ["device_a_name", "interface_a_name", "device_b_name", "interface_b_name"]
+        for i, connection in enumerate(cable_connections):
+            if not isinstance(connection, dict):
+                return {
+                    "success": False,
+                    "error": f"Connection {i+1} must be a dictionary",
+                    "error_type": "ValidationError"
+                }
+            
+            missing_fields = [field for field in required_fields if field not in connection]
+            if missing_fields:
+                return {
+                    "success": False,
+                    "error": f"Connection {i+1} missing required fields: {missing_fields}",
+                    "error_type": "ValidationError"
+                }
+        
+        # Validate cable parameters using shared validator
+        try:
+            cable_type = CableValidator.validate_type(cable_type)
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": "ValidationError"
+            }
+        
+        valid_statuses = ["planned", "installed", "connected", "decommissioning"]
+        if cable_status not in valid_statuses:
+            return {
+                "success": False,
+                "error": f"Invalid cable_status '{cable_status}'. Valid statuses: {valid_statuses}",
+                "error_type": "ValidationError"
+            }
+        
+        try:
+            cable_color = CableValidator.validate_color(cable_color)
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": "ValidationError"
+            }
+        
+        logger.info(f"Starting bulk cable creation: {len(cable_connections)} connections, batch_size={batch_size}")
+        
+        # Initialize operation tracking
+        operation_result = BulkCableOperationResult()
+        operation_result.total_attempted = len(cable_connections)
+        
+        if not confirm:
+            # Dry run mode - return what would be created without actually creating
+            logger.info(f"DRY RUN: Would create {len(cable_connections)} cable connections")
+            return {
+                "success": True,
+                "action": "dry_run",
+                "object_type": "bulk_cables",
+                "bulk_operation": {
+                    "total_connections": len(cable_connections),
+                    "cable_type": cable_type,
+                    "cable_color": cable_color,
+                    "cable_status": cable_status,
+                    "batch_size": batch_size,
+                    "rollback_on_error": rollback_on_error,
+                    "connections_preview": cable_connections[:5]  # Show first 5 for preview
+                },
+                "dry_run": True
+            }
+        
+        # Process connections in batches
+        for batch_start in range(0, len(cable_connections), batch_size):
+            batch_end = min(batch_start + batch_size, len(cable_connections))
+            batch_connections = cable_connections[batch_start:batch_end]
+            
+            logger.info(f"Processing batch {batch_start//batch_size + 1}: connections {batch_start+1}-{batch_end}")
+            
+            batch_success_count = 0
+            batch_failure_count = 0
+            
+            # Process each connection in the batch
+            for connection in batch_connections:
+                try:
+                    # Use the existing single cable creation tool for each connection
+                    cable_result = netbox_create_cable_connection(
+                        client=client,
+                        device_a_name=connection["device_a_name"],
+                        interface_a_name=connection["interface_a_name"],
+                        device_b_name=connection["device_b_name"],
+                        interface_b_name=connection["interface_b_name"],
+                        cable_type=cable_type,
+                        cable_status=cable_status,
+                        cable_color=cable_color,
+                        cable_length=cable_length,
+                        cable_length_unit=cable_length_unit,
+                        label=connection.get("label"),
+                        description=connection.get("description"),
+                        confirm=True
+                    )
+                    
+                    if cable_result.get("success"):
+                        operation_result.add_success(connection, cable_result)
+                        batch_success_count += 1
+                        logger.debug(f"Successfully created cable: {connection['device_a_name']}:{connection['interface_a_name']} -> {connection['device_b_name']}:{connection['interface_b_name']}")
+                    else:
+                        operation_result.add_failure(connection, cable_result.get("error", "Unknown error"))
+                        batch_failure_count += 1
+                        logger.warning(f"Failed to create cable: {connection['device_a_name']}:{connection['interface_a_name']} -> {connection['device_b_name']}:{connection['interface_b_name']}, Error: {cable_result.get('error')}")
+                        
+                except Exception as e:
+                    operation_result.add_failure(connection, str(e))
+                    batch_failure_count += 1
+                    logger.error(f"Exception creating cable: {connection['device_a_name']}:{connection['interface_a_name']} -> {connection['device_b_name']}:{connection['interface_b_name']}, Error: {e}")
+            
+            # Check if rollback is needed for this batch
+            if rollback_on_error and batch_failure_count > 0:
+                logger.warning(f"Batch {batch_start//batch_size + 1} had {batch_failure_count} failures, initiating rollback")
+                
+                # Rollback successful connections from this batch
+                for success_record in operation_result.successful_connections[-batch_success_count:]:
+                    try:
+                        cable_id = success_record["cable_id"]
+                        if cable_id:
+                            logger.info(f"Rolling back cable ID: {cable_id}")
+                            rollback_result = netbox_disconnect_cable(
+                                client=client,
+                                cable_id=cable_id,
+                                confirm=True
+                            )
+                            operation_result.add_rollback(cable_id, rollback_result)
+                    except Exception as rollback_error:
+                        logger.error(f"Failed to rollback cable {cable_id}: {rollback_error}")
+                
+                # Remove the rolled-back successes from the success list
+                operation_result.successful_connections = operation_result.successful_connections[:-batch_success_count]
+                
+                # If rollback_on_error is enabled, stop processing remaining batches
+                logger.error(f"Stopping bulk operation due to batch failures and rollback_on_error=True")
+                break
+        
+        # Finalize operation
+        operation_result.finalize()
+        
+        # Cache invalidation for data consistency
+        try:
+            client.cache.invalidate_pattern("dcim.cables")
+            client.cache.invalidate_pattern("dcim.interfaces")
+        except Exception as cache_error:
+            logger.warning(f"Cache invalidation failed: {cache_error}")
+        
+        # Determine overall success
+        success_rate = operation_result.calculate_success_rate()
+        overall_success = success_rate > 0 and (not rollback_on_error or len(operation_result.failed_connections) == 0)
+        
+        return {
+            "success": overall_success,
+            "action": "bulk_created",
+            "object_type": "bulk_cables",
+            "operation_summary": operation_result.get_summary(),
+            "successful_connections": [
+                {
+                    "device_a_name": conn["connection"]["device_a_name"],
+                    "interface_a_name": conn["connection"]["interface_a_name"],
+                    "device_b_name": conn["connection"]["device_b_name"],
+                    "interface_b_name": conn["connection"]["interface_b_name"],
+                    "cable_id": conn["cable_id"],
+                    "created_at": conn["created_at"].isoformat()
+                }
+                for conn in operation_result.successful_connections
+            ],
+            "failed_connections": [
+                {
+                    "device_a_name": conn["connection"]["device_a_name"],
+                    "interface_a_name": conn["connection"]["interface_a_name"],
+                    "device_b_name": conn["connection"]["device_b_name"],
+                    "interface_b_name": conn["connection"]["interface_b_name"],
+                    "error": conn["error"],
+                    "error_type": conn["error_type"],
+                    "failed_at": conn["failed_at"].isoformat()
+                }
+                for conn in operation_result.failed_connections
+            ],
+            "rollback_actions": [
+                {
+                    "cable_id": action["cable_id"],
+                    "rollback_success": action["rollback_result"].get("success", False),
+                    "rolled_back_at": action["rolled_back_at"].isoformat()
+                }
+                for action in operation_result.rollback_actions
+            ],
+            "cable_specs": {
+                "type": cable_type,
+                "color": cable_color,
+                "status": cable_status,
+                "length": f"{cable_length}{cable_length_unit}" if cable_length else None,
+                "batch_size": batch_size,
+                "rollback_on_error": rollback_on_error
+            },
+            "dry_run": False
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create bulk cable connections: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 # TODO: Future cable management tools:
 # - netbox_trace_cable_path: Follow cable connections through multiple hops
 # - netbox_validate_cable_terminations: Check for proper cable termination patterns
-# - netbox_bulk_cable_installation: Mass cable creation for structured cabling
 # - netbox_audit_cable_inventory: Generate cable audit reports
