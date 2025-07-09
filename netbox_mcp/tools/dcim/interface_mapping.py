@@ -70,71 +70,86 @@ def netbox_map_rack_to_switch_interfaces(
         return parts
     
     def discover_rack_interfaces(rack_name, interface_pattern):
-        """Discover all devices in rack with matching interface pattern."""
+        """Discover all devices in rack with matching interface pattern - OPTIMIZED VERSION."""
         try:
-            # Get all devices in the specified rack
-            devices = client.dcim.devices.filter(rack__name=rack_name)
+            # OPTIMIZATION 1: Single API call to get all interfaces in rack with pattern filter
+            # This replaces the N+1 query pattern (1 call for devices + N calls for interfaces)
+            if interface_pattern == "*":
+                # Get all interfaces for devices in rack
+                interfaces = client.dcim.interfaces.filter(device__rack__name=rack_name)
+            else:
+                # Get only matching interfaces - much more efficient!
+                interfaces = client.dcim.interfaces.filter(
+                    device__rack__name=rack_name,
+                    name__icontains=interface_pattern
+                )
             
-            if not devices:
-                return [], f"No devices found in rack '{rack_name}'"
+            if not interfaces:
+                return [], f"No interfaces found matching '{interface_pattern}' in rack '{rack_name}'"
             
             matching_interfaces = []
             
-            for device in devices:
-                device_id = device.get('id') if isinstance(device, dict) else device.id
+            for interface in interfaces:
+                # Defensive dict/object handling
+                interface_name = interface.get('name') if isinstance(interface, dict) else interface.name
+                interface_id = interface.get('id') if isinstance(interface, dict) else interface.id
+                interface_cable = interface.get('cable') if isinstance(interface, dict) else interface.cable
+                
+                # Get device info from interface (included in API response)
+                device = interface.get('device') if isinstance(interface, dict) else interface.device
                 device_name = device.get('name') if isinstance(device, dict) else device.name
+                device_id = device.get('id') if isinstance(device, dict) else device.id
                 device_position = device.get('position') if isinstance(device, dict) else device.position
                 
-                # Get interfaces for this device
-                interfaces = client.dcim.interfaces.filter(device_id=device_id)
-                
-                for interface in interfaces:
-                    interface_name = interface.get('name') if isinstance(interface, dict) else interface.name
-                    interface_id = interface.get('id') if isinstance(interface, dict) else interface.id
-                    interface_cable = interface.get('cable') if isinstance(interface, dict) else interface.cable
-                    
-                    # Check if interface matches the filter pattern
-                    if interface_pattern == "*" or interface_pattern in interface_name:
-                        # Check if interface is available (no existing cable)
-                        if not interface_cable:
-                            matching_interfaces.append({
-                                "device_name": device_name,
-                                "device_id": device_id,
-                                "interface_name": interface_name,
-                                "interface_id": interface_id,
-                                "rack_position": device_position,
-                                "available": True
-                            })
-                        else:
-                            matching_interfaces.append({
-                                "device_name": device_name,
-                                "device_id": device_id,
-                                "interface_name": interface_name,
-                                "interface_id": interface_id,
-                                "rack_position": device_position,
-                                "available": False,
-                                "existing_cable_id": interface_cable.get('id') if isinstance(interface_cable, dict) else interface_cable.id
-                            })
+                # Exact match check for interface pattern
+                if interface_pattern == "*" or interface_pattern == interface_name or interface_pattern in interface_name:
+                    matching_interfaces.append({
+                        "device_name": device_name,
+                        "device_id": device_id,
+                        "interface_name": interface_name,
+                        "interface_id": interface_id,
+                        "rack_position": device_position,
+                        "available": not bool(interface_cable),
+                        "existing_cable_id": interface_cable.get('id') if interface_cable and isinstance(interface_cable, dict) else interface_cable.id if interface_cable else None
+                    })
             
+            logger.info(f"Found {len(matching_interfaces)} interfaces matching '{interface_pattern}' in rack '{rack_name}'")
             return matching_interfaces, None
             
         except Exception as e:
+            logger.error(f"Error discovering rack interfaces: {e}")
             return [], f"Error discovering rack interfaces: {str(e)}"
     
     def discover_switch_ports(switch_name, port_pattern):
-        """Discover available switch ports matching pattern."""
+        """Discover available switch ports matching pattern - OPTIMIZED VERSION."""
         try:
-            # Get the switch device
-            switches = client.dcim.devices.filter(name=switch_name)
+            # OPTIMIZATION 2: Direct interface query with device filter
+            # This replaces the 2-step process (find device, then interfaces)
             
-            if not switches:
-                return [], f"Switch '{switch_name}' not found"
+            # Convert pattern to more efficient filter
+            if port_pattern.endswith("/*"):
+                # Pattern like "Te1/1/*" -> search for "Te1/1/"
+                base_pattern = port_pattern.replace("/*", "/")
+                interfaces = client.dcim.interfaces.filter(
+                    device__name=switch_name,
+                    name__istartswith=base_pattern
+                )
+            else:
+                # Exact pattern or wildcard
+                if "*" in port_pattern:
+                    pattern_base = port_pattern.replace("*", "")
+                    interfaces = client.dcim.interfaces.filter(
+                        device__name=switch_name,
+                        name__icontains=pattern_base
+                    )
+                else:
+                    interfaces = client.dcim.interfaces.filter(
+                        device__name=switch_name,
+                        name=port_pattern
+                    )
             
-            switch = switches[0]
-            switch_id = switch.get('id') if isinstance(switch, dict) else switch.id
-            
-            # Get all interfaces for the switch
-            interfaces = client.dcim.interfaces.filter(device_id=switch_id)
+            if not interfaces:
+                return [], f"No interfaces found matching '{port_pattern}' on switch '{switch_name}'"
             
             matching_ports = []
             
@@ -143,9 +158,8 @@ def netbox_map_rack_to_switch_interfaces(
                 interface_id = interface.get('id') if isinstance(interface, dict) else interface.id
                 interface_cable = interface.get('cable') if isinstance(interface, dict) else interface.cable
                 
-                # Convert pattern to regex (e.g., "Te1/1/*" -> "Te1/1/.*")
+                # Additional regex check for complex patterns
                 pattern_regex = port_pattern.replace("*", ".*")
-                
                 if re.match(pattern_regex, interface_name):
                     matching_ports.append({
                         "interface_name": interface_name,
@@ -154,9 +168,11 @@ def netbox_map_rack_to_switch_interfaces(
                         "existing_cable_id": interface_cable.get('id') if interface_cable and isinstance(interface_cable, dict) else interface_cable.id if interface_cable else None
                     })
             
+            logger.info(f"Found {len(matching_ports)} switch ports matching '{port_pattern}' on '{switch_name}'")
             return matching_ports, None
             
         except Exception as e:
+            logger.error(f"Error discovering switch ports: {e}")
             return [], f"Error discovering switch ports: {str(e)}"
     
     try:
