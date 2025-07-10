@@ -97,9 +97,22 @@ def netbox_map_rack_to_switch_interfaces(
                 
                 # Get device info from interface (included in API response)
                 device = interface.get('device') if isinstance(interface, dict) else interface.device
-                device_name = device.get('name') if isinstance(device, dict) else device.name
-                device_id = device.get('id') if isinstance(device, dict) else device.id
-                device_position = device.get('position') if isinstance(device, dict) else device.position
+                
+                # Handle device being int ID, dict, or object
+                if isinstance(device, int):
+                    # Device is just an ID, need to fetch device details
+                    device_obj = client.dcim.devices.get(device)
+                    device_name = device_obj.get('name') if isinstance(device_obj, dict) else device_obj.name
+                    device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
+                    device_position = device_obj.get('position') if isinstance(device_obj, dict) else device_obj.position
+                elif isinstance(device, dict):
+                    device_name = device.get('name', f'device-{device.get("id", "unknown")}')
+                    device_id = device.get('id')
+                    device_position = device.get('position')
+                else:
+                    device_name = getattr(device, 'name', f'device-{getattr(device, "id", "unknown")}')
+                    device_id = getattr(device, 'id', None)
+                    device_position = getattr(device, 'position', None)
                 
                 # Exact match check for interface pattern
                 if interface_pattern == "*" or interface_pattern == interface_name or interface_pattern in interface_name:

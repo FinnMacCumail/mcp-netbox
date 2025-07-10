@@ -16,25 +16,29 @@ logger = logging.getLogger(__name__)
 
 
 @mcp_tool(category="dcim")
-def netbox_bulk_cable_lom1_to_switch(
+def netbox_bulk_cable_interfaces_to_switch(
     client: NetBoxClient,
     rack_name: str,
     switch_name: str,
+    interface_name: str = "lom1",
+    switch_port_pattern: str = "Te1/1/",
     cable_color: Optional[str] = None,
     cable_type: str = "cat6",
     confirm: bool = False
 ) -> Dict[str, Any]:
     """
-    Optimized bulk cable creation for lom1 interfaces to switch ports.
+    Optimized bulk cable creation for specific interfaces to switch ports.
     
-    This highly optimized tool specifically handles the common scenario of
-    connecting all lom1 interfaces in a rack to sequential switch ports
-    with minimal API calls and maximum efficiency.
+    This highly optimized tool handles the common scenario of connecting
+    all specified interfaces in a rack to sequential switch ports with
+    minimal API calls and maximum efficiency.
     
     Args:
         client: NetBoxClient instance (injected)
         rack_name: Source rack name (e.g., "K3")
         switch_name: Target switch name (e.g., "switch1.K3")
+        interface_name: Interface name to connect (e.g., "lom1", "eth0", "mgmt", "ilo", "idrac")
+        switch_port_pattern: Switch port pattern (e.g., "Te1/1/", "GigabitEthernet0/0/")
         cable_color: Cable color for all connections (e.g., "pink", "blue")
         cable_type: Type of cable (default: "cat6")
         confirm: Must be True to execute (safety mechanism)
@@ -42,12 +46,18 @@ def netbox_bulk_cable_lom1_to_switch(
     Returns:
         Bulk operation results with detailed success/failure information
         
-    Example:
-        netbox_bulk_cable_lom1_to_switch(
-            rack_name="K3",
-            switch_name="switch1.K3",
-            cable_color="pink",
-            confirm=True
+    Examples:
+        netbox_bulk_cable_interfaces_to_switch(
+            rack_name="K3", switch_name="switch1.K3", interface_name="lom1", 
+            switch_port_pattern="Te1/1/", cable_color="pink", confirm=True
+        )
+        netbox_bulk_cable_interfaces_to_switch(
+            rack_name="K3", switch_name="switch1.K3", interface_name="eth0", 
+            switch_port_pattern="GigabitEthernet0/0/", cable_color="blue", confirm=True
+        )
+        netbox_bulk_cable_interfaces_to_switch(
+            rack_name="K3", switch_name="switch1.K3", interface_name="mgmt", 
+            switch_port_pattern="FastEthernet0/", cable_color="yellow", confirm=True
         )
     """
     
@@ -63,76 +73,261 @@ def netbox_bulk_cable_lom1_to_switch(
         return parts
     
     try:
-        logger.info(f"Starting optimized bulk cable creation: {rack_name} -> {switch_name}")
+        logger.info(f"Starting optimized bulk cable creation: {rack_name} -> {switch_name} (interface: {interface_name})")
         
-        # OPTIMIZATION 1: Single API call to get all lom1 interfaces in rack
-        lom1_interfaces = client.dcim.interfaces.filter(
+        # OPTIMIZATION 1: Single API call to get all specified interfaces in rack
+        # Note: Don't use cable__isnull=True here as it may be inconsistent
+        # Instead, filter manually after retrieval for reliability
+        all_rack_interfaces = client.dcim.interfaces.filter(
             device__rack__name=rack_name,
-            name="lom1",
-            cable__isnull=True  # Only available interfaces
+            name=interface_name
         )
         
-        if not lom1_interfaces:
+        # DEFENSIVE VALIDATION: Verify devices are actually in the specified rack
+        # This prevents the critical bug where API filters return wrong devices
+        # PERFORMANCE OPTIMIZATION: Batch fetch devices to avoid N+1 queries
+        
+        # Step 1: Extract unique device IDs from interfaces
+        device_ids = set()
+        for interface in all_rack_interfaces:
+            device = interface.get('device') if isinstance(interface, dict) else interface.device
+            if isinstance(device, int):
+                device_ids.add(device)
+            elif isinstance(device, dict):
+                device_ids.add(device.get('id'))
+            else:
+                device_ids.add(getattr(device, 'id', None))
+        
+        # Remove None values if any
+        device_ids = {dev_id for dev_id in device_ids if dev_id is not None}
+        
+        # Step 2: BATCH FETCH all devices in a single API call
+        logger.debug(f"Batch fetching {len(device_ids)} devices to validate rack locations")
+        devices_batch = client.dcim.devices.filter(id__in=list(device_ids))
+        
+        # Step 2.5: Extract unique rack IDs and batch fetch racks
+        rack_ids = set()
+        for device in devices_batch:
+            if isinstance(device, dict):
+                rack_id = device.get('rack')
+                if rack_id:
+                    rack_ids.add(rack_id)
+            else:
+                rack_id = getattr(device, 'rack', None)
+                if rack_id:
+                    rack_ids.add(rack_id)
+        
+        # Batch fetch racks to get rack names
+        rack_lookup = {}
+        if rack_ids:
+            logger.debug(f"Batch fetching {len(rack_ids)} racks to get rack names")
+            racks_batch = client.dcim.racks.filter(id__in=list(rack_ids))
+            for rack in racks_batch:
+                if isinstance(rack, dict):
+                    rack_id = rack.get('id')
+                    rack_name = rack.get('name')
+                else:
+                    rack_id = getattr(rack, 'id', None)
+                    rack_name = getattr(rack, 'name', None)
+                if rack_id and rack_name:
+                    rack_lookup[rack_id] = rack_name
+        
+        # Step 3: Create device lookup map for O(1) access
+        device_lookup = {}
+        for device in devices_batch:
+            # Handle device being int ID, dict, or object
+            if isinstance(device, int):
+                device_id = device
+                device_lookup[device_id] = {'id': device}  # Minimal dict for consistency
+            elif isinstance(device, dict):
+                device_id = device.get('id')
+                device_lookup[device_id] = device
+            else:
+                device_id = getattr(device, 'id', None)
+                device_lookup[device_id] = device
+        
+        # Step 4: Process interfaces with batch-fetched device and rack data
+        rack_interfaces = []
+        skipped_devices = []
+        
+        for interface in all_rack_interfaces:
+            # Get device information with defensive handling
+            device = interface.get('device') if isinstance(interface, dict) else interface.device
+            
+            # Extract device ID for lookup
+            if isinstance(device, int):
+                device_id = device
+            elif isinstance(device, dict):
+                device_id = device.get('id')
+            else:
+                device_id = getattr(device, 'id', None)
+            
+            # Get device from batch lookup (O(1) operation)
+            device_obj = device_lookup.get(device_id)
+            if not device_obj:
+                logger.warning(f"Device ID {device_id} not found in batch fetch - skipping interface")
+                continue
+            
+            # Extract device name and rack with defensive handling
+            if isinstance(device_obj, dict):
+                device_name = device_obj.get('name', f'device-{device_id}')
+                rack_id = device_obj.get('rack')
+                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+            else:
+                device_name = getattr(device_obj, 'name', f'device-{device_id}')
+                rack_id = getattr(device_obj, 'rack', None)
+                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+            
+            # CRITICAL CHECK: Only include devices that are ACTUALLY in the specified rack
+            if actual_rack == rack_name:
+                interface_cable = interface.get('cable') if isinstance(interface, dict) else interface.cable
+                if not interface_cable:  # Only available interfaces
+                    rack_interfaces.append(interface)
+                    logger.debug(f"✅ Including {device_name}:{interface_name} (actually in rack {actual_rack})")
+                else:
+                    logger.debug(f"⚠️  Skipping {device_name}:{interface_name} (already connected)")
+            else:
+                skipped_devices.append(f"{device_name} (in {actual_rack})")
+                logger.warning(f"❌ RACK MISMATCH: {device_name} returned by rack filter but is in '{actual_rack}', not '{rack_name}'")
+        
+        logger.info(f"Found {len(all_rack_interfaces)} total '{interface_name}' interfaces from rack filter")
+        logger.info(f"Validated {len(rack_interfaces)} interfaces actually in rack '{rack_name}'")
+        
+        if skipped_devices:
+            logger.warning(f"Skipped {len(skipped_devices)} devices not in rack '{rack_name}': {', '.join(skipped_devices)}")
+        
+        if not rack_interfaces:
             return {
                 "success": False,
-                "error": f"No available lom1 interfaces found in rack '{rack_name}'",
+                "error": f"No available '{interface_name}' interfaces found in rack '{rack_name}'",
                 "error_type": "NotFoundError"
             }
         
-        # OPTIMIZATION 2: Single API call to get all available switch ports
-        switch_ports = client.dcim.interfaces.filter(
-            device__name=switch_name,
-            name__istartswith="Te1/1/",  # More specific than regex
-            cable__isnull=True  # Only available ports
+        # OPTIMIZATION 2: Single API call to get all switch ports
+        # Note: Don't use cable__isnull=True here as it may be inconsistent
+        # Instead, filter manually after retrieval for reliability
+        # IMPORTANT: Filter by name pattern manually due to NetBox API issues
+        all_device_ports = client.dcim.interfaces.filter(
+            device__name=switch_name
         )
+        
+        # DEFENSIVE VALIDATION: Verify switch device exists and get its actual rack
+        switch_device = None
+        switch_actual_rack = None
+        
+        if all_device_ports:
+            # Get the device from the first interface to validate switch location
+            first_port = all_device_ports[0]
+            device = first_port.get('device') if isinstance(first_port, dict) else first_port.device
+            
+            # Handle device being int ID, dict, or object
+            if isinstance(device, int):
+                switch_device = client.dcim.devices.get(device)
+                switch_actual_rack = switch_device.get('rack', {}).get('name') if isinstance(switch_device, dict) else (switch_device.rack.name if switch_device.rack else None)
+            elif isinstance(device, dict):
+                switch_device = device
+                switch_actual_rack = device.get('rack', {}).get('name') if device.get('rack') else None
+            else:
+                switch_device = device
+                switch_actual_rack = device.rack.name if device.rack else None
+                
+            logger.info(f"Switch '{switch_name}' is located in rack '{switch_actual_rack}'")
+        
+        # Filter manually for ports matching the pattern
+        all_switch_ports = []
+        for port in all_device_ports:
+            port_name = port.get('name') if isinstance(port, dict) else port.name
+            if port_name and port_name.startswith(switch_port_pattern):
+                all_switch_ports.append(port)
+        
+        # Filter manually for available ports (no cable)
+        switch_ports = []
+        for port in all_switch_ports:
+            port_cable = port.get('cable') if isinstance(port, dict) else port.cable
+            if not port_cable:  # Only available ports
+                switch_ports.append(port)
+        
+        logger.info(f"Found {len(all_switch_ports)} total switch ports on '{switch_name}' (rack: {switch_actual_rack})")
+        logger.info(f"Filtered to {len(switch_ports)} available ports")
         
         if not switch_ports:
             return {
                 "success": False,
-                "error": f"No available Te1/1/* ports found on switch '{switch_name}'",
+                "error": f"No available '{switch_port_pattern}*' ports found on switch '{switch_name}'",
                 "error_type": "NotFoundError"
             }
         
         # Sort interfaces and ports for logical mapping
-        lom1_sorted = sorted(lom1_interfaces, key=lambda x: (
-            x.get('device', {}).get('position', 0) if isinstance(x, dict) else x.device.position,
-            x.get('device', {}).get('name', '') if isinstance(x, dict) else x.device.name
-        ))
+        def safe_sort_key(interface):
+            """Safely extract device position and name for sorting."""
+            device = interface.get('device') if isinstance(interface, dict) else interface.device
+            
+            # Handle device being int ID, dict, or object
+            if isinstance(device, int):
+                # For sorting purposes, use device ID as position and empty string as name
+                return (device, '')
+            elif isinstance(device, dict):
+                return (device.get('position', 0), device.get('name', ''))
+            else:
+                return (getattr(device, 'position', 0), getattr(device, 'name', ''))
+        
+        interfaces_sorted = sorted(rack_interfaces, key=safe_sort_key)
         
         switch_ports_sorted = sorted(switch_ports, key=lambda x: natural_sort_key(
             x.get('name') if isinstance(x, dict) else x.name
         ))
         
         # Check if we have enough switch ports
-        if len(switch_ports_sorted) < len(lom1_sorted):
+        if len(switch_ports_sorted) < len(interfaces_sorted):
             return {
                 "success": False,
-                "error": f"Insufficient switch ports: need {len(lom1_sorted)}, only {len(switch_ports_sorted)} available",
+                "error": f"Insufficient switch ports: need {len(interfaces_sorted)}, only {len(switch_ports_sorted)} available",
                 "error_type": "InsufficientResourcesError",
                 "details": {
-                    "lom1_interfaces_found": len(lom1_sorted),
+                    f"{interface_name}_interfaces_found": len(interfaces_sorted),
                     "switch_ports_available": len(switch_ports_sorted)
                 }
             }
         
         # Create cable connections list
         cable_connections = []
-        for i, lom1_interface in enumerate(lom1_sorted):
+        for i, rack_interface in enumerate(interfaces_sorted):
             if i < len(switch_ports_sorted):
-                # Defensive dict/object handling
-                device = lom1_interface.get('device') if isinstance(lom1_interface, dict) else lom1_interface.device
-                device_name = device.get('name') if isinstance(device, dict) else device.name
-                lom1_name = lom1_interface.get('name') if isinstance(lom1_interface, dict) else lom1_interface.name
+                # Enhanced defensive dict/object handling for nested device objects
+                device = rack_interface.get('device') if isinstance(rack_interface, dict) else rack_interface.device
                 
-                switch_port_name = switch_ports_sorted[i].get('name') if isinstance(switch_ports_sorted[i], dict) else switch_ports_sorted[i].name
+                # Handle device being int ID, dict, or object
+                if isinstance(device, int):
+                    # Device is just an ID, need to fetch device name
+                    device_obj = client.dcim.devices.get(device)
+                    device_name = device_obj.get('name') if isinstance(device_obj, dict) else device_obj.name
+                elif isinstance(device, dict):
+                    device_name = device.get('name', f'device-{device.get("id", "unknown")}')
+                else:
+                    device_name = getattr(device, 'name', f'device-{getattr(device, "id", "unknown")}')
+                
+                rack_interface_name = rack_interface.get('name') if isinstance(rack_interface, dict) else rack_interface.name
+                rack_interface_id = rack_interface.get('id') if isinstance(rack_interface, dict) else rack_interface.id
+                
+                switch_port = switch_ports_sorted[i]
+                switch_port_name = switch_port.get('name') if isinstance(switch_port, dict) else switch_port.name
+                switch_port_id = switch_port.get('id') if isinstance(switch_port, dict) else switch_port.id
+                
+                # DEBUG: Log the mapping
+                logger.info(f"Mapping {i}: {device_name}:{rack_interface_name} (ID:{rack_interface_id}) -> {switch_name}:{switch_port_name} (ID:{switch_port_id})")
+                
+                # Validation check to prevent same object connection
+                if rack_interface_id == switch_port_id:
+                    logger.error(f"CRITICAL: Same interface ID detected! rack_id={rack_interface_id}, switch_id={switch_port_id}")
+                    continue
                 
                 cable_connections.append({
                     "device_a_name": device_name,
-                    "interface_a_name": lom1_name,
+                    "interface_a_name": rack_interface_name,
                     "device_b_name": switch_name,
                     "interface_b_name": switch_port_name,
-                    "lom1_interface_id": lom1_interface.get('id') if isinstance(lom1_interface, dict) else lom1_interface.id,
-                    "switch_port_id": switch_ports_sorted[i].get('id') if isinstance(switch_ports_sorted[i], dict) else switch_ports_sorted[i].id
+                    "rack_interface_id": rack_interface_id,
+                    "switch_port_id": switch_port_id
                 })
         
         if not confirm:
@@ -162,7 +357,7 @@ def netbox_bulk_cable_lom1_to_switch(
                 cable_data = {
                     "a_terminations": [{
                         "object_type": "dcim.interface",
-                        "object_id": connection["lom1_interface_id"]
+                        "object_id": connection["rack_interface_id"]
                     }],
                     "b_terminations": [{
                         "object_type": "dcim.interface", 
@@ -233,54 +428,188 @@ def netbox_bulk_cable_lom1_to_switch(
 
 
 @mcp_tool(category="dcim")
-def netbox_count_lom1_interfaces_in_rack(
+def netbox_count_interfaces_in_rack(
     client: NetBoxClient,
-    rack_name: str
+    rack_name: str,
+    interface_name: str = "lom1"
 ) -> Dict[str, Any]:
     """
-    Efficiently count lom1 interfaces in a rack with single API call.
+    Efficiently count specific interfaces in a rack with single API call.
     
-    This optimized tool provides fast counting of lom1 interfaces without
+    This optimized tool provides fast counting of interfaces by name without
     the overhead of multiple API calls or complex data processing.
     
     Args:
         client: NetBoxClient instance (injected)
         rack_name: Rack name to check (e.g., "K3")
+        interface_name: Interface name to count (e.g., "lom1", "eth0", "mgmt", "ilo", "idrac")
         
     Returns:
-        Count of lom1 interfaces with availability status
+        Count of specified interfaces with availability status
         
-    Example:
-        netbox_count_lom1_interfaces_in_rack(rack_name="K3")
+    Examples:
+        netbox_count_interfaces_in_rack(rack_name="K3", interface_name="lom1")
+        netbox_count_interfaces_in_rack(rack_name="K3", interface_name="eth0")
+        netbox_count_interfaces_in_rack(rack_name="K3", interface_name="mgmt")
+        netbox_count_interfaces_in_rack(rack_name="K3", interface_name="ilo")
+        netbox_count_interfaces_in_rack(rack_name="K3", interface_name="idrac")
     """
     
     try:
-        logger.info(f"Counting lom1 interfaces in rack '{rack_name}'")
+        logger.info(f"Counting '{interface_name}' interfaces in rack '{rack_name}'")
         
-        # OPTIMIZATION: Single API call to get all lom1 interfaces in rack
-        all_lom1 = client.dcim.interfaces.filter(
+        # OPTIMIZATION: Single API call to get all specified interfaces in rack
+        all_interfaces = client.dcim.interfaces.filter(
             device__rack__name=rack_name,
-            name="lom1"
+            name=interface_name
         )
         
-        if not all_lom1:
+        # DEFENSIVE VALIDATION: Verify devices are actually in the specified rack
+        # This prevents the critical bug where API filters return wrong devices
+        # PERFORMANCE OPTIMIZATION: Batch fetch devices to avoid N+1 queries
+        
+        # Step 1: Extract unique device IDs from interfaces
+        device_ids = set()
+        for interface in all_interfaces:
+            device = interface.get('device') if isinstance(interface, dict) else interface.device
+            if isinstance(device, int):
+                device_ids.add(device)
+            elif isinstance(device, dict):
+                device_ids.add(device.get('id'))
+            else:
+                device_ids.add(getattr(device, 'id', None))
+        
+        # Remove None values if any
+        device_ids = {dev_id for dev_id in device_ids if dev_id is not None}
+        
+        # Step 2: BATCH FETCH all devices in a single API call
+        logger.debug(f"Batch fetching {len(device_ids)} devices to validate rack locations")
+        devices_batch = client.dcim.devices.filter(id__in=list(device_ids))
+        
+        # Step 2.5: Extract unique rack IDs and batch fetch racks
+        rack_ids = set()
+        for device in devices_batch:
+            if isinstance(device, dict):
+                rack_id = device.get('rack')
+                if rack_id:
+                    rack_ids.add(rack_id)
+            else:
+                rack_id = getattr(device, 'rack', None)
+                if rack_id:
+                    rack_ids.add(rack_id)
+        
+        # Batch fetch racks to get rack names
+        rack_lookup = {}
+        if rack_ids:
+            logger.debug(f"Batch fetching {len(rack_ids)} racks to get rack names")
+            racks_batch = client.dcim.racks.filter(id__in=list(rack_ids))
+            for rack in racks_batch:
+                if isinstance(rack, dict):
+                    rack_id = rack.get('id')
+                    rack_name = rack.get('name')
+                else:
+                    rack_id = getattr(rack, 'id', None)
+                    rack_name = getattr(rack, 'name', None)
+                if rack_id and rack_name:
+                    rack_lookup[rack_id] = rack_name
+        
+        # Step 3: Create device lookup map for O(1) access
+        device_lookup = {}
+        for device in devices_batch:
+            # Handle device being int ID, dict, or object
+            if isinstance(device, int):
+                device_id = device
+                device_lookup[device_id] = {'id': device}  # Minimal dict for consistency
+            elif isinstance(device, dict):
+                device_id = device.get('id')
+                device_lookup[device_id] = device
+            else:
+                device_id = getattr(device, 'id', None)
+                device_lookup[device_id] = device
+        
+        # Step 4: Process interfaces with batch-fetched device and rack data
+        validated_interfaces = []
+        skipped_devices = []
+        
+        for interface in all_interfaces:
+            device = interface.get('device') if isinstance(interface, dict) else interface.device
+            
+            # Extract device ID for lookup
+            if isinstance(device, int):
+                device_id = device
+            elif isinstance(device, dict):
+                device_id = device.get('id')
+            else:
+                device_id = getattr(device, 'id', None)
+            
+            # Get device from batch lookup (O(1) operation)
+            device_obj = device_lookup.get(device_id)
+            if not device_obj:
+                logger.warning(f"Device ID {device_id} not found in batch fetch - skipping interface")
+                continue
+            
+            # Extract device name and rack with defensive handling
+            if isinstance(device_obj, dict):
+                device_name = device_obj.get('name', f'device-{device_id}')
+                rack_id = device_obj.get('rack')
+                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+            else:
+                device_name = getattr(device_obj, 'name', f'device-{device_id}')
+                rack_id = getattr(device_obj, 'rack', None)
+                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+            
+            # CRITICAL CHECK: Only include devices that are ACTUALLY in the specified rack
+            if actual_rack == rack_name:
+                validated_interfaces.append(interface)
+                logger.debug(f"✅ Including {device_name}:{interface_name} (actually in rack {actual_rack})")
+            else:
+                skipped_devices.append(f"{device_name} (in {actual_rack})")
+                logger.warning(f"❌ RACK MISMATCH: {device_name} returned by rack filter but is in '{actual_rack}', not '{rack_name}'")
+        
+        logger.info(f"Found {len(all_interfaces)} total '{interface_name}' interfaces from rack filter")
+        logger.info(f"Validated {len(validated_interfaces)} interfaces actually in rack '{rack_name}'")
+        
+        if skipped_devices:
+            logger.warning(f"Skipped {len(skipped_devices)} devices not in rack '{rack_name}': {', '.join(skipped_devices)}")
+        
+        if not validated_interfaces:
             return {
                 "success": True,
                 "count": 0,
                 "available": 0,
                 "unavailable": 0,
-                "message": f"No lom1 interfaces found in rack '{rack_name}'",
-                "devices": []
+                "message": f"No '{interface_name}' interfaces found in rack '{rack_name}' (after validation)",
+                "devices": [],
+                "validation_info": {
+                    "total_from_filter": len(all_interfaces),
+                    "validated_in_rack": len(validated_interfaces),
+                    "skipped_wrong_rack": len(skipped_devices)
+                }
             }
         
-        # Process results
+        # Process validated results using batch-fetched device data
         available_count = 0
         unavailable_count = 0
         device_list = []
         
-        for interface in all_lom1:
+        for interface in validated_interfaces:
             device = interface.get('device') if isinstance(interface, dict) else interface.device
-            device_name = device.get('name') if isinstance(device, dict) else device.name
+            
+            # Extract device ID for lookup
+            if isinstance(device, int):
+                device_id = device
+            elif isinstance(device, dict):
+                device_id = device.get('id')
+            else:
+                device_id = getattr(device, 'id', None)
+            
+            # Get device from batch lookup (O(1) operation) - already fetched above
+            device_obj = device_lookup.get(device_id)
+            if device_obj:
+                device_name = device_obj.get('name') if isinstance(device_obj, dict) else getattr(device_obj, 'name', f'device-{device_id}')
+            else:
+                device_name = f'device-{device_id}'
+            
             interface_cable = interface.get('cable') if isinstance(interface, dict) else interface.cable
             
             is_available = not bool(interface_cable)
@@ -302,7 +631,7 @@ def netbox_count_lom1_interfaces_in_rack(
                     
             device_list.append({
                 "device_name": device_name,
-                "interface_name": "lom1",
+                "interface_name": interface_name,
                 "available": is_available,
                 "cable_id": cable_id
             })
@@ -312,20 +641,95 @@ def netbox_count_lom1_interfaces_in_rack(
         
         return {
             "success": True,
-            "count": len(all_lom1),
+            "count": len(validated_interfaces),
             "available": available_count,
             "unavailable": unavailable_count,
-            "message": f"Found {len(all_lom1)} lom1 interfaces in rack '{rack_name}' ({available_count} available, {unavailable_count} connected)",
-            "devices": device_list
+            "message": f"Found {len(validated_interfaces)} '{interface_name}' interfaces in rack '{rack_name}' ({available_count} available, {unavailable_count} connected)",
+            "devices": device_list,
+            "validation_info": {
+                "total_from_filter": len(all_interfaces),
+                "validated_in_rack": len(validated_interfaces),
+                "skipped_wrong_rack": len(skipped_devices)
+            }
         }
         
     except Exception as e:
-        logger.error(f"Failed to count lom1 interfaces: {e}")
+        logger.error(f"Failed to count '{interface_name}' interfaces: {e}")
         return {
             "success": False,
             "error": str(e),
             "error_type": type(e).__name__
         }
+
+
+@mcp_tool(category="dcim")
+def netbox_bulk_cable_lom1_to_switch(
+    client: NetBoxClient,
+    rack_name: str,
+    switch_name: str,
+    cable_color: Optional[str] = None,
+    cable_type: str = "cat6",
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Optimized bulk cable creation for lom1 interfaces to switch ports.
+    
+    LEGACY FUNCTION: Use netbox_bulk_cable_interfaces_to_switch() instead for better flexibility.
+    This function is kept for backward compatibility.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        rack_name: Source rack name (e.g., "K3")
+        switch_name: Target switch name (e.g., "switch1.K3")
+        cable_color: Cable color for all connections (e.g., "pink", "blue")
+        cable_type: Type of cable (default: "cat6")
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Bulk operation results with detailed success/failure information
+        
+    Example:
+        netbox_bulk_cable_lom1_to_switch(
+            rack_name="K3",
+            switch_name="switch1.K3",
+            cable_color="pink",
+            confirm=True
+        )
+    """
+    return netbox_bulk_cable_interfaces_to_switch(
+        client=client,
+        rack_name=rack_name,
+        switch_name=switch_name,
+        interface_name="lom1",
+        switch_port_pattern="Te1/1/",
+        cable_color=cable_color,
+        cable_type=cable_type,
+        confirm=confirm
+    )
+
+
+@mcp_tool(category="dcim")
+def netbox_count_lom1_interfaces_in_rack(
+    client: NetBoxClient,
+    rack_name: str
+) -> Dict[str, Any]:
+    """
+    Efficiently count lom1 interfaces in a rack with single API call.
+    
+    LEGACY FUNCTION: Use netbox_count_interfaces_in_rack() instead for better flexibility.
+    This function is kept for backward compatibility.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        rack_name: Rack name to check (e.g., "K3")
+        
+    Returns:
+        Count of lom1 interfaces with availability status
+        
+    Example:
+        netbox_count_lom1_interfaces_in_rack(rack_name="K3")
+    """
+    return netbox_count_interfaces_in_rack(client, rack_name, "lom1")
 
 
 @mcp_tool(category="dcim")
