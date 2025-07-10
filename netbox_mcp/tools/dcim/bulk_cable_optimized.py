@@ -91,12 +91,18 @@ def netbox_bulk_cable_interfaces_to_switch(
         device_ids = set()
         for interface in all_rack_interfaces:
             device = interface.get('device') if isinstance(interface, dict) else interface.device
+            
+            # Extract device ID with proper defensive handling
+            device_id = None
             if isinstance(device, int):
-                device_ids.add(device)
+                device_id = device  # device is already the ID
             elif isinstance(device, dict):
-                device_ids.add(device.get('id'))
+                device_id = device.get('id')
             else:
-                device_ids.add(getattr(device, 'id', None))
+                device_id = getattr(device, 'id', None)
+            
+            if device_id is not None:
+                device_ids.add(device_id)
         
         # Remove None values if any
         device_ids = {dev_id for dev_id in device_ids if dev_id is not None}
@@ -108,14 +114,23 @@ def netbox_bulk_cable_interfaces_to_switch(
         # Step 2.5: Extract unique rack IDs and batch fetch racks
         rack_ids = set()
         for device in devices_batch:
+            rack_ref = None
             if isinstance(device, dict):
-                rack_id = device.get('rack')
-                if rack_id:
-                    rack_ids.add(rack_id)
+                rack_ref = device.get('rack')
             else:
-                rack_id = getattr(device, 'rack', None)
-                if rack_id:
-                    rack_ids.add(rack_id)
+                rack_ref = getattr(device, 'rack', None)
+            
+            # Extract rack ID from rack reference (could be int ID or dict)
+            rack_id = None
+            if isinstance(rack_ref, int):
+                rack_id = rack_ref  # rack is already the ID
+            elif isinstance(rack_ref, dict):
+                rack_id = rack_ref.get('id')
+            elif rack_ref is not None:
+                rack_id = getattr(rack_ref, 'id', None)
+            
+            if rack_id is not None:
+                rack_ids.add(rack_id)
         
         # Batch fetch racks to get rack names
         rack_lookup = {}
@@ -135,16 +150,16 @@ def netbox_bulk_cable_interfaces_to_switch(
         # Step 3: Create device lookup map for O(1) access
         device_lookup = {}
         for device in devices_batch:
-            # Handle device being int ID, dict, or object
-            if isinstance(device, int):
-                device_id = device
-                device_lookup[device_id] = {'id': device}  # Minimal dict for consistency
-            elif isinstance(device, dict):
+            # Extract device ID properly
+            device_id = None
+            if isinstance(device, dict):
                 device_id = device.get('id')
-                device_lookup[device_id] = device
+                if device_id is not None:
+                    device_lookup[device_id] = device
             else:
                 device_id = getattr(device, 'id', None)
-                device_lookup[device_id] = device
+                if device_id is not None:
+                    device_lookup[device_id] = device
         
         # Step 4: Process interfaces with batch-fetched device and rack data
         rack_interfaces = []
@@ -171,12 +186,21 @@ def netbox_bulk_cable_interfaces_to_switch(
             # Extract device name and rack with defensive handling
             if isinstance(device_obj, dict):
                 device_name = device_obj.get('name', f'device-{device_id}')
-                rack_id = device_obj.get('rack')
-                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+                rack_ref = device_obj.get('rack')
             else:
                 device_name = getattr(device_obj, 'name', f'device-{device_id}')
-                rack_id = getattr(device_obj, 'rack', None)
-                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+                rack_ref = getattr(device_obj, 'rack', None)
+            
+            # Extract rack ID from rack reference (could be int ID or dict)
+            rack_id = None
+            if isinstance(rack_ref, int):
+                rack_id = rack_ref
+            elif isinstance(rack_ref, dict):
+                rack_id = rack_ref.get('id')
+            elif rack_ref is not None:
+                rack_id = getattr(rack_ref, 'id', None)
+            
+            actual_rack = rack_lookup.get(rack_id) if rack_id else None
             
             # CRITICAL CHECK: Only include devices that are ACTUALLY in the specified rack
             if actual_rack == rack_name:
@@ -489,14 +513,23 @@ def netbox_count_interfaces_in_rack(
         # Step 2.5: Extract unique rack IDs and batch fetch racks
         rack_ids = set()
         for device in devices_batch:
+            rack_ref = None
             if isinstance(device, dict):
-                rack_id = device.get('rack')
-                if rack_id:
-                    rack_ids.add(rack_id)
+                rack_ref = device.get('rack')
             else:
-                rack_id = getattr(device, 'rack', None)
-                if rack_id:
-                    rack_ids.add(rack_id)
+                rack_ref = getattr(device, 'rack', None)
+            
+            # Extract rack ID from rack reference (could be int ID or dict)
+            rack_id = None
+            if isinstance(rack_ref, int):
+                rack_id = rack_ref  # rack is already the ID
+            elif isinstance(rack_ref, dict):
+                rack_id = rack_ref.get('id')
+            elif rack_ref is not None:
+                rack_id = getattr(rack_ref, 'id', None)
+            
+            if rack_id is not None:
+                rack_ids.add(rack_id)
         
         # Batch fetch racks to get rack names
         rack_lookup = {}
@@ -516,16 +549,16 @@ def netbox_count_interfaces_in_rack(
         # Step 3: Create device lookup map for O(1) access
         device_lookup = {}
         for device in devices_batch:
-            # Handle device being int ID, dict, or object
-            if isinstance(device, int):
-                device_id = device
-                device_lookup[device_id] = {'id': device}  # Minimal dict for consistency
-            elif isinstance(device, dict):
+            # Extract device ID properly
+            device_id = None
+            if isinstance(device, dict):
                 device_id = device.get('id')
-                device_lookup[device_id] = device
+                if device_id is not None:
+                    device_lookup[device_id] = device
             else:
                 device_id = getattr(device, 'id', None)
-                device_lookup[device_id] = device
+                if device_id is not None:
+                    device_lookup[device_id] = device
         
         # Step 4: Process interfaces with batch-fetched device and rack data
         validated_interfaces = []
@@ -551,12 +584,21 @@ def netbox_count_interfaces_in_rack(
             # Extract device name and rack with defensive handling
             if isinstance(device_obj, dict):
                 device_name = device_obj.get('name', f'device-{device_id}')
-                rack_id = device_obj.get('rack')
-                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+                rack_ref = device_obj.get('rack')
             else:
                 device_name = getattr(device_obj, 'name', f'device-{device_id}')
-                rack_id = getattr(device_obj, 'rack', None)
-                actual_rack = rack_lookup.get(rack_id) if rack_id else None
+                rack_ref = getattr(device_obj, 'rack', None)
+            
+            # Extract rack ID from rack reference (could be int ID or dict)
+            rack_id = None
+            if isinstance(rack_ref, int):
+                rack_id = rack_ref
+            elif isinstance(rack_ref, dict):
+                rack_id = rack_ref.get('id')
+            elif rack_ref is not None:
+                rack_id = getattr(rack_ref, 'id', None)
+            
+            actual_rack = rack_lookup.get(rack_id) if rack_id else None
             
             # CRITICAL CHECK: Only include devices that are ACTUALLY in the specified rack
             if actual_rack == rack_name:
@@ -760,12 +802,20 @@ def netbox_count_switch_ports_available(
         logger.info(f"Counting available switch ports on '{switch_name}' matching '{port_pattern}'")
         
         # OPTIMIZATION: Single API call to get all matching ports
-        all_ports = client.dcim.interfaces.filter(
-            device__name=switch_name,
-            name__istartswith=port_pattern
+        # CRITICAL FIX: Don't use name__istartswith as it matches multiple interface types
+        # Instead, get all interfaces and filter manually for exact pattern matching
+        all_device_ports = client.dcim.interfaces.filter(
+            device__name=switch_name
         )
         
-        if not all_ports:
+        # Filter manually for exact pattern matching (prevents overcounting)
+        matching_ports = []
+        for port in all_device_ports:
+            port_name = port.get('name') if isinstance(port, dict) else port.name
+            if port_name and port_name.startswith(port_pattern):
+                matching_ports.append(port)
+        
+        if not matching_ports:
             return {
                 "success": True,
                 "total_ports": 0,
@@ -775,12 +825,12 @@ def netbox_count_switch_ports_available(
                 "ports": []
             }
         
-        # Process results
+        # Process results with exact pattern matching
         available_count = 0
         unavailable_count = 0
         port_list = []
         
-        for port in all_ports:
+        for port in matching_ports:
             port_name = port.get('name') if isinstance(port, dict) else port.name
             port_cable = port.get('cable') if isinstance(port, dict) else port.cable
             
@@ -822,10 +872,10 @@ def netbox_count_switch_ports_available(
         
         return {
             "success": True,
-            "total_ports": len(all_ports),
+            "total_ports": len(matching_ports),
             "available": available_count,
             "unavailable": unavailable_count,
-            "message": f"Found {len(all_ports)} ports matching '{port_pattern}' on '{switch_name}' ({available_count} available, {unavailable_count} connected)",
+            "message": f"Found {len(matching_ports)} ports matching '{port_pattern}' on '{switch_name}' ({available_count} available, {unavailable_count} connected)",
             "ports": port_list
         }
         
