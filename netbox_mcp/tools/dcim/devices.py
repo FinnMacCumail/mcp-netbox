@@ -177,21 +177,37 @@ def netbox_create_device(
 def netbox_get_device_info(
     client: NetBoxClient,
     device_name: str,
-    site: Optional[str] = None
+    site: Optional[str] = None,
+    interface_limit: int = 20,
+    cable_limit: int = 10,
+    include_interfaces: bool = True,
+    include_cables: bool = True
 ) -> Dict[str, Any]:
     """
-    Get comprehensive information about a device.
+    Get comprehensive information about a device with pagination support.
     
     Args:
         client: NetBoxClient instance (injected)
         device_name: Name of the device
         site: Optional site name for filtering
+        interface_limit: Maximum number of interfaces to return (default: 20)
+        cable_limit: Maximum number of cables to return (default: 10)
+        include_interfaces: Include interface information (default: True)
+        include_cables: Include cable information (default: True)
         
     Returns:
-        Device information including interfaces, connections, and power
+        Device information including limited interfaces and connections
         
     Example:
         netbox_get_device_info("rtr-01", site="amsterdam-dc")
+        netbox_get_device_info("switch-01", interface_limit=50, cable_limit=20)
+        netbox_get_device_info("server-01", include_cables=False)
+        
+    Note:
+        For devices with many interfaces/cables, use the specialized tools:
+        - netbox_get_device_basic_info (device only)
+        - netbox_get_device_interfaces (interfaces with pagination)
+        - netbox_get_device_cables (cables with pagination)
     """
     try:
         logger.info(f"Getting device information: {device_name}")
@@ -214,24 +230,69 @@ def netbox_get_device_info(
         device = devices[0]
         device_id = device["id"]
         
-        # Get related information
-        interfaces = client.dcim.interfaces.filter(device_id=device_id)
-        cables = client.dcim.cables.filter(termination_a_id=device_id)
-        # Power connections endpoint doesn't exist in this NetBox version
-        power_connections = []
-        
-        return {
+        # Get related information with pagination
+        result_data = {
             "success": True,
-            "device": device,
-            "interfaces": interfaces,
-            "cables": cables,
-            "power_connections": power_connections,
-            "statistics": {
-                "interface_count": len(interfaces),
-                "cable_count": len(cables),
-                "power_connection_count": len(power_connections)
-            }
+            "device": device
         }
+        
+        # Get interfaces with API-side pagination if requested
+        if include_interfaces:
+            # Use API-side counting for efficiency
+            total_interfaces = client.dcim.interfaces.count(device_id=device_id)
+            # Use API-side pagination with limit parameter
+            interfaces = list(client.dcim.interfaces.filter(device_id=device_id, limit=interface_limit))
+            result_data["interfaces"] = interfaces
+            result_data["interface_pagination"] = {
+                "total_count": total_interfaces,
+                "returned_count": len(interfaces),
+                "limit": interface_limit,
+                "truncated": total_interfaces > interface_limit
+            }
+        else:
+            result_data["interfaces"] = []
+            result_data["interface_pagination"] = {
+                "total_count": 0,
+                "returned_count": 0,
+                "limit": interface_limit,
+                "truncated": False
+            }
+        
+        # Get cables with API-side pagination if requested
+        if include_cables:
+            # Use API-side counting for efficiency
+            total_cables = client.dcim.cables.count(termination_a_id=device_id)
+            # Use API-side pagination with limit parameter
+            cables = list(client.dcim.cables.filter(termination_a_id=device_id, limit=cable_limit))
+            result_data["cables"] = cables
+            result_data["cable_pagination"] = {
+                "total_count": total_cables,
+                "returned_count": len(cables),
+                "limit": cable_limit,
+                "truncated": total_cables > cable_limit
+            }
+        else:
+            result_data["cables"] = []
+            result_data["cable_pagination"] = {
+                "total_count": 0,
+                "returned_count": 0,
+                "limit": cable_limit,
+                "truncated": False
+            }
+        
+        # Power connections endpoint doesn't exist in this NetBox version
+        result_data["power_connections"] = []
+        
+        # Statistics
+        result_data["statistics"] = {
+            "interface_count": result_data["interface_pagination"]["total_count"],
+            "cable_count": result_data["cable_pagination"]["total_count"],
+            "power_connection_count": 0,
+            "interface_returned": result_data["interface_pagination"]["returned_count"],
+            "cable_returned": result_data["cable_pagination"]["returned_count"]
+        }
+        
+        return result_data
         
     except Exception as e:
         logger.error(f"Failed to get device info for {device_name}: {e}")
@@ -242,6 +303,286 @@ def netbox_get_device_info(
         }
 
 
+@mcp_tool(category="dcim")
+def netbox_get_device_basic_info(
+    client: NetBoxClient,
+    device_name: str,
+    site: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get basic device information only (no interfaces or cables).
+    
+    This lightweight tool returns only device details without related objects,
+    making it ideal for quick device lookups that respect token limits.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the device
+        site: Optional site name for filtering
+        
+    Returns:
+        Basic device information without interfaces or cables
+        
+    Example:
+        netbox_get_device_basic_info("rtr-01", site="amsterdam-dc")
+        netbox_get_device_basic_info("switch-01")
+    """
+    try:
+        logger.info(f"Getting basic device information: {device_name}")
+        
+        # Build filter
+        device_filter = {"name": device_name}
+        if site:
+            device_filter["site"] = site
+        
+        # Find the device
+        devices = client.dcim.devices.filter(**device_filter)
+        
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found" + (f" in site '{site}'" if site else ""),
+                "error_type": "DeviceNotFound"
+            }
+        
+        device = devices[0]
+        device_id = device["id"]
+        
+        # Get counts only (no actual data)
+        interface_count = len(list(client.dcim.interfaces.filter(device_id=device_id)))
+        cable_count = len(list(client.dcim.cables.filter(termination_a_id=device_id)))
+        
+        return {
+            "success": True,
+            "device": device,
+            "statistics": {
+                "interface_count": interface_count,
+                "cable_count": cable_count,
+                "power_connection_count": 0
+            },
+            "note": "Use netbox_get_device_interfaces or netbox_get_device_cables for detailed related data"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get basic device info for {device_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+@mcp_tool(category="dcim")
+def netbox_get_device_interfaces(
+    client: NetBoxClient,
+    device_name: str,
+    site: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    interface_type: Optional[str] = None,
+    enabled_only: bool = False
+) -> Dict[str, Any]:
+    """
+    Get device interfaces with pagination support.
+    
+    This specialized tool returns device interfaces with comprehensive filtering
+    and pagination, ideal for devices with many interfaces.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the device
+        site: Optional site name for filtering
+        limit: Maximum number of interfaces to return (default: 50)
+        offset: Starting position for pagination (default: 0)
+        interface_type: Filter by interface type (optional)
+        enabled_only: Only return enabled interfaces (default: False)
+        
+    Returns:
+        Device interfaces with pagination information
+        
+    Example:
+        netbox_get_device_interfaces("switch-01")
+        netbox_get_device_interfaces("switch-01", limit=20, offset=40)
+        netbox_get_device_interfaces("server-01", enabled_only=True)
+    """
+    try:
+        logger.info(f"Getting device interfaces: {device_name}")
+        
+        # Build device filter
+        device_filter = {"name": device_name}
+        if site:
+            device_filter["site"] = site
+        
+        # Find the device
+        devices = client.dcim.devices.filter(**device_filter)
+        
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found" + (f" in site '{site}'" if site else ""),
+                "error_type": "DeviceNotFound"
+            }
+        
+        device = devices[0]
+        device_id = device["id"]
+        
+        # Build interface filter
+        interface_filter = {"device_id": device_id}
+        if interface_type:
+            interface_filter["type"] = interface_type
+        if enabled_only:
+            interface_filter["enabled"] = True
+        
+        # Use API-side counting and pagination for efficiency
+        total_count = client.dcim.interfaces.count(**interface_filter)
+        
+        # Apply API-side pagination with limit and offset
+        interfaces = list(client.dcim.interfaces.filter(
+            **interface_filter,
+            limit=limit,
+            offset=offset
+        ))
+        
+        end_index = offset + len(interfaces)
+        
+        return {
+            "success": True,
+            "device": {
+                "id": device["id"],
+                "name": device["name"],
+                "display": device.get("display", device["name"])
+            },
+            "interfaces": interfaces,
+            "pagination": {
+                "total_count": total_count,
+                "returned_count": len(interfaces),
+                "limit": limit,
+                "offset": offset,
+                "has_next": end_index < total_count,
+                "has_previous": offset > 0,
+                "next_offset": end_index if end_index < total_count else None,
+                "previous_offset": max(0, offset - limit) if offset > 0 else None
+            },
+            "filters_applied": {
+                "interface_type": interface_type,
+                "enabled_only": enabled_only
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get device interfaces for {device_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
+
+@mcp_tool(category="dcim")
+def netbox_get_device_cables(
+    client: NetBoxClient,
+    device_name: str,
+    site: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    cable_status: Optional[str] = None,
+    cable_type: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Get device cables with pagination support.
+    
+    This specialized tool returns device cables with comprehensive filtering
+    and pagination, ideal for devices with many cable connections.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        device_name: Name of the device
+        site: Optional site name for filtering
+        limit: Maximum number of cables to return (default: 50)
+        offset: Starting position for pagination (default: 0)
+        cable_status: Filter by cable status (optional)
+        cable_type: Filter by cable type (optional)
+        
+    Returns:
+        Device cables with pagination information
+        
+    Example:
+        netbox_get_device_cables("switch-01")
+        netbox_get_device_cables("switch-01", limit=20, offset=20)
+        netbox_get_device_cables("server-01", cable_status="connected")
+    """
+    try:
+        logger.info(f"Getting device cables: {device_name}")
+        
+        # Build device filter
+        device_filter = {"name": device_name}
+        if site:
+            device_filter["site"] = site
+        
+        # Find the device
+        devices = client.dcim.devices.filter(**device_filter)
+        
+        if not devices:
+            return {
+                "success": False,
+                "error": f"Device '{device_name}' not found" + (f" in site '{site}'" if site else ""),
+                "error_type": "DeviceNotFound"
+            }
+        
+        device = devices[0]
+        device_id = device["id"]
+        
+        # Build cable filter - cables where this device is termination A
+        cable_filter = {"termination_a_id": device_id}
+        if cable_status:
+            cable_filter["status"] = cable_status
+        if cable_type:
+            cable_filter["type"] = cable_type
+        
+        # Use API-side counting and pagination for efficiency
+        total_count = client.dcim.cables.count(**cable_filter)
+        
+        # Apply API-side pagination with limit and offset
+        cables = list(client.dcim.cables.filter(
+            **cable_filter,
+            limit=limit,
+            offset=offset
+        ))
+        
+        end_index = offset + len(cables)
+        
+        return {
+            "success": True,
+            "device": {
+                "id": device["id"],
+                "name": device["name"],
+                "display": device.get("display", device["name"])
+            },
+            "cables": cables,
+            "pagination": {
+                "total_count": total_count,
+                "returned_count": len(cables),
+                "limit": limit,
+                "offset": offset,
+                "has_next": end_index < total_count,
+                "has_previous": offset > 0,
+                "next_offset": end_index if end_index < total_count else None,
+                "previous_offset": max(0, offset - limit) if offset > 0 else None
+            },
+            "filters_applied": {
+                "cable_status": cable_status,
+                "cable_type": cable_type
+            },
+            "note": "Only shows cables where this device is termination A. Use netbox_list_all_cables for comprehensive cable search."
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get device cables for {device_name}: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
 
 
 @mcp_tool(category="dcim")

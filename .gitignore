@@ -110,5 +110,8 @@ autonomous_*.sh
 autonomous_*.txt
 autonomous_logs/
 
+# Test scripts for development and debugging
+test_scripts/
+
 # Documentation drafts and temporary files
 docs/CLAUDE.md

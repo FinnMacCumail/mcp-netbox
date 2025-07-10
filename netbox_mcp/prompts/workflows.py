@@ -739,7 +739,7 @@ async def bulk_cable_installation_prompt() -> Dict[str, Any]:
                     }
                 ],
                 "netbox_tools_executed": [
-                    "netbox_get_device_info",
+                    "netbox_get_device_basic_info",  # Efficient: device only, avoids token limits
                     "netbox_map_rack_to_switch_interfaces"
                 ],
                 "bridget_validations": [
@@ -990,7 +990,7 @@ Deze workflow handleidt je door het complete proces van bulk kabel installatie t
 • Minimaal 1 beschikbare interface voor bulk operatie vinden na verification
 
 **NetBox tools die ik ga gebruiken:**
-• netbox_count_interfaces_in_rack (met defensive validation)
+• netbox_count_interfaces_in_rack (met defensive validation)  # Efficient: count only, no device details
 • netbox_list_all_racks  
 • netbox_get_rack_inventory
 
@@ -1013,7 +1013,7 @@ Deze workflow handleidt je door het complete proces van bulk kabel installatie t
 • Geen conflicterende bestaande verbindingen detecteren
 
 **NetBox tools die ik ga gebruiken:**
-• netbox_get_device_info
+• netbox_get_device_basic_info  # Efficient: switch only, avoids token limits during bulk workflows
 • netbox_map_rack_to_switch_interfaces
 
 **Jouw input nodig:**
@@ -1089,7 +1089,7 @@ Deze workflow handleidt je door het complete proces van bulk kabel installatie t
 • Performance metrics en timing
 
 **NetBox tools die ik ga gebruiken:**
-• netbox_bulk_cable_interfaces_to_switch (met defensive validation)
+• netbox_bulk_cable_interfaces_to_switch (met defensive validation)  # Efficient: optimized bulk operations, prevents token limits
 
 **Jouw input nodig:**
 • Uitvoering bevestiging (true/false)
