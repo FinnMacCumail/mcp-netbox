@@ -29,12 +29,49 @@ class CableValidator:
     ]
     
     @classmethod
-    def validate_color(cls, color: Optional[str]) -> Optional[str]:
+    def normalize_and_validate_color(cls, color_input: str, valid_colors: List[str] = None) -> Optional[str]:
         """
-        Validate and normalize cable color.
+        Normaliseert en valideert een kleur-string gebaseerd op Gemini's aanbeveling.
+        Retourneert de valide kleurnaam of None als deze niet wordt gevonden.
+        
+        GEMINI FIX: Enhanced color validation that extracts color from compound strings.
+        Handles inputs like "cat6 green", "green cable", etc.
         
         Args:
-            color: Color string to validate (case-insensitive)
+            color_input: Input string that may contain color (e.g., "cat6 green")
+            valid_colors: List of valid colors (defaults to VALID_COLORS)
+            
+        Returns:
+            Normalized color string or None if not found
+        """
+        if not color_input:
+            return None
+        
+        if valid_colors is None:
+            valid_colors = cls.VALID_COLORS
+        
+        color_lower = color_input.lower().strip()
+        
+        # First try: Look for color names within the input string
+        for valid_color in valid_colors:
+            if valid_color in color_lower:
+                return valid_color  # e.g. "cat6 green" -> "green"
+                
+        # Second try: Check if the input is a direct color name
+        if color_lower in valid_colors:
+            return color_lower
+            
+        return None  # Color not found
+
+    @classmethod
+    def validate_color(cls, color: Optional[str]) -> Optional[str]:
+        """
+        Validate and normalize cable color with enhanced extraction capability.
+        
+        GEMINI FIX: Uses improved normalize_and_validate_color for better UX.
+        
+        Args:
+            color: Color string to validate (case-insensitive, can be compound)
             
         Returns:
             Normalized color string (lowercase) or None if input is None
@@ -45,21 +82,13 @@ class CableValidator:
         if color is None:
             return None
             
-        # Normalize color to lowercase and strip whitespace
-        normalized_color = color.strip().lower()
+        # Use enhanced color normalization
+        normalized_color = cls.normalize_and_validate_color(color, cls.VALID_COLORS)
         
-        # Check for empty string after stripping
-        if not normalized_color:
+        if color is not None and not normalized_color:
+            # Provide clear feedback with available options
             raise NetBoxValidationError(
-                f"Invalid cable_color: '{color}'. Color cannot be empty. "
-                f"Valid colors: {', '.join(cls.VALID_COLORS)}"
-            )
-        
-        # Validate against known colors
-        if normalized_color not in cls.VALID_COLORS:
-            raise NetBoxValidationError(
-                f"Invalid cable_color: '{color}'. "
-                f"Valid colors: {', '.join(cls.VALID_COLORS)}"
+                f"Kleur '{color}' is niet valide. Geldige kleuren zijn: {', '.join(cls.VALID_COLORS)}"
             )
         
         return normalized_color

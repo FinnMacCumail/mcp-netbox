@@ -15,6 +15,260 @@ from ...client import NetBoxClient
 logger = logging.getLogger(__name__)
 
 
+def is_port_available(pynetbox_interface_object):
+    """
+    Bepaalt of een poort beschikbaar is voor een nieuwe kabel.
+    Een poort wordt als beschikbaar beschouwd als er geen kabel aan is gekoppeld.
+    
+    GEMINI FIX: Robust port availability check based on cable presence.
+    A port is only available if cable is None.
+    
+    Args:
+        pynetbox_interface_object: NetBox interface object (dict or pynetbox object)
+        
+    Returns:
+        bool: True if port is available, False if occupied
+    """
+    # Handle both dict and object responses defensively
+    if isinstance(pynetbox_interface_object, dict):
+        cable = pynetbox_interface_object.get('cable')
+    else:
+        cable = pynetbox_interface_object.cable
+    
+    # A port is available ONLY if cable is None (no cable object attached)
+    return cable is None
+
+
+def get_resource_details(resource, client, device_lookup=None):
+    """
+    Haalt details op van een resource, ongeacht of het een dict, object of int (ID) is.
+    Maakt gebruik van een pre-fetched lookup tabel voor performance.
+    
+    GEMINI FIX: Enhanced defensive handling for int/dict/object responses.
+    
+    Args:
+        resource: Resource object (int ID, dict, or pynetbox object)
+        client: NetBox client for fallback API calls
+        device_lookup: Pre-fetched lookup dict for performance optimization
+        
+    Returns:
+        tuple: (resource_id, resource_name)
+    """
+    if isinstance(resource, int):
+        # We hebben alleen een ID. Zoek het op in de batch-fetched lookup.
+        if device_lookup and resource in device_lookup:
+            res_obj = device_lookup[resource]
+            return res_obj.id, res_obj.name
+        else:
+            # Fallback naar een directe API call (minder performant, maar robuust)
+            logger.warning(f"Fallback API call for resource ID {resource} - consider adding to batch lookup")
+            try:
+                res_obj = client.dcim.devices.get(resource)
+                return (res_obj.id, res_obj.name) if res_obj else (resource, "Unknown")
+            except Exception as e:
+                logger.error(f"Failed to fetch resource {resource}: {e}")
+                return resource, "Unknown"
+    
+    elif isinstance(resource, dict):
+        # Het is een dictionary
+        return resource.get('id'), resource.get('name')
+        
+    else:
+        # Het is een pynetbox object
+        return resource.id, resource.name
+
+
+def bulk_create_cables_resilient(cable_plan: List[dict], client) -> dict:
+    """
+    Voert een bulk kabelcreatie uit en vangt fouten per kabel af.
+    
+    GEMINI FIX: Implements graceful partial success for bulk operations.
+    Returns detailed success/error breakdown instead of failing completely.
+    
+    Args:
+        cable_plan: List of cable data dictionaries
+        client: NetBox client for API calls
+        
+    Returns:
+        Dict with success and error results
+    """
+    success_results = []
+    error_results = []
+    
+    for i, cable_data in enumerate(cable_plan):
+        try:
+            # Create cable with confirm=True for actual creation
+            new_cable = client.dcim.cables.create(**cable_data)
+            success_results.append({
+                "index": i,
+                "data": cable_data,
+                "cable_id": new_cable.id,
+                "result": f"Kabel #{new_cable.id} succesvol aangemaakt."
+            })
+            logger.info(f"Cable {i+1}/{len(cable_plan)} created successfully: #{new_cable.id}")
+            
+        except Exception as e:
+            error_results.append({
+                "index": i,
+                "data": cable_data,
+                "error": str(e)
+            })
+            logger.warning(f"Cable {i+1}/{len(cable_plan)} failed: {e}")
+            
+    return {
+        "success": success_results,
+        "errors": error_results,
+        "total_attempted": len(cable_plan),
+        "total_success": len(success_results),
+        "total_errors": len(error_results),
+        "success_rate": f"{len(success_results)}/{len(cable_plan)} ({(len(success_results) / len(cable_plan) * 100) if len(cable_plan) > 0 else 0.0:.1f}%)"
+    }
+
+
+@mcp_tool(category="dcim")
+def netbox_bulk_cable_with_fallback(
+    client: NetBoxClient,
+    rack_name: str,
+    switch_name: str,
+    interface_name: str = "lom1",
+    switch_port_pattern: str = "Te1/1/",
+    cable_color: Optional[str] = None,
+    cable_type: str = "cat6",
+    confirm: bool = False
+) -> Dict[str, Any]:
+    """
+    Resilient bulk cable creation with graceful fallback mechanisms.
+    
+    GEMINI FIX: Enhanced workflow with multiple fallback strategies.
+    Attempts optimized tools first, falls back to simpler approaches on failure.
+    
+    Args:
+        client: NetBoxClient instance (injected)
+        rack_name: Source rack name (e.g., "L5", "K3")
+        switch_name: Target switch name (e.g., "IDRAC L05")
+        interface_name: Interface pattern to match (e.g., "idrac", "lom1")
+        switch_port_pattern: Switch port prefix (e.g., "POORT", "Te1/1/")
+        cable_color: Cable color (e.g., "green", "cat6 blue")
+        cable_type: Cable type specification (default: "cat6")
+        confirm: Must be True to execute (safety mechanism)
+        
+    Returns:
+        Comprehensive result with fallback information
+    """
+    
+    logger.info(f"Starting resilient bulk cable workflow: {rack_name} -> {switch_name}")
+    
+    # Strategy 1: Try optimized bulk cable tool
+    try:
+        logger.info("Strategy 1: Attempting netbox_bulk_cable_interfaces_to_switch")
+        result = netbox_bulk_cable_interfaces_to_switch(
+            client=client,
+            rack_name=rack_name,
+            switch_name=switch_name,
+            interface_name=interface_name,
+            switch_port_pattern=switch_port_pattern,
+            cable_color=cable_color,
+            cable_type=cable_type,
+            confirm=confirm
+        )
+        
+        if result.get("success"):
+            result["strategy_used"] = "optimized_bulk_tool"
+            return result
+        else:
+            logger.warning(f"Strategy 1 failed: {result.get('error', 'Unknown error')}")
+            
+    except Exception as e:
+        logger.warning(f"Strategy 1 failed with exception: {e}")
+    
+    # Strategy 2: Try simplified manual workflow
+    try:
+        logger.info("Strategy 2: Attempting simplified manual workflow")
+        
+        # Get interface count
+        interface_count_result = netbox_count_interfaces_in_rack(
+            client=client,
+            rack_name=rack_name,
+            interface_name=interface_name
+        )
+        
+        if not interface_count_result.get("success"):
+            raise Exception(f"Interface counting failed: {interface_count_result.get('error')}")
+            
+        interface_count = interface_count_result["total_interfaces"]
+        
+        # Get available ports
+        port_count_result = netbox_count_switch_ports_available(
+            client=client,
+            switch_name=switch_name,
+            port_pattern=switch_port_pattern
+        )
+        
+        if not port_count_result.get("success"):
+            raise Exception(f"Port counting failed: {port_count_result.get('error')}")
+            
+        available_ports = port_count_result["available"]
+        
+        if interface_count > available_ports:
+            return {
+                "success": False,
+                "error": "insufficient_capacity",
+                "message": f"Insufficient ports: need {interface_count}, available {available_ports}",
+                "strategy_used": "manual_workflow_capacity_check",
+                "fallback_suggestion": "Review port mapping or use different port range"
+            }
+        
+        # At this point we have validated capacity, suggest manual mapping
+        return {
+            "success": True,
+            "strategy_used": "manual_workflow_suggestion",
+            "action": "workflow_guidance",
+            "capacity_check": {
+                "interfaces_found": interface_count,
+                "ports_available": available_ports,
+                "capacity_sufficient": True
+            },
+            "recommended_next_steps": {
+                "message": "Capacity validated. Use manual mapping for reliable connection.",
+                "workflow": [
+                    f"1. Create manual mapping list with {interface_count} connections",
+                    f"2. Use {switch_port_pattern}1 through {switch_port_pattern}{interface_count} for ports",
+                    f"3. Execute with netbox_bulk_create_cable_connections",
+                    f"4. Monitor with resilient error handling"
+                ]
+            }
+        }
+        
+    except Exception as e:
+        logger.warning(f"Strategy 2 failed: {e}")
+    
+    # Strategy 3: Return comprehensive fallback guidance
+    return {
+        "success": False,
+        "error": "all_strategies_failed",
+        "strategy_used": "fallback_guidance",
+        "message": "All automated strategies failed. Manual intervention required.",
+        "fallback_options": {
+            "option_1": {
+                "name": "Manual Interface Discovery",
+                "tools": ["netbox_list_all_devices(site_name='your_site')", 
+                         f"netbox_get_device_interfaces(device_name='device_name')"],
+                "description": "Manually discover interfaces and create mapping list"
+            },
+            "option_2": {
+                "name": "Direct Cable Creation",
+                "tools": ["netbox_create_cable_connection"],
+                "description": "Create cables one by one with explicit device/interface names"
+            },
+            "option_3": {
+                "name": "Review Port Availability",
+                "tools": [f"netbox_get_device_interfaces(device_name='{switch_name}')"],
+                "description": "Manually verify switch port availability and conflicts"
+            }
+        }
+    }
+
+
 @mcp_tool(category="dcim")
 def netbox_bulk_cable_interfaces_to_switch(
     client: NetBoxClient,
@@ -834,7 +1088,8 @@ def netbox_count_switch_ports_available(
             port_name = port.get('name') if isinstance(port, dict) else port.name
             port_cable = port.get('cable') if isinstance(port, dict) else port.cable
             
-            is_available = not bool(port_cable)
+            # GEMINI FIX: Use new robust port availability utility function
+            is_available = is_port_available(port)
             
             if is_available:
                 available_count += 1

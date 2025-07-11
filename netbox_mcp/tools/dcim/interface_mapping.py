@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 from ...registry import mcp_tool
 from ...client import NetBoxClient
+from .bulk_cable_optimized import get_resource_details, is_port_available, bulk_create_cables_resilient
 from ...validation import CableValidator
 
 logger = logging.getLogger(__name__)
@@ -98,20 +99,21 @@ def netbox_map_rack_to_switch_interfaces(
                 # Get device info from interface (included in API response)
                 device = interface.get('device') if isinstance(interface, dict) else interface.device
                 
-                # Handle device being int ID, dict, or object
+                # GEMINI FIX: Use improved defensive resource handling
+                device_id, device_name = get_resource_details(device, client)
+                
+                # Get device position (need to handle separate lookup for position)
                 if isinstance(device, int):
-                    # Device is just an ID, need to fetch device details
-                    device_obj = client.dcim.devices.get(device)
-                    device_name = device_obj.get('name') if isinstance(device_obj, dict) else device_obj.name
-                    device_id = device_obj.get('id') if isinstance(device_obj, dict) else device_obj.id
-                    device_position = device_obj.get('position') if isinstance(device_obj, dict) else device_obj.position
+                    # Device is just an ID, need to fetch full device details for position
+                    try:
+                        device_obj = client.dcim.devices.get(device)
+                        device_position = device_obj.get('position') if isinstance(device_obj, dict) else device_obj.position
+                    except Exception as e:
+                        logger.warning(f"Could not fetch position for device {device}: {e}")
+                        device_position = None
                 elif isinstance(device, dict):
-                    device_name = device.get('name', f'device-{device.get("id", "unknown")}')
-                    device_id = device.get('id')
                     device_position = device.get('position')
                 else:
-                    device_name = getattr(device, 'name', f'device-{getattr(device, "id", "unknown")}')
-                    device_id = getattr(device, 'id', None)
                     device_position = getattr(device, 'position', None)
                 
                 # Exact match check for interface pattern
@@ -122,7 +124,7 @@ def netbox_map_rack_to_switch_interfaces(
                         "interface_name": interface_name,
                         "interface_id": interface_id,
                         "rack_position": device_position,
-                        "available": not bool(interface_cable),
+                        "available": is_port_available(interface),
                         "existing_cable_id": interface_cable.get('id') if interface_cable and isinstance(interface_cable, dict) else interface_cable.id if interface_cable else None
                     })
             
@@ -177,7 +179,7 @@ def netbox_map_rack_to_switch_interfaces(
                     matching_ports.append({
                         "interface_name": interface_name,
                         "interface_id": interface_id,
-                        "available": not bool(interface_cable),
+                        "available": is_port_available(interface),
                         "existing_cable_id": interface_cable.get('id') if interface_cable and isinstance(interface_cable, dict) else interface_cable.id if interface_cable else None
                     })
             
@@ -390,16 +392,39 @@ def netbox_generate_bulk_cable_plan(
     try:
         logger.info(f"Generating bulk cable plan: {rack_name} -> {switch_name}")
         
-        # First, get the interface mapping
-        mapping_result = netbox_map_rack_to_switch_interfaces(
-            client=client,
-            rack_name=rack_name,
-            switch_name=switch_name,
-            interface_filter=interface_filter,
-            switch_interface_pattern=switch_interface_pattern,
-            mapping_algorithm=mapping_algorithm,
-            confirm=confirm
-        )
+        # GEMINI FIX: Graceful fallback workflow implementation
+        # First attempt: Use automated mapping
+        mapping_result = None
+        try:
+            mapping_result = netbox_map_rack_to_switch_interfaces(
+                client=client,
+                rack_name=rack_name,
+                switch_name=switch_name,
+                interface_filter=interface_filter,
+                switch_interface_pattern=switch_interface_pattern,
+                mapping_algorithm=mapping_algorithm,
+                confirm=confirm
+            )
+        except Exception as mapping_error:
+            logger.warning(f"Automated mapping failed: {mapping_error}")
+            
+            # Fallback: Suggest manual mapping approach
+            return {
+                "success": False,
+                "error": "automated_mapping_failed",
+                "error_message": str(mapping_error),
+                "fallback_suggestion": {
+                    "message": "Automatisch mappen is mislukt. Probeer handmatige mapping of gebruik alternatieve tools.",
+                    "alternative_tools": [
+                        "netbox_bulk_cable_interfaces_to_switch - Simpelere lineaire mapping",
+                        "netbox_bulk_create_cable_connections - Volledig handmatige specificatie"
+                    ],
+                    "manual_workflow": f"1. Gebruik netbox_count_interfaces_in_rack('{rack_name}', '{interface_filter}') voor interface count\n"
+                                     f"2. Gebruik netbox_count_switch_ports_available('{switch_name}') voor port check\n"
+                                     f"3. Maak handmatige mapping lijst\n"
+                                     f"4. Gebruik netbox_bulk_create_cable_connections voor creatie"
+                }
+            }
         
         if not mapping_result.get("success"):
             return mapping_result
