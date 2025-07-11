@@ -36,11 +36,10 @@ class TestBulkCableInstallationPrompt:
         # Verify GitHub issue reference
         assert "#92" in result or "GitHub issue #92" in result
         
-        # Verify target scenario is mentioned
-        assert "lom1" in result
-        assert "rack K3" in result or "rack" in result
-        assert "switch1.k3" in result or "switch" in result
-        assert "pink" in result or "roze" in result
+        # Verify target scenario is mentioned (updated for proven success path)
+        assert "iDRAC" in result or "rack" in result
+        assert "switch" in result
+        assert "individuele" in result or "individual" in result
         
         # Verify workflow steps are present
         assert "Stap 1" in result or "Step 1" in result
@@ -81,11 +80,11 @@ class TestBulkCableInstallationPrompt:
         
         result = await bulk_cable_installation_prompt()
         
-        # Expected NetBox tools to be mentioned
+        # Expected NetBox tools to be mentioned (updated for proven success path)
         expected_tools = [
-            "netbox_map_rack_to_switch_interfaces",
-            "netbox_generate_bulk_cable_plan",
-            "netbox_bulk_create_cable_connections",
+            "netbox_create_cable_connection",
+            "netbox_list_all_devices",
+            "netbox_get_device_interfaces",
             "netbox_list_all_racks",
             "netbox_get_device_info",
             "netbox_create_journal_entry"
