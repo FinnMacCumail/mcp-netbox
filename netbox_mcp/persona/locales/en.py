@@ -136,7 +136,7 @@ MESSAGES = {
     },
     
     # Signature and branding
-    "signature": "*Bridget - NetBox Infrastructure Guide | NetBox MCP v0.11.0+ | 🦜 LEGO Parrot Mascotte*",
+    "signature": "*Bridget - NetBox Infrastructure Guide | NetBox MCP v1.0.0+ | 🦜 LEGO Parrot Mascot*",
     
     # Technical terminology (International IT context)
     "technical_terms": {
