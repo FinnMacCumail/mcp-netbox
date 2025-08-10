@@ -1,46 +1,46 @@
-# Instructies voor het Oplossen van Bugs in Bulk Cable Workflow (Issue #101)
+# Instructions for Fixing Bugs in Bulk Cable Workflow (Issue #101)
 
-Hallo Developer,
+Hello Developer,
 
-Hieronder staan de instructies om de bugs en problemen, zoals beschreven in GitHub Issue #101, op te lossen in het bestand `netbox_mcp/tools/dcim/bulk_cable_optimized.py`.
+Below are the instructions to fix the bugs and issues, as described in GitHub Issue #101, in the file `netbox_mcp/tools/dcim/bulk_cable_optimized.py`.
 
-## 1. Overzicht van de Problemen
+## 1. Overview of the Problems
 
-De huidige implementatie van de bulk-kabel-workflow heeft de volgende kritieke problemen:
-- `AttributeError` bij het ophalen van device-namen.
-- De tool voor het tellen van beschikbare poorten geeft mogelijk verouderde data terug.
-- De tool is niet flexibel in het kiezen van een startpoort voor de mapping.
-- De validatie voor de `cable_color` parameter is inconsistent en foutief.
-- Een syntaxisfout in een reguliere expressie voorkomt dat de code draait.
+The current implementation of the bulk cable workflow has the following critical problems:
+- `AttributeError` when retrieving device names.
+- The tool for counting available ports may return outdated data.
+- The tool is not flexible in choosing a start port for mapping.
+- The validation for the `cable_color` parameter is inconsistent and incorrect.
+- A syntax error in a regular expression prevents the code from running.
 
-## 2. Benodigde Wijzigingen
+## 2. Required Changes
 
-Voer de volgende wijzigingen door in `netbox_mcp/tools/dcim/bulk_cable_optimized.py`.
+Make the following changes in `netbox_mcp/tools/dcim/bulk_cable_optimized.py`.
 
-### Fix 1: Corrigeer de `SyntaxError` in de Reguliere Expressie
+### Fix 1: Correct the `SyntaxError` in the Regular Expression
 
-De meest directe fout is een `SyntaxError` door een niet-afgesloten string in de validatie voor `cable_color`.
+The most direct error is a `SyntaxError` due to an unclosed string in the validation for `cable_color`.
 
-**Vervang deze regel:**
+**Replace this line:**
 ```python
 if not (re.match(r'^[0-9a-fA-F]{6}', cable_color) or cable_color.lower() in VALID_COLORS):
 ```
 
-**Met deze gecorrigeerde regel:**
+**With this corrected line:**
 ```python
 if not (re.match(r'^[0-9a-fA-F]{6}$', cable_color) or cable_color.lower() in VALID_COLORS):
 ```
 
-### Fix 2: Pas de Functie `netbox_bulk_cable_interfaces_to_switch` aan
+### Fix 2: Modify the `netbox_bulk_cable_interfaces_to_switch` Function
 
-Deze functie heeft meerdere aanpassingen nodig.
+This function needs multiple adjustments.
 
-**Vervang de volledige functie `netbox_bulk_cable_interfaces_to_switch` door de onderstaande, verbeterde versie.**
+**Replace the entire `netbox_bulk_cable_interfaces_to_switch` function with the improved version below.**
 
-**Belangrijkste wijzigingen in deze nieuwe versie:**
-- **Nieuwe parameter `start_port_number`:** Geeft de gebruiker de controle om te specificeren vanaf welke poort het mappen moet beginnen.
-- **Gecorrigeerde `device_name` resolutie:** Voorkomt de `AttributeError` door de device-naam correct op te halen, zelfs als er alleen een ID beschikbaar is.
-- **Verbeterde `cable_color` validatie:** De validatielogica accepteert nu correct zowel kleurnamen als hex-codes.
+**Main changes in this new version:**
+- **New parameter `start_port_number`:** Gives the user control to specify from which port the mapping should start.
+- **Corrected `device_name` resolution:** Prevents the `AttributeError` by correctly retrieving the device name, even when only an ID is available.
+- **Improved `cable_color` validation:** The validation logic now correctly accepts both color names and hex codes.
 
 ```python
 @mcp_tool(category="dcim")
@@ -93,9 +93,9 @@ def netbox_bulk_cable_interfaces_to_switch(
 
     # ... (rest of the function setup, like natural_sort_key)
 
-    # --- Binnen de `try` block ---
+    # --- Within the `try` block ---
 
-    # ... (logica voor het ophalen van rack_interfaces) ...
+    # ... (logic for retrieving rack_interfaces) ...
 
     # FIX: Filter switch ports based on the start_port_number
     if start_port_number and start_port_number > 1:
@@ -112,32 +112,32 @@ def netbox_bulk_cable_interfaces_to_switch(
         ]
         logger.info(f"Filtered switch ports to start from port {start_port_number}. Original: {original_count}, New: {len(switch_ports_sorted)}")
 
-    # ... (logica voor het controleren van de capaciteit) ...
+    # ... (logic for checking capacity) ...
 
-    # --- Binnen de `for` loop voor het maken van `cable_connections` ---
+    # --- Within the `for` loop for creating `cable_connections` ---
     
     device = rack_interface.device
     # FIX: Correctly handle device name resolution to prevent AttributeError
     device_obj = client.dcim.devices.get(device.id)
     device_name = device_obj.name if device_obj else f"device-id-{device.id}"
 
-    # ... (rest van de loop) ...
+    # ... (rest of the loop) ...
 ```
 
-### Fix 3: Voorkom Cacheproblemen bij Poortbeschikbaarheid
+### Fix 3: Prevent Cache Issues with Port Availability
 
-Om er zeker van te zijn dat de tool altijd de meest actuele status van de poorten controleert, moeten we de cache omzeilen.
+To ensure that the tool always checks the most current status of the ports, we need to bypass the cache.
 
-**Zoek de functie `netbox_count_switch_ports_available` en pas de API-call aan.**
+**Find the function `netbox_count_switch_ports_available` and modify the API call.**
 
-**Vervang dit blok:**
+**Replace this block:**
 ```python
 all_device_ports = client.dcim.interfaces.filter(
     device__name=switch_name
 )
 ```
 
-**Met dit blok, dat `no_cache=True` toevoegt:**
+**With this block, which adds `no_cache=True`:**
 ```python
 all_device_ports = client.dcim.interfaces.filter(
     device__name=switch_name,
@@ -147,4 +147,4 @@ all_device_ports = client.dcim.interfaces.filter(
 
 ---
 
-Na het doorvoeren van deze wijzigingen zouden de problemen uit issue #101 opgelost moeten zijn. Voer het testscript `test_scripts/issue_101_validation.py` uit om de fixes te verifiëren.
+After implementing these changes, the problems from issue #101 should be resolved. Run the test script `test_scripts/issue_101_validation.py` to verify the fixes.

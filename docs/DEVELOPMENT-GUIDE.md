@@ -51,7 +51,7 @@ To contribute to this project, please use the following setup. This ensures cons
 
 ```bash
 # Navigate to project root
-cd /Users/elvis/Developer/github/netbox-mcp
+cd /path/to/netbox-mcp
 
 # Create virtual environment (first time only)
 python3 -m venv venv
@@ -112,9 +112,9 @@ pip list                                   # Show installed packages
 
 ### **3.2 Directory Structure**
 
-  - **Main Git Repository**: `/Users/elvis/Developer/github/netbox-mcp`
-  - **Repository Wiki (Documentation)**: `/Users/elvis/Developer/github/netbox-mcp.wiki`
-  - **Live Testing Directory**: `/Developer/live-testing/netbox-mcp`
+  - **Main Git Repository**: `/path/to/netbox-mcp`
+  - **Repository Wiki (Documentation)**: `/path/to/netbox-mcp.wiki`
+  - **Live Testing Directory**: `/path/to/live-testing/netbox-mcp`
 
 ### **3.3 Live Test Instance (NetBox Cloud)**
 
@@ -1276,7 +1276,7 @@ EOF
 **Step 2: Run Test Script**
 ```bash
 # Navigate to project root
-cd /Users/elvis/Developer/github/netbox-mcp
+cd /path/to/netbox-mcp
 
 # Run test script
 python test_scripts/debug_new_feature.py

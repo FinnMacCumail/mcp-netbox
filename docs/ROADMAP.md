@@ -1,56 +1,56 @@
 Project Roadmap: NetBox Read/Write MCP Server
-Dit document beschrijft een iteratief ontwikkelplan om de NetBox R/W MCP Server te bouwen. De roadmap is opgedeeld in fases, waarbij elke fase een stabiel en testbaar product oplevert.
+This document describes an iterative development plan to build the NetBox R/W MCP Server. The roadmap is divided into phases, where each phase delivers a stable and testable product.
 
-Fase 1: Fundering en Read-Only Kern (v0.1)
-Doel: Een stabiele, read-only server die de basis legt voor toekomstige ontwikkeling.
+Phase 1: Foundation and Read-Only Core (v0.1)
+Goal: A stable, read-only server that lays the foundation for future development.
 
-Projectstructuur: Opzetten van de repository met pyproject.toml, .gitignore, README.md, etc.
-Configuratie: Implementeren van config.py met ondersteuning voor NETBOX_URL en NETBOX_TOKEN.
-NetBox Client (Read-Only): Implementeren van de netbox_client.py met pynetbox. Focus op GET-operaties: get_device, list_sites, get_ip_address, get_vlan.
-Eerste MCP Tools: Implementeren van de eerste set read-only tools in server.py:
+Project Structure: Setting up the repository with pyproject.toml, .gitignore, README.md, etc.
+Configuration: Implementing config.py with support for NETBOX_URL and NETBOX_TOKEN.
+NetBox Client (Read-Only): Implementing the netbox_client.py with pynetbox. Focus on GET operations: get_device, list_sites, get_ip_address, get_vlan.
+First MCP Tools: Implementing the first set of read-only tools in server.py:
 netbox_get_device
 netbox_list_devices
 netbox_get_site_by_name
-Basis Docker-support: Creëren van een Dockerfile en docker-compose.yml voor een werkende, read-only container.
-CI/CD Pipeline: Opzetten van een GitHub Actions workflow voor linting, testing en het bouwen van de Docker image.
-Fase 2: Initiele Schrijfmogelijkheden en Veiligheid (v0.2)
-Doel: De eerste, simpele schrijfacties introduceren met maximale veiligheid.
+Basic Docker Support: Creating a Dockerfile and docker-compose.yml for a working, read-only container.
+CI/CD Pipeline: Setting up a GitHub Actions workflow for linting, testing, and building the Docker image.
+Phase 2: Initial Write Capabilities and Safety (v0.2)
+Goal: Introduce the first, simple write actions with maximum safety.
 
-Write-methodes in Client: Uitbreiden van netbox_client.py met basis create, update, en delete methodes.
-Veiligheidsmechanismen: Implementeren van de confirm: bool = False parameter in de write-tools en de globale dry-run modus.
-Eerste Write Tools: Implementeren van de eerste, meest basale write-tools:
+Write Methods in Client: Extending netbox_client.py with basic create, update, and delete methods.
+Safety Mechanisms: Implementing the confirm: bool = False parameter in the write tools and the global dry-run mode.
+First Write Tools: Implementing the first, most basic write tools:
 netbox_create_site(name: str, slug: str, confirm: bool = False)
 netbox_create_manufacturer(name: str, slug: str, confirm: bool = False)
 netbox_create_device_role(name: str, slug: str, color: str, confirm: bool = False)
-Uitgebreide Logging: Implementeren van gedetailleerde logging voor alle schrijfacties.
-Integratie Tests: Opzetten van de eerste integratietests die (in dry-run of tegen een test-instance) de schrijfacties valideren.
-Fase 3: Geavanceerde R/W Operaties en Relaties (v0.3)
-Doel: Complexe tools bouwen die objecten aan elkaar koppelen en de basis leggen voor enterprise-integratie.
+Extended Logging: Implementing detailed logging for all write actions.
+Integration Tests: Setting up the first integration tests that validate write actions (in dry-run or against a test instance).
+Phase 3: Advanced R/W Operations and Relationships (v0.3)
+Goal: Build complex tools that connect objects to each other and lay the foundation for enterprise integration.
 
-Idempotente "Ensure" Logica: Implementeren van ensure_* methodes in de netbox_client.py.
-Complexe MCP Tools: Implementeren van tools die relaties leggen:
-netbox_create_device (met koppeling aan site, role, type)
+Idempotent "Ensure" Logic: Implementing ensure_* methods in the netbox_client.py.
+Complex MCP Tools: Implementing tools that create relationships:
+netbox_create_device (with connection to site, role, type)
 netbox_create_interface_for_device
 netbox_assign_ip_to_interface
-Data Mapping Logica: Ontwikkelen van een strategie om enterprise-velden (zoals device type en vendor) te mappen naar NetBox-objecten (DeviceType, Manufacturer).
-Kern Integratie Tool: Implementeren van enterprise device management tools. Dit is de belangrijkste mijlpaal van deze fase.
-Fase 4: Enterprise Features en Integratie-gereedheid (v0.4)
-Doel: De server robuuster maken en voorbereiden op productiegebruik en de daadwerkelijke koppeling.
+Data Mapping Logic: Developing a strategy to map enterprise fields (such as device type and vendor) to NetBox objects (DeviceType, Manufacturer).
+Core Integration Tool: Implementing enterprise device management tools. This is the most important milestone of this phase.
+Phase 4: Enterprise Features and Integration Readiness (v0.4)
+Goal: Make the server more robust and prepare it for production use and actual integration.
 
-Caching Systeem: Implementeren van een caching-laag voor veelgevraagde read-only data om de performance te verbeteren en de load op de NetBox API te verlagen.
-Geavanceerde Zoek- en Filtertools: Implementeren van tools die de krachtige filtermogelijkheden van NetBox gebruiken, bijv. netbox_find_available_ips_in_prefix.
-Verbeterde Health Checks: Uitbreiden van /readyz om de NetBox API-versie en status te controleren.
-Documentatie: Schrijven van de initiële Wiki-documentatie voor installatie, configuratie en API-referentie.
-Fase 5: Productie-waardigheid en Volledige Integratie (v1.0)
-Doel: Een stabiele, goed gedocumenteerde v1.0 release en een werkende end-to-end enterprise-naar-NetBox workflow.
+Caching System: Implementing a caching layer for frequently requested read-only data to improve performance and reduce the load on the NetBox API.
+Advanced Search and Filter Tools: Implementing tools that use the powerful filtering capabilities of NetBox, e.g., netbox_find_available_ips_in_prefix.
+Improved Health Checks: Extending /readyz to check the NetBox API version and status.
+Documentation: Writing the initial Wiki documentation for installation, configuration, and API reference.
+Phase 5: Production Readiness and Full Integration (v1.0)
+Goal: A stable, well-documented v1.0 release and a working end-to-end enterprise-to-NetBox workflow.
 
-Performance Tuning: Optimaliseren van de client en de tools voor bulk-operaties.
-Volledige Test-coverage: Zorgen voor hoge test-coverage, met name voor alle write- en ensure- paden.
-End-to-End Workflow: Creëren van een voorbeeldscript of notebook dat laat zien hoe enterprise tools en NetBox MCP samenwerken om een NetBox-instance te synchroniseren.
-Wiki-documentatie: Voltooien van de documentatie met uitgebreide voorbeelden, use-cases en best practices voor R/W-operaties.
-Security Hardening: Een laatste review van alle security-aspecten.
-Toekomstige Ideeën (Post-v1.0)
-Webhook Support: Luisteren naar NetBox webhooks om acties te triggeren.
-Custom Reports: Tools die complexe, samengestelde rapporten genereren uit NetBox data.
-Service Modeling: Tools voor het modelleren van complete netwerkdiensten (bijv. het opzetten van een VPN met alle bijbehorende objecten).
-Uitgebreide 'Diff' functionaliteit: Een tool die een (door enterprise tools ontdekt) device vergelijkt met zijn state in NetBox en een 'plan' genereert van de benodigde wijzigingen.
+Performance Tuning: Optimizing the client and tools for bulk operations.
+Full Test Coverage: Ensuring high test coverage, especially for all write and ensure paths.
+End-to-End Workflow: Creating an example script or notebook that shows how enterprise tools and NetBox MCP work together to synchronize a NetBox instance.
+Wiki Documentation: Completing the documentation with extensive examples, use cases, and best practices for R/W operations.
+Security Hardening: A final review of all security aspects.
+Future Ideas (Post-v1.0)
+Webhook Support: Listening to NetBox webhooks to trigger actions.
+Custom Reports: Tools that generate complex, composite reports from NetBox data.
+Service Modeling: Tools for modeling complete network services (e.g., setting up a VPN with all associated objects).
+Extended 'Diff' Functionality: A tool that compares a device (discovered by enterprise tools) with its state in NetBox and generates a 'plan' of required changes.
