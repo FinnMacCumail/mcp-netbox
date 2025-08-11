@@ -41,8 +41,8 @@ docker run -d \
 ### Python Installation
 
 ```bash
-git clone https://github.com/Deployment-Team/netbox-mcp.git
-cd netbox-mcp
+git clone https://github.com/FinnMacCumail/mcp-netbox.git
+cd mcp-netbox
 pip install .
 ```
 
@@ -53,6 +53,115 @@ For the optimal Bridget experience with full auto-context and persona guidance:
 - **Alternative**: Claude Desktop (tools work, limited prompt support)
 
 See the [Bridget Documentation](https://github.com/Deployment-Team/netbox-mcp/wiki/Bridget-Auto-Context) in our wiki for complete usage guide.
+
+## 🔧 Claude Code CLI Configuration
+
+### Prerequisites
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed
+- Python 3.10+ 
+- NetBox instance with API access
+
+### MCP Server Setup
+
+1. **Install the NetBox MCP Server**:
+```bash
+pip install git+https://github.com/FinnMacCumail/mcp-netbox.git
+```
+
+2. **Create MCP Configuration File**:
+Create `~/.claude/mcp_servers.json` (or your preferred location):
+```json
+{
+  "netbox": {
+    "command": "python",
+    "args": ["-m", "netbox_mcp.server"],
+    "env": {
+      "NETBOX_URL": "https://your-netbox-instance.com",
+      "NETBOX_TOKEN": "your-netbox-api-token",
+      "NETBOX_AUTO_CONTEXT": "true",
+      "NETBOX_BRIDGET_PERSONA": "true"
+    }
+  }
+}
+```
+
+3. **Alternative: Environment Variables**:
+```bash
+export NETBOX_URL="https://your-netbox-instance.com"
+export NETBOX_TOKEN="your-netbox-api-token"  
+export NETBOX_AUTO_CONTEXT="true"
+export NETBOX_BRIDGET_PERSONA="true"
+```
+
+### Quick Test
+
+Start Claude Code CLI and test the connection:
+```bash
+claude --mcp-config ~/.claude/mcp_servers.json
+```
+
+Then ask Claude: "What sites are available in NetBox?" or "Show me the NetBox system health"
+
+### Example Workflows with Claude Code CLI
+
+**Infrastructure Discovery**:
+```
+"What sites do we have in NetBox?"
+"Show me all devices in the datacenter-1 site"
+"What's the rack elevation for rack R1-01?"
+```
+
+**Device Management**:
+```
+"Create a new site called 'branch-office-nyc'"
+"Add a new device 'sw01' of type 'Cisco 9300' in site 'datacenter-1'"
+"Show me the interfaces for device 'core-sw01'"
+```
+
+**IPAM Operations**:
+```
+"What IP addresses are available in the 10.1.0.0/24 network?"
+"Create a new VLAN 100 named 'servers' in site 'datacenter-1'"
+"Assign IP 10.1.0.50 to interface eth0 on device 'server01'"
+```
+
+**Bridget Persona Experience**:
+With `NETBOX_BRIDGET_PERSONA=true`, you get:
+- Friendly, conversational responses
+- Safety guidance for operations
+- Context-aware recommendations
+- Enterprise-grade operational advice
+
+### Configuration Options
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NETBOX_URL` | NetBox instance URL | Required |
+| `NETBOX_TOKEN` | API token | Required |
+| `NETBOX_AUTO_CONTEXT` | Enable automatic context detection | `false` |
+| `NETBOX_BRIDGET_PERSONA` | Enable Bridget persona responses | `false` |
+| `NETBOX_DRY_RUN` | Enable dry-run mode (no actual changes) | `false` |
+
+### Troubleshooting
+
+**Connection Issues**:
+- Verify NetBox URL is accessible
+- Check API token permissions
+- Ensure NetBox version 3.5+ compatibility
+
+**Configuration Problems**:
+- Validate JSON syntax in MCP config file
+- Check environment variables with `echo $NETBOX_URL`
+- Test NetBox API directly: `curl -H "Authorization: Token YOUR_TOKEN" https://your-netbox.com/api/`
+
+**Debug Mode**:
+Add to your MCP configuration:
+```json
+"env": {
+  "NETBOX_DEBUG": "true",
+  "NETBOX_LOG_LEVEL": "DEBUG"
+}
+```
 
 ## 📊 Current Status
 
