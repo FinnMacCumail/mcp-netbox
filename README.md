@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/MCP%20Tools-142+-brightgreen" alt="MCP Tools">
 </p>
 
-A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. Just as our LEGO parrot mascot symbolically mimics human speech, this server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
+A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol.io/) server for NetBox network documentation and IPAM systems. This server allows you to "talk" to your NetBox infrastructure using natural language through LLMs that support MCP.
 
 ## ✨ Key Features
 
@@ -52,7 +52,7 @@ For the optimal Bridget experience with full auto-context and persona guidance:
 - **Recommended**: Use Claude Code CLI for complete functionality
 - **Alternative**: Claude Desktop (tools work, limited prompt support)
 
-See the [Bridget Documentation](https://github.com/Deployment-Team/netbox-mcp/wiki/Bridget-Auto-Context) in our wiki for complete usage guide.
+See the [Bridget Documentation](https://github.com/Deployment-Team/netbox-mcp/wiki/Bridget-Auto-Context) in the wiki for complete usage guide.
 
 ## 🔧 Claude Code CLI Configuration
 
