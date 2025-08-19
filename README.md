@@ -234,8 +234,46 @@ Auto-Context Detection → Environment Assessment → Safety Assignment → Pers
 - **Structured Logging**: JSON logging compatible with ELK Stack, Splunk, Datadog
 - **Performance Monitoring**: Correlation IDs, operation timing, cache statistics
 
+## 🚧 Current Development: Phase 3 - OpenAI Orchestration
+
+Replacing Claude Code CLI with intelligent orchestration system:
+- **Technology**: OpenAI GPT-4o/4o-mini + LangGraph
+- **Focus**: Orchestrating existing read-only NetBox MCP tools
+- **Goal**: Enhanced user experience through intelligent coordination
+- **Timeline**: 16 weeks
+- **Status**: Active development
+
+### What's Being Built
+- **Natural Language Understanding**: OpenAI-powered query interpretation
+- **Workflow Orchestration**: LangGraph state machines for multi-step operations
+- **Tool Coordination**: Intelligent aggregation of read-only tool results
+- **Performance Enhancement**: Caching, parallel execution, streaming responses
+- **User Experience**: Clarification dialogues, progress indication, context management
+
+### Strategic Approach
+- **Work WITH existing tools**: Orchestration layer optimizes tool usage
+- **Handle known limitations**: Graceful workarounds for tool issues
+- **Focus on intelligence**: Enhanced user experience through smart coordination
+
+### What's NOT in Scope
+- Fixing NetBox MCP server tool implementations
+- Production deployment features
+- Multi-user support
+- State persistence
+- Security/authentication
+
+See [DEVELOPMENT_PHASE.md](DEVELOPMENT_PHASE.md) for current phase details.
+
 ## 📚 Documentation
 
+### Phase 3 Documentation
+- **[Development Phase](DEVELOPMENT_PHASE.md)** - Current development status
+- **[Technical Specification](docs/PHASE3_OPENAI_ORCHESTRATION.md)** - Complete phase 3 details
+- **[Architecture](docs/architecture/AGENT_SYSTEM.md)** - Agent system design
+- **[Progress Tracking](docs/PHASE3_PROGRESS.md)** - Development progress
+- **[Validation Checklist](docs/CLI_REPLACEMENT_CHECKLIST.md)** - CLI replacement criteria
+
+### General Documentation
 - **[Complete Wiki](https://github.com/Deployment-Team/netbox-mcp/wiki)** - Comprehensive documentation with examples
 - **[API Reference](https://github.com/Deployment-Team/netbox-mcp/wiki/API-Reference)** - Complete tool documentation
 - **[Installation Guide](https://github.com/Deployment-Team/netbox-mcp/wiki/Installation)** - Setup and deployment
