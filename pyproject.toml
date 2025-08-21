@@ -43,6 +43,13 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn>=0.24.0",
     "psutil>=5.9.0",
+    # Phase 3: OpenAI + LangGraph Orchestration
+    "openai>=1.0.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.1.0",
+    "redis>=5.0.0",
+    "aioredis>=2.0.0",
+    "asyncio-throttle>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -73,6 +80,7 @@ Documentation = "https://github.com/Deployment-Team/netbox-mcp/wiki"
 
 [project.scripts]
 netbox-mcp = "netbox_mcp.server:main"
+netbox-mcp-phase3 = "netbox_mcp.cli_phase3:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
