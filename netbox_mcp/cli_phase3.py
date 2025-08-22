@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Phase 3 CLI Interface - OpenAI Agent Orchestration Testing
+Phase 3 CLI Interface - LangGraph Orchestration Engine (Week 5-8)
 
-Interactive CLI for testing the Phase 3 Week 1-4 OpenAI Agent Foundation.
-Provides natural language interface to the multi-agent orchestration system.
+Interactive CLI for testing the advanced LangGraph StateGraph orchestration
+with intelligent tool coordination, caching, and limitation handling.
 """
 
 import asyncio
@@ -27,37 +27,48 @@ class Phase3CLI:
         self.running = False
         
     async def initialize(self):
-        """Initialize the agent system"""
+        """Initialize the LangGraph orchestration system"""
         try:
-            from .agents.conversation_manager import ConversationManagerAgent
-            from .agents.intent_recognition import IntentRecognitionAgent
-            from .agents.response_generation import ResponseGenerationAgent
+            from .orchestration import (
+                create_orchestration_graph,
+                ToolCoordinator, 
+                OrchestrationCache,
+                LimitationHandler
+            )
             
-            print("🤖 Initializing Phase 3 OpenAI Agent Orchestration...")
+            print("🚀 Initializing Phase 3 Week 5-8 LangGraph Orchestration Engine...")
             
-            # Initialize Conversation Manager
-            self.conversation_manager = ConversationManagerAgent()
-            await self.conversation_manager.initialize()
+            # Initialize LangGraph state machine
+            self.orchestration_graph = create_orchestration_graph()
+            print("✅ LangGraph StateGraph compiled successfully")
             
-            # Initialize and register specialized agents
-            intent_agent = IntentRecognitionAgent()
-            await intent_agent.initialize()
-            self.conversation_manager.register_agent("intent_recognition", intent_agent)
+            # Initialize coordination infrastructure
+            self.tool_coordinator = ToolCoordinator(redis_url="redis://localhost:6379")
+            await self.tool_coordinator.initialize()
+            print("✅ Tool coordination system initialized")
             
-            response_agent = ResponseGenerationAgent()
-            await response_agent.initialize()
-            self.conversation_manager.register_agent("response_generation", response_agent)
+            # Initialize intelligent caching
+            self.cache_system = OrchestrationCache()
+            cache_ready = await self.cache_system.initialize()
+            if cache_ready:
+                print("✅ Redis-backed intelligent caching enabled")
+            else:
+                print("⚠️  Caching disabled (Redis unavailable)")
             
-            # Create a conversation session
-            session_result = await self.conversation_manager.create_session({})
-            self.session_id = session_result["session_id"]
+            # Initialize limitation handler
+            self.limitation_handler = LimitationHandler()
+            print("✅ Limitation handling system ready")
             
-            print(f"✅ Agent system initialized successfully")
+            # Create orchestration session
+            self.session_id = f"langgraph_session_{int(datetime.now().timestamp())}"
+            
+            print(f"✅ LangGraph orchestration system initialized successfully")
             print(f"📱 Session ID: {self.session_id}")
             
-            # Display system status
-            stats = self.conversation_manager.get_conversation_stats()
-            print(f"🤖 Registered agents: {', '.join(stats['registered_agents'])}")
+            # Display system capabilities
+            print(f"🧠 LangGraph StateGraph: 5-node orchestration workflow")
+            print(f"⚡ Advanced Coordination: Parallel execution, intelligent caching, limitation handling")
+            print(f"🛠️  NetBox Tools: 142+ MCP tools available for coordination")
             
             return True
             
@@ -72,55 +83,90 @@ class Phase3CLI:
     
     async def process_query(self, query: str) -> bool:
         """Process a user query through the agent system"""
-        if not self.conversation_manager or not self.session_id:
-            print("❌ Agent system not initialized")
+        if not hasattr(self, 'orchestration_graph') or not self.session_id:
+            print("❌ LangGraph orchestration system not initialized")
             return False
         
         print(f"\n🔍 Processing: '{query}'")
-        print("⏳ Orchestrating agents...")
+        print("⚡ LangGraph StateGraph orchestration...")
         
         start_time = datetime.now()
         
         try:
-            result = await self.conversation_manager.process_user_query({
-                "query": query,
-                "session_id": self.session_id
-            })
+            # Create initial state for LangGraph workflow
+            from uuid import uuid4
+            correlation_id = f"{self.session_id}_{str(uuid4())[:8]}"
+            
+            initial_state = {
+                "user_query": query,
+                "session_id": self.session_id,
+                "correlation_id": correlation_id,
+                "classified_intent": None,
+                "entities": None,
+                "confidence_score": None,
+                "coordination_strategy": None,
+                "tool_execution_plan": None,
+                "tool_results": [],
+                "known_limitations": [],
+                "limitation_strategy": None,
+                "progressive_state": None,
+                "natural_language_response": None,
+                "user_options": None,
+                "next_action": None,
+                "workflow_complete": False,
+                "error_state": None,
+                "conversation_context": {},
+                "performance_metrics": None
+            }
+            
+            # Execute LangGraph workflow
+            config = {"configurable": {"thread_id": self.session_id}}
+            
+            final_state = await self.orchestration_graph.ainvoke(
+                initial_state, 
+                config=config
+            )
             
             processing_time = (datetime.now() - start_time).total_seconds()
             
-            if result.get("success"):
-                print(f"\n✅ Query processed successfully ({processing_time:.3f}s)")
+            if final_state.get("workflow_complete"):
+                print(f"\n✅ LangGraph workflow completed successfully ({processing_time:.3f}s)")
+                
+                # Display orchestration details
+                print(f"\n📊 Orchestration Details:")
+                print(f"   🎯 Strategy: {final_state.get('coordination_strategy', 'unknown')}")
+                print(f"   🧠 Intent: {final_state.get('classified_intent', {}).get('category', 'unknown')}")
+                print(f"   🔧 Tools Executed: {len(final_state.get('tool_results', []))}")
+                
+                # Display limitations handled
+                limitations = final_state.get("known_limitations", [])
+                if limitations:
+                    print(f"   ⚠️  Limitations Handled: {len(limitations)}")
+                    limitation_strategy = final_state.get("limitation_strategy")
+                    if limitation_strategy:
+                        print(f"   🛡️  Strategy: {limitation_strategy}")
                 
                 # Display response
-                response = result.get("response", "No response generated")
+                response = final_state.get("natural_language_response", "No response generated")
                 print(f"\n💬 Response:")
                 print("-" * 60)
                 print(response)
                 print("-" * 60)
                 
-                # Display orchestration details
-                agents_used = result.get("agents_used", [])
-                if agents_used:
-                    print(f"\n🤖 Agents coordinated: {', '.join(agents_used)}")
-                
-                # Display clarification if needed
-                if result.get("requires_clarification"):
-                    print(f"\n❓ Clarification requested - please provide more details")
-                
-                # Display any tool results
-                tool_results = result.get("tool_results")
-                if tool_results and isinstance(tool_results, dict):
-                    if tool_results.get("operation") == "orchestrated_tool_execution":
-                        execution_plan = tool_results.get("execution_plan", {})
-                        print(f"\n📊 Execution Strategy: {execution_plan.get('strategy', 'unknown')}")
-                        tools_selected = tool_results.get("tools_selected", [])
-                        if tools_selected:
-                            print(f"🔧 Tools Selected: {', '.join(tools_selected)}")
+                # Display user options if available
+                user_options = final_state.get("user_options", [])
+                if user_options:
+                    print(f"\n🎛️  Available Options:")
+                    for i, option in enumerate(user_options, 1):
+                        print(f"   {i}. {option}")
                 
                 return True
             else:
-                print(f"\n❌ Query failed: {result.get('error')}")
+                error_state = final_state.get("error_state")
+                if error_state:
+                    print(f"\n❌ Workflow failed at {error_state['stage']}: {error_state['error']}")
+                else:
+                    print(f"\n❌ Workflow incomplete - unknown error")
                 return False
                 
         except Exception as e:
@@ -130,23 +176,29 @@ class Phase3CLI:
     
     async def run_interactive(self):
         """Run interactive CLI mode"""
-        print("\n" + "=" * 70)
-        print("🚀 Phase 3 OpenAI Agent Orchestration - Interactive CLI")
-        print("=" * 70)
-        print("\nWelcome to the Phase 3 testing interface!")
-        print("This CLI demonstrates the Week 1-4 OpenAI Agent Foundation.")
+        print("\n" + "=" * 80)
+        print("🚀 Phase 3 Week 5-8: LangGraph Orchestration Engine - Interactive CLI")
+        print("=" * 80)
+        print("\nWelcome to the advanced LangGraph StateGraph orchestration interface!")
+        print("This CLI demonstrates sophisticated tool coordination with intelligent limitation handling.")
+        print("\n🧠 LangGraph Features:")
+        print("  • StateGraph workflows with 5-node orchestration")
+        print("  • Intelligent caching with Redis backend")
+        print("  • Progressive disclosure for large datasets")
+        print("  • Parallel tool execution with dependency management")
+        print("  • Graceful handling of 35+ NetBox MCP tool limitations")
         print("\n📖 Example queries to try:")
-        print("  • 'list all devices in the datacenter'")
-        print("  • 'analyze network utilization across sites'") 
-        print("  • 'show me rack inventory for datacenter-1'")
-        print("  • 'create a new device in rack-01' (read-only demo)")
-        print("  • 'help me understand my infrastructure'")
+        print("  • 'list all devices in datacenter-01' (with intelligent caching)")
+        print("  • 'analyze network connectivity for rack R01-A15' (parallel coordination)")
+        print("  • 'show me all VLANs' (progressive disclosure for large datasets)")
+        print("  • 'create a new server rack in site NYC' (complex workflow orchestration)")
+        print("  • 'help me understand power distribution' (limitation-aware processing)")
         print("\n💡 Commands:")
         print("  • 'quit' or 'exit' - Exit the CLI")
-        print("  • 'stats' - Show conversation statistics")
-        print("  • 'session' - Show session information")
+        print("  • 'cache-stats' - Show intelligent caching statistics") 
+        print("  • 'orchestration-stats' - Show LangGraph coordination metrics")
         print("  • 'clear' - Clear screen")
-        print("-" * 70)
+        print("-" * 80)
         
         self.running = True
         
@@ -162,8 +214,11 @@ class Phase3CLI:
                 if user_input.lower() in ['quit', 'exit', 'q']:
                     print("\n👋 Goodbye! Shutting down agent system...")
                     break
-                elif user_input.lower() == 'stats':
-                    await self.show_stats()
+                elif user_input.lower() == 'cache-stats':
+                    await self.show_cache_stats()
+                    continue
+                elif user_input.lower() == 'orchestration-stats':
+                    await self.show_orchestration_stats()
                     continue
                 elif user_input.lower() == 'session':
                     await self.show_session_info()
@@ -243,6 +298,54 @@ class Phase3CLI:
         print(f"  • Read-only orchestration with simulation")
         print(f"  • Multi-turn conversation support")
         print(f"  • Clarification and error handling")
+    
+    async def show_cache_stats(self):
+        """Show intelligent caching statistics"""
+        if not hasattr(self, 'cache_system'):
+            print("❌ Cache system not initialized")
+            return
+        
+        try:
+            stats = await self.cache_system.get_cache_statistics()
+            print(f\"\n📊 Intelligent Caching Statistics:\")
+            print(f\"  🎯 Hit Rate: {stats['hit_rate']:.1f}%\")
+            print(f\"  📈 Total Requests: {stats['total_requests']}\")
+            print(f\"  ✅ Cache Hits: {stats['cache_hits']}\")
+            print(f\"  ❌ Cache Misses: {stats['cache_misses']}\")
+            print(f\"  💾 Cache Sets: {stats['cache_sets']}\")
+            print(f\"  🗑️  Invalidations: {stats['invalidations']}\")
+            
+            performance = stats.get('performance_impact', {})
+            if performance:
+                print(f\"\n⚡ Performance Impact:\")
+                print(f\"  💰 API Calls Saved: {performance['estimated_api_calls_saved']}\")
+                print(f\"  ⏱️  Time Saved: {performance['estimated_time_saved_seconds']:.1f}s\")
+                print(f\"  📊 Efficiency: {performance['cache_efficiency']}\")
+        except Exception as e:
+            print(f\"❌ Error retrieving cache stats: {e}\")
+    
+    async def show_orchestration_stats(self):
+        \"\"\"Show LangGraph coordination statistics\"\"\"
+        if not hasattr(self, 'tool_coordinator'):
+            print(\"❌ Tool coordinator not initialized\")
+            return
+        
+        try:
+            stats = self.tool_coordinator.get_execution_statistics()
+            print(f\"\n📊 LangGraph Orchestration Statistics:\")
+            print(f\"  🔧 Total Tool Requests: {stats['total_requests']}\")
+            print(f\"  ✅ Success Rate: {stats['success_rate']:.1f}%\")
+            print(f\"  💾 Cache Hit Rate: {stats['cache_hit_rate']:.1f}%\")
+            print(f\"  ⚡ Parallel Executions: {stats['parallel_executions']}\")
+            
+            performance = stats.get('performance_summary', {})
+            if performance:
+                print(f\"\n⚡ Performance Summary:\")
+                print(f\"  📊 Avg Cache Hit Rate: {performance['avg_cache_hit_rate']}\")
+                print(f\"  🚀 Parallel Speedup: {performance['parallel_execution_speedup']}\")
+                print(f\"  🛡️  Error Recovery Rate: {performance['error_recovery_rate']}\")
+        except Exception as e:
+            print(f\"❌ Error retrieving orchestration stats: {e}\")
     
     async def cleanup(self):
         """Clean up resources"""

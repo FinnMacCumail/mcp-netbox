@@ -13,6 +13,12 @@ A comprehensive read/write [Model Context Protocol](https://modelcontextprotocol
 ## ✨ Key Features
 
 - **142+ MCP Tools**: Complete DCIM, IPAM, tenancy, extras, system, and virtualization management with dual-tool pattern architecture
+- **🤖 LangGraph Orchestration Engine** (Phase 3 Week 5-8)
+  - **StateGraph Workflows** - 5-node workflow orchestration with intelligent routing
+  - **Advanced Coordination** - Parallel execution, dependency management, and result aggregation
+  - **Intelligent Caching** - Redis-backed caching with tool-specific TTL strategies (33%+ performance boost)
+  - **Limitation Handling** - Progressive disclosure, N+1 query prevention, and graceful degradation
+  - **Natural Language Interface** - OpenAI-powered intent classification and response generation
 - **🦜 Bridget - Your NetBox Infrastructure Guide**
   - **Auto-Context Detection** - Intelligent environment detection (demo/staging/production)
   - **Safety Guidance** - Context-aware operational recommendations
@@ -53,6 +59,30 @@ For the optimal Bridget experience with full auto-context and persona guidance:
 - **Alternative**: Claude Desktop (tools work, limited prompt support)
 
 See the [Bridget Documentation](https://github.com/Deployment-Team/netbox-mcp/wiki/Bridget-Auto-Context) in the wiki for complete usage guide.
+
+### 🤖 LangGraph Orchestration Engine (Phase 3 Week 5-8)
+
+Advanced state machine orchestration for intelligent NetBox automation:
+
+```bash
+# Install with LangGraph dependencies
+pip install -e .[langgraph]
+
+# Set OpenAI API key for orchestration
+export OPENAI_API_KEY="your-openai-api-key"
+
+# Test LangGraph orchestration
+python test_realistic_queries.py
+```
+
+**LangGraph Features:**
+- **5-Node StateGraph Workflow**: classify_intent → route_coordination_strategy → execute_tools → generate_response → END
+- **Intelligent Strategy Selection**: Direct, complex, and limitation-aware routing
+- **Advanced Caching**: Redis-backed with tool-specific TTL strategies (60s to 4 hours)
+- **Parallel Execution**: Multi-tool coordination with dependency management
+- **Limitation Handling**: Progressive disclosure and N+1 query prevention
+
+See [LangGraph Testing Guide](docs/PHASE3_LANGGRAPH_TESTING.md) for comprehensive testing documentation.
 
 ## 🔧 Claude Code CLI Configuration
 
