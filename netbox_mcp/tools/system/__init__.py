@@ -7,3 +7,4 @@ and NetBox MCP server management functionality.
 
 # Import all system tools to make them discoverable by the registry
 from . import health
+from . import orchestration

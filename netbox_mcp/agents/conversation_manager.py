@@ -11,10 +11,11 @@ from uuid import uuid4
 
 from .base import BaseAgent, AgentMessage, MessageType, AgentState, QueryContext
 from .config import get_config
+from ..orchestration.entity_tracker import EntityTracker, EntityType, TrackedEntity
 
 
 class ConversationSession:
-    """Manages a single user conversation session"""
+    """Manages a single user conversation session with advanced entity tracking"""
     
     def __init__(self, session_id: str):
         self.session_id = session_id
@@ -24,6 +25,10 @@ class ConversationSession:
         self.context: Dict[str, Any] = {}
         self.active_agents: Dict[str, str] = {}  # agent_type -> agent_id
         self.pending_clarifications: List[Dict[str, Any]] = []
+        
+        # Advanced entity tracking using dedicated EntityTracker
+        self.entity_tracker = EntityTracker(session_id)
+        self.conversation_topic: Optional[str] = None  # Current conversation topic/focus
         
     def add_message(self, role: str, content: str, metadata: Optional[Dict] = None):
         """Add message to conversation history"""
@@ -43,6 +48,81 @@ class ConversationSession:
         """Update session context"""
         self.context[key] = value
         self.last_activity = datetime.now()
+    
+    def track_entity(self, entity_type: str, entity_name: str, entity_data: Optional[Dict[str, Any]] = None) -> str:
+        """Track a NetBox entity mentioned in conversation using EntityTracker"""
+        try:
+            # Convert string entity type to EntityType enum
+            entity_type_enum = EntityType(entity_type.lower())
+        except ValueError:
+            # Fallback for unknown entity types
+            entity_type_enum = EntityType.DEVICE
+        
+        # Track entity using sophisticated EntityTracker
+        entity_id = self.entity_tracker.track_entity(
+            entity_type=entity_type_enum,
+            entity_name=entity_name,
+            attributes=entity_data
+        )
+        
+        self.last_activity = datetime.now()
+        return entity_id
+    
+    def add_entity_alias(self, entity_id: str, alias: str):
+        """Add an alias for an entity using EntityTracker"""
+        self.entity_tracker.add_entity_alias(entity_id, alias)
+        self.last_activity = datetime.now()
+    
+    def resolve_entity_reference(self, reference: str) -> Optional[str]:
+        """Resolve entity references using sophisticated EntityTracker"""
+        return self.entity_tracker.resolve_reference(reference)
+    
+    def get_entity_context(self, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Get context information for a tracked entity"""
+        return self.entity_tracker.get_entity_context(entity_id)
+    
+    def get_conversation_entities(self, entity_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all entities mentioned in this conversation, optionally filtered by type"""
+        if entity_type:
+            try:
+                entity_type_enum = EntityType(entity_type.lower())
+                return self.entity_tracker.get_entities_by_type(entity_type_enum)
+            except ValueError:
+                return []
+        else:
+            # Return all entities
+            entities = []
+            for entity_type_enum in EntityType:
+                entities.extend(self.entity_tracker.get_entities_by_type(entity_type_enum))
+            return entities
+    
+    def update_conversation_topic(self, topic: str):
+        """Update the current conversation topic/focus"""
+        self.conversation_topic = topic
+        self.last_activity = datetime.now()
+    
+    def get_context_for_query(self, max_entities: int = 5) -> Dict[str, Any]:
+        """Get contextual information for processing the next query"""
+        # Get EntityTracker summary
+        tracker_summary = self.entity_tracker.get_conversation_summary()
+        
+        # Get recent entities from EntityTracker
+        recent_entities = []
+        for entity_type in EntityType:
+            recent_entities.extend(self.entity_tracker.get_entities_by_type(entity_type))
+        
+        # Sort by mention count and limit
+        recent_entities.sort(key=lambda x: (x["mention_count"], x["last_accessed"]), reverse=True)
+        recent_entities = recent_entities[:max_entities]
+        
+        return {
+            "recent_entities": recent_entities,
+            "last_mentioned": tracker_summary["recent_entities"][:3],
+            "conversation_topic": self.conversation_topic,
+            "session_duration": (datetime.now() - self.created_at).total_seconds(),
+            "turn_count": len(self.conversation_history),
+            "entity_tracker_summary": tracker_summary
+        }
 
 
 class ConversationManagerAgent(BaseAgent):
@@ -167,7 +247,7 @@ Always maintain conversation context and provide helpful, accurate responses abo
         }
     
     async def get_session_info(self, content: Dict[str, Any]) -> Dict[str, Any]:
-        """Get information about a session"""
+        """Get information about a session including entity tracking details"""
         session_id = content.get("session_id")
         
         if not session_id or session_id not in self.active_sessions:
@@ -186,7 +266,13 @@ Always maintain conversation context and provide helpful, accurate responses abo
                 "last_activity": session.last_activity.isoformat(),
                 "message_count": len(session.conversation_history),
                 "context_keys": list(session.context.keys()),
-                "active_agents": list(session.active_agents.keys())
+                "active_agents": list(session.active_agents.keys()),
+                
+                # Entity tracking information using EntityTracker
+                "entity_tracking": {
+                    **session.entity_tracker.get_conversation_summary(),
+                    "conversation_topic": session.conversation_topic
+                }
             }
         }
     
@@ -459,9 +545,14 @@ Always maintain conversation context and provide helpful, accurate responses abo
             return {"success": False, "error": str(e)}
     
     async def _classify_query_locally(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Local query classification as fallback"""
+        """Local query classification as fallback with entity tracking"""
         try:
             query = data.get("query", "").lower()
+            context = data.get("context", {})
+            session_id = context.get("session_id")
+            
+            # Get session for entity context
+            session = self.active_sessions.get(session_id) if session_id else None
             
             # Enhanced pattern matching for NetBox queries
             if any(word in query for word in ["list", "show", "all", "get", "find"]):
@@ -489,8 +580,19 @@ Always maintain conversation context and provide helpful, accurate responses abo
                 complexity = "unclear"
                 tools_needed = []
             
-            # Extract entities from query
-            entities = self._extract_entities(query)
+            # Extract entities from query with session context for reference resolution
+            entities = self._extract_entities(data.get("query", ""), session)
+            
+            # Update conversation topic if session is available
+            if session and entities:
+                primary_entity_type = entities[0]["type"] if entities else None
+                if primary_entity_type:
+                    session.update_conversation_topic(f"{intent}_{primary_entity_type}")
+            
+            # Enhanced confidence scoring based on entity resolution
+            confidence = 0.8 if intent != "unclear" else 0.3
+            if session and any(e.get("resolved", False) for e in entities):
+                confidence = min(confidence + 0.1, 0.95)  # Boost confidence for resolved entities
             
             return {
                 "success": True,
@@ -499,10 +601,11 @@ Always maintain conversation context and provide helpful, accurate responses abo
                     "complexity": complexity,
                     "entities": entities,
                     "tools_needed": tools_needed,
-                    "requires_clarification": intent == "unclear" or len(entities) == 0,
-                    "confidence": 0.8 if intent != "unclear" else 0.3,
-                    "query_type": self._determine_query_type(query),
-                    "scope": self._determine_query_scope(query)
+                    "requires_clarification": intent == "unclear" or (len(entities) == 0 and intent != "unclear"),
+                    "confidence": confidence,
+                    "query_type": self._determine_query_type(data.get("query", "")),
+                    "scope": self._determine_query_scope(data.get("query", "")),
+                    "conversation_context": session.get_context_for_query() if session else {}
                 }
             }
         except Exception as e:
@@ -548,23 +651,94 @@ Always maintain conversation context and provide helpful, accurate responses abo
         
         return tools
     
-    def _extract_entities(self, query: str) -> List[Dict[str, str]]:
-        """Extract entities from query"""
+    def _extract_entities(self, query: str, session: Optional[ConversationSession] = None) -> List[Dict[str, str]]:
+        """Extract and track entities from query with conversation context"""
         entities = []
+        query_lower = query.lower()
         
-        # Simple entity extraction patterns
-        if "site" in query:
-            entities.append({"type": "site", "value": "site_reference"})
-        if "device" in query:
-            entities.append({"type": "device", "value": "device_reference"})
-        if "rack" in query:
-            entities.append({"type": "rack", "value": "rack_reference"})
-        if "vlan" in query:
-            entities.append({"type": "vlan", "value": "vlan_reference"})
-        if "tenant" in query:
-            entities.append({"type": "tenant", "value": "tenant_reference"})
+        # Enhanced entity extraction with reference resolution
+        entity_patterns = {
+            "site": ["site", "location", "datacenter", "facility"],
+            "device": ["device", "server", "switch", "router", "host", "machine"],
+            "rack": ["rack", "cabinet", "enclosure"],
+            "vlan": ["vlan", "network", "subnet"],
+            "tenant": ["tenant", "customer", "organization", "group"],
+            "cable": ["cable", "connection", "link", "wire"],
+            "interface": ["interface", "port", "nic", "connection"],
+            "module": ["module", "card", "linecard", "blade"],
+            "prefix": ["prefix", "network", "subnet", "ip range"]
+        }
+        
+        # Extract entity types and attempt to resolve specific names
+        for entity_type, keywords in entity_patterns.items():
+            if any(keyword in query_lower for keyword in keywords):
+                # Try to extract specific entity names using common patterns
+                entity_name = self._extract_entity_name_from_query(query, entity_type, keywords)
+                
+                if session:
+                    # Check for reference resolution
+                    resolved_entity = session.resolve_entity_reference(entity_name or query)
+                    if resolved_entity:
+                        entity_data = session.get_entity_context(resolved_entity)
+                        entities.append({
+                            "type": entity_data["type"],
+                            "value": entity_data["name"],
+                            "entity_id": resolved_entity,
+                            "resolved": True
+                        })
+                        continue
+                
+                # Add new entity
+                entities.append({
+                    "type": entity_type,
+                    "value": entity_name or f"{entity_type}_reference",
+                    "resolved": False
+                })
+                
+                # Track the entity in session if available
+                if session and entity_name:
+                    entity_id = session.track_entity(entity_type, entity_name)
+                    entities[-1]["entity_id"] = entity_id
+        
+        # Handle pronouns and references
+        pronouns = ["it", "that", "this", "them"]
+        if session and any(pronoun in query_lower for pronoun in pronouns):
+            for pronoun in pronouns:
+                if pronoun in query_lower:
+                    resolved_entity = session.resolve_entity_reference(pronoun)
+                    if resolved_entity:
+                        entity_data = session.get_entity_context(resolved_entity)
+                        entities.append({
+                            "type": entity_data["type"],
+                            "value": entity_data["name"],
+                            "entity_id": resolved_entity,
+                            "resolved": True,
+                            "reference_type": "pronoun"
+                        })
+                        break
             
         return entities
+    
+    def _extract_entity_name_from_query(self, query: str, entity_type: str, keywords: List[str]) -> Optional[str]:
+        """Extract specific entity names from query text"""
+        import re
+        
+        # Common patterns for entity names
+        patterns = [
+            rf"{entity_type}[\s-]+'([^']+)'",  # quoted names
+            rf"{entity_type}[\s-]+\"([^\"]+)\"",  # double quoted names
+            rf"{entity_type}[\s-]+(\w+(?:[-_]\w+)*)",  # simple names
+            rf"(\w+(?:[-_]\w+)*)[\s-]+{entity_type}",  # name before type
+        ]
+        
+        for keyword in keywords:
+            for pattern in patterns:
+                pattern = pattern.replace(entity_type, keyword)
+                match = re.search(pattern, query, re.IGNORECASE)
+                if match:
+                    return match.group(1).strip()
+        
+        return None
     
     def _determine_query_type(self, query: str) -> str:
         """Determine the type of query"""

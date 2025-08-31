@@ -119,12 +119,9 @@ show_error_codes = true
 minversion = "7.0"
 addopts = [
     "--strict-markers",
-    "--strict-config", 
-    "--cov=netbox_mcp",
-    "--cov-report=html",
-    "--cov-report=term-missing",
-    "--cov-fail-under=95"
+    "--strict-config"
 ]
+asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",

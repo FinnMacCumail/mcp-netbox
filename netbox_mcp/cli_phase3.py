@@ -307,45 +307,45 @@ class Phase3CLI:
         
         try:
             stats = await self.cache_system.get_cache_statistics()
-            print(f\"\n📊 Intelligent Caching Statistics:\")
-            print(f\"  🎯 Hit Rate: {stats['hit_rate']:.1f}%\")
-            print(f\"  📈 Total Requests: {stats['total_requests']}\")
-            print(f\"  ✅ Cache Hits: {stats['cache_hits']}\")
-            print(f\"  ❌ Cache Misses: {stats['cache_misses']}\")
-            print(f\"  💾 Cache Sets: {stats['cache_sets']}\")
-            print(f\"  🗑️  Invalidations: {stats['invalidations']}\")
+            print(f"\n📊 Intelligent Caching Statistics:")
+            print(f"  🎯 Hit Rate: {stats['hit_rate']:.1f}%")
+            print(f"  📈 Total Requests: {stats['total_requests']}")
+            print(f"  ✅ Cache Hits: {stats['cache_hits']}")
+            print(f"  ❌ Cache Misses: {stats['cache_misses']}")
+            print(f"  💾 Cache Sets: {stats['cache_sets']}")
+            print(f"  🗑️  Invalidations: {stats['invalidations']}")
             
             performance = stats.get('performance_impact', {})
             if performance:
-                print(f\"\n⚡ Performance Impact:\")
-                print(f\"  💰 API Calls Saved: {performance['estimated_api_calls_saved']}\")
-                print(f\"  ⏱️  Time Saved: {performance['estimated_time_saved_seconds']:.1f}s\")
-                print(f\"  📊 Efficiency: {performance['cache_efficiency']}\")
+                print(f"\n⚡ Performance Impact:")
+                print(f"  💰 API Calls Saved: {performance['estimated_api_calls_saved']}")
+                print(f"  ⏱️  Time Saved: {performance['estimated_time_saved_seconds']:.1f}s")
+                print(f"  📊 Efficiency: {performance['cache_efficiency']}")
         except Exception as e:
-            print(f\"❌ Error retrieving cache stats: {e}\")
+            print(f"❌ Error retrieving cache stats: {e}")
     
     async def show_orchestration_stats(self):
-        \"\"\"Show LangGraph coordination statistics\"\"\"
+        """Show LangGraph coordination statistics"""
         if not hasattr(self, 'tool_coordinator'):
-            print(\"❌ Tool coordinator not initialized\")
+            print("❌ Tool coordinator not initialized")
             return
         
         try:
             stats = self.tool_coordinator.get_execution_statistics()
-            print(f\"\n📊 LangGraph Orchestration Statistics:\")
-            print(f\"  🔧 Total Tool Requests: {stats['total_requests']}\")
-            print(f\"  ✅ Success Rate: {stats['success_rate']:.1f}%\")
-            print(f\"  💾 Cache Hit Rate: {stats['cache_hit_rate']:.1f}%\")
-            print(f\"  ⚡ Parallel Executions: {stats['parallel_executions']}\")
+            print(f"\n📊 LangGraph Orchestration Statistics:")
+            print(f"  🔧 Total Tool Requests: {stats['total_requests']}")
+            print(f"  ✅ Success Rate: {stats['success_rate']:.1f}%")
+            print(f"  💾 Cache Hit Rate: {stats['cache_hit_rate']:.1f}%")
+            print(f"  ⚡ Parallel Executions: {stats['parallel_executions']}")
             
             performance = stats.get('performance_summary', {})
             if performance:
-                print(f\"\n⚡ Performance Summary:\")
-                print(f\"  📊 Avg Cache Hit Rate: {performance['avg_cache_hit_rate']}\")
-                print(f\"  🚀 Parallel Speedup: {performance['parallel_execution_speedup']}\")
-                print(f\"  🛡️  Error Recovery Rate: {performance['error_recovery_rate']}\")
+                print(f"\n⚡ Performance Summary:")
+                print(f"  📊 Avg Cache Hit Rate: {performance['avg_cache_hit_rate']}")
+                print(f"  🚀 Parallel Speedup: {performance['parallel_execution_speedup']}")
+                print(f"  🛡️  Error Recovery Rate: {performance['error_recovery_rate']}")
         except Exception as e:
-            print(f\"❌ Error retrieving orchestration stats: {e}\")
+            print(f"❌ Error retrieving orchestration stats: {e}")
     
     async def cleanup(self):
         """Clean up resources"""

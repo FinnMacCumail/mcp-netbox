@@ -238,21 +238,22 @@ def netbox_get_device_info(
         
         # Get interfaces with API-side pagination if requested
         if include_interfaces:
-            # Use API-side counting for efficiency
-            total_interfaces = client.dcim.interfaces.count(device_id=device_id)
-            # Use API-side pagination with limit parameter
-            interfaces = list(client.dcim.interfaces.filter(device_id=device_id, limit=interface_limit))
+            # Get interfaces with limit - count after retrieval for compatibility
+            interfaces = list(client.dcim.interfaces.filter(device_id=device_id, limit=interface_limit + 1))
+            # Check if there are more interfaces by requesting limit+1
+            has_more = len(interfaces) > interface_limit
+            if has_more:
+                interfaces = interfaces[:interface_limit]  # Trim to actual limit
+            
             result_data["interfaces"] = interfaces
             result_data["interface_pagination"] = {
-                "total_count": total_interfaces,
                 "returned_count": len(interfaces),
                 "limit": interface_limit,
-                "truncated": total_interfaces > interface_limit
+                "truncated": has_more
             }
         else:
             result_data["interfaces"] = []
             result_data["interface_pagination"] = {
-                "total_count": 0,
                 "returned_count": 0,
                 "limit": interface_limit,
                 "truncated": False
@@ -260,21 +261,22 @@ def netbox_get_device_info(
         
         # Get cables with API-side pagination if requested
         if include_cables:
-            # Use API-side counting for efficiency
-            total_cables = client.dcim.cables.count(termination_a_id=device_id)
-            # Use API-side pagination with limit parameter
-            cables = list(client.dcim.cables.filter(termination_a_id=device_id, limit=cable_limit))
+            # Get cables with limit - count after retrieval for compatibility
+            cables = list(client.dcim.cables.filter(termination_a_id=device_id, limit=cable_limit + 1))
+            # Check if there are more cables by requesting limit+1
+            has_more_cables = len(cables) > cable_limit
+            if has_more_cables:
+                cables = cables[:cable_limit]  # Trim to actual limit
+                
             result_data["cables"] = cables
             result_data["cable_pagination"] = {
-                "total_count": total_cables,
                 "returned_count": len(cables),
                 "limit": cable_limit,
-                "truncated": total_cables > cable_limit
+                "truncated": has_more_cables
             }
         else:
             result_data["cables"] = []
             result_data["cable_pagination"] = {
-                "total_count": 0,
                 "returned_count": 0,
                 "limit": cable_limit,
                 "truncated": False
@@ -285,8 +287,8 @@ def netbox_get_device_info(
         
         # Statistics
         result_data["statistics"] = {
-            "interface_count": result_data["interface_pagination"]["total_count"],
-            "cable_count": result_data["cable_pagination"]["total_count"],
+            "interface_count": result_data["interface_pagination"]["returned_count"],
+            "cable_count": result_data["cable_pagination"]["returned_count"],
             "power_connection_count": 0,
             "interface_returned": result_data["interface_pagination"]["returned_count"],
             "cable_returned": result_data["cable_pagination"]["returned_count"]

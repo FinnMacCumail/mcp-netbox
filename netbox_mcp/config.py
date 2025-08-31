@@ -477,3 +477,34 @@ def load_config(config_path: Optional[str] = None) -> NetBoxConfig:
         NetBoxConfig: Loaded and validated configuration
     """
     return ConfigurationManager.load_config(config_path)
+
+
+def get_config() -> Dict[str, Any]:
+    """
+    Get configuration dictionary for integration components.
+    
+    Returns a simplified configuration dict suitable for testing and
+    integration components that don't need full NetBox configuration.
+    """
+    try:
+        # Try to load full configuration
+        config = load_config()
+        return {
+            "netbox_url": config.url,
+            "netbox_token": config.token,
+            "timeout": config.timeout,
+            "verify_ssl": config.verify_ssl,
+            "max_retries": 3,
+            "default_page_size": config.default_page_size,
+            "max_results": config.max_results
+        }
+    except Exception:
+        # Fallback for testing/integration scenarios
+        return {
+            "netbox_url": "http://localhost:8000",
+            "timeout": 30,
+            "verify_ssl": False,
+            "max_retries": 3,
+            "default_page_size": 50,
+            "max_results": 1000
+        }

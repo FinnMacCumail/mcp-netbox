@@ -168,38 +168,41 @@ class ToolCoordinator:
         return results
     
     async def _execute_tool_request(self, tool_request: ToolRequest) -> ToolResult:
-        """Execute individual NetBox MCP tool request"""
-        start_time = time.time()
+        """Execute individual NetBox MCP tool request using real API"""
+        
+        # Import real API handler here to avoid circular imports
+        from .real_api_handler import execute_real_netbox_tool
         
         try:
-            # Simulate NetBox MCP tool execution (Week 5-8 will integrate real tools)
-            await asyncio.sleep(0.5)  # Simulate API call
+            # Execute real NetBox MCP tool
+            result = await execute_real_netbox_tool(tool_request)
             
-            execution_time = time.time() - start_time
-            
-            return ToolResult(
-                tool_name=tool_request.tool_name,
-                params=tool_request.params,
-                success=True,
-                result={
-                    "simulation": True,
-                    "tool": tool_request.tool_name,
-                    "data": f"Simulated result for {tool_request.tool_name}",
-                    "count": 42  # Placeholder result count
-                },
-                execution_time=execution_time
+            self.logger.info(
+                f"Real NetBox tool executed: {tool_request.tool_name} "
+                f"- Success: {result.success}, Time: {result.execution_time:.2f}s"
             )
             
+            return result
+            
         except Exception as e:
-            execution_time = time.time() - start_time
+            # Fallback error handling for unexpected issues
+            execution_time = time.time() - time.time()  # Will be minimal
+            
+            self.logger.error(f"Critical error executing tool {tool_request.tool_name}: {e}")
             
             return ToolResult(
                 tool_name=tool_request.tool_name,
                 params=tool_request.params,
                 success=False,
-                result=None,
+                result={
+                    "success": False,
+                    "error": f"Critical execution error: {str(e)}",
+                    "error_type": "CriticalExecutionError",
+                    "tool_name": tool_request.tool_name
+                },
                 execution_time=execution_time,
-                error=str(e)
+                error=str(e),
+                timestamp=datetime.now()
             )
     
     async def _get_cached_result(self, tool_request: ToolRequest) -> Optional[ToolResult]:
@@ -358,53 +361,66 @@ class ParallelExecutor:
         return processed_results
     
     async def _execute_single_request(self, request: ToolRequest) -> ToolResult:
-        """Execute single tool request with error handling and retries"""
-        start_time = time.time()
+        """Execute single tool request with error handling and retries using real API"""
+        
+        # Import real API handler here to avoid circular imports
+        from .real_api_handler import execute_real_netbox_tool
         
         for attempt in range(request.max_retries + 1):
             try:
-                # Simulate NetBox MCP tool execution
-                # Week 6 will replace this with real NetBox MCP tool calls
-                await asyncio.sleep(0.3)  # Simulate API latency
+                # Execute real NetBox MCP tool with built-in retry logic
+                result = await execute_real_netbox_tool(request)
                 
-                execution_time = time.time() - start_time
-                
-                return ToolResult(
-                    tool_name=request.tool_name,
-                    params=request.params,
-                    success=True,
-                    result={
-                        "simulation_mode": True,
-                        "tool": request.tool_name,
-                        "attempt": attempt + 1,
-                        "data": f"Coordinated execution result for {request.tool_name}"
-                    },
-                    execution_time=execution_time
+                self.logger.info(
+                    f"Parallel execution completed: {request.tool_name} "
+                    f"- Success: {result.success}, Attempt: {attempt + 1}, Time: {result.execution_time:.2f}s"
                 )
+                
+                return result
                 
             except Exception as e:
                 if attempt < request.max_retries:
-                    self.logger.warning(f"Tool {request.tool_name} failed (attempt {attempt + 1}), retrying...")
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    delay = 2 ** attempt  # Exponential backoff
+                    self.logger.warning(
+                        f"Parallel tool {request.tool_name} failed (attempt {attempt + 1}), "
+                        f"retrying in {delay}s: {str(e)}"
+                    )
+                    await asyncio.sleep(delay)
                 else:
-                    execution_time = time.time() - start_time
+                    self.logger.error(
+                        f"Parallel tool {request.tool_name} failed after {request.max_retries} retries: {str(e)}"
+                    )
+                    
                     return ToolResult(
                         tool_name=request.tool_name,
                         params=request.params,
                         success=False,
-                        result=None,
-                        execution_time=execution_time,
-                        error=f"Tool execution failed after {request.max_retries} retries: {str(e)}"
+                        result={
+                            "success": False,
+                            "error": f"Parallel execution failed after {request.max_retries} retries: {str(e)}",
+                            "error_type": "ParallelExecutionMaxRetriesExceeded",
+                            "tool_name": request.tool_name,
+                            "total_attempts": request.max_retries + 1
+                        },
+                        execution_time=0.0,
+                        error=f"Tool execution failed after {request.max_retries} retries: {str(e)}",
+                        timestamp=datetime.now()
                     )
         
-        # Should never reach here
+        # Should never reach here due to logic above
         return ToolResult(
             tool_name=request.tool_name,
             params=request.params,
             success=False,
-            result=None,
-            execution_time=time.time() - start_time,
-            error="Unexpected execution path"
+            result={
+                "success": False,
+                "error": "Unexpected execution path in parallel executor",
+                "error_type": "UnexpectedExecutionPath",
+                "tool_name": request.tool_name
+            },
+            execution_time=0.0,
+            error="Unexpected execution path",
+            timestamp=datetime.now()
         )
 
 

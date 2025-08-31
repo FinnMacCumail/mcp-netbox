@@ -1,547 +1,703 @@
 """
-LangGraph StateGraph Orchestration for NetBox Phase 3 Week 5-8
+Simplified 3-Node LangGraph Orchestration for NetBox MCP Phase 3
 
-This module implements the core state machine orchestration that replaces
-the existing simple agent coordination with sophisticated LangGraph workflows.
+This module implements a simplified intelligent workflow that replaces the complex
+5-node orchestration with 3 intelligent nodes that embed intelligence at each step:
+1. intelligent_tool_selection - Integrates Phase 1 IntelligentToolSelector + Phase 2 ToolAwareParameterExtractor
+2. smart_execution - Intelligent execution with built-in error handling
+3. adaptive_response - LLM-generated response with natural fallback logic
+
+Key improvements:
+- Embeds intelligence in each node instead of scattered across multiple nodes
+- Integrates Phase 1 and Phase 2 components seamlessly
+- Simplifies state management to essential workflow data only
+- Eliminates rigid routing functions and over-engineering
 """
 
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional, TypedDict, Annotated
+from typing import Any, Dict, List, Optional, TypedDict
 from datetime import datetime
+import traceback
 
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 
-from ..agents.conversation_manager import ConversationManagerAgent
-from ..agents.intent_recognition import IntentRecognitionAgent  
+# Import Phase 1 and Phase 2 intelligent components
+from .intelligent_tool_selector import select_tool, ToolSelection
+from .tool_aware_parameter_extractor import extract_parameters, ParameterExtractionResult
+from .coordination import ToolRequest, ToolResult
+from .real_api_handler import execute_real_netbox_tool
 from ..agents.response_generation import ResponseGenerationAgent
 
 
-class NetworkOrchestrationState(TypedDict):
+class IntelligentOrchestrationState(TypedDict):
     """
-    Comprehensive state for LangGraph NetBox orchestration workflows
+    Simplified state for intelligent 3-node workflow
     
-    This state structure captures all information needed for complex
-    multi-tool NetBox operations with graceful limitation handling.
+    Focuses on essential workflow data instead of complex coordination metadata.
     """
-    # Core query information
+    # Core workflow data
     user_query: str
     session_id: str
     correlation_id: str
     
-    # Intent classification results
-    classified_intent: Optional[Dict[str, Any]]
-    entities: Optional[Dict[str, List[str]]]
-    confidence_score: Optional[float]
+    # Tool selection results (Phase 1 integration)
+    tool_selection: Optional[ToolSelection]
+    tool_selection_confidence: Optional[float]
     
-    # Tool coordination state
-    coordination_strategy: Optional[str]  # "direct", "complex", "limitation_aware"
-    tool_execution_plan: Optional[Dict[str, Any]]
-    tool_results: List[Dict[str, Any]]
+    # Parameter extraction results (Phase 2 integration)
+    parameter_extraction: Optional[ParameterExtractionResult]
+    final_parameters: Optional[Dict[str, Any]]
     
-    # Limitation handling
-    known_limitations: List[str]
-    limitation_strategy: Optional[str]  # "progressive", "sampling", "fallback"
-    progressive_state: Optional[Dict[str, Any]]
+    # Execution results
+    tool_results: List[ToolResult]
+    execution_successful: bool
+    execution_errors: List[str]
     
-    # Response generation
+    # Response and completion
     natural_language_response: Optional[str]
     user_options: Optional[List[str]]
-    
-    # Workflow control
-    next_action: Optional[str]
     workflow_complete: bool
+    
+    # Simple error tracking
     error_state: Optional[Dict[str, Any]]
     
-    # Context and session management
-    conversation_context: Optional[Dict[str, Any]]
-    performance_metrics: Optional[Dict[str, Any]]
+    # Performance tracking
+    execution_metrics: Optional[Dict[str, Any]]
 
 
-async def classify_user_intent(state: NetworkOrchestrationState) -> NetworkOrchestrationState:
+async def intelligent_tool_selection(state: IntelligentOrchestrationState) -> IntelligentOrchestrationState:
     """
-    LangGraph node: Classify user intent using Intent Recognition Agent
+    Node 1: Intelligent Tool Selection
+    
+    Integrates Phase 1 IntelligentToolSelector and Phase 2 ToolAwareParameterExtractor
+    to select the optimal NetBox tool and extract context-preserving parameters.
+    
+    Embeds intelligence that was previously scattered across classification and planning.
     """
     logger = logging.getLogger(__name__)
-    logger.info(f"Classifying intent for query: {state['user_query'][:50]}...")
+    logger.info(f"Intelligent tool selection for query: {state['user_query'][:100]}...")
+    
+    start_time = datetime.now()
     
     try:
-        # Initialize Intent Recognition Agent
-        intent_agent = IntentRecognitionAgent()
-        await intent_agent.initialize()
+        # Step 1: Use Phase 1 IntelligentToolSelector
+        logger.info("Using Phase 1 IntelligentToolSelector for semantic tool selection...")
+        tool_selection = await select_tool(state["user_query"])
         
-        # Classify intent with conversation context
-        classification_result = await intent_agent.process_request({
-            "type": "classify_query",
-            "query": state["user_query"],
-            "context": state.get("conversation_context", {}),
-            "correlation_id": state["correlation_id"]
-        })
+        if not tool_selection or not tool_selection.primary_tool:
+            logger.error("IntelligentToolSelector failed to select a tool")
+            state["error_state"] = {
+                "stage": "tool_selection",
+                "error": "No suitable tool found for query",
+                "timestamp": datetime.now().isoformat()
+            }
+            return state
         
-        # Update state with classification results
-        if classification_result.get("success"):
-            classification = classification_result["classification"]
-            state["classified_intent"] = classification
-            state["entities"] = classification.get("entities", [])
-            state["confidence_score"] = classification.get("confidence", 0.5)
-        else:
-            # Fallback for failed classification
-            state["classified_intent"] = {"intent": "discovery", "complexity": "simple"}
-            state["entities"] = []
-            state["confidence_score"] = 0.3
+        logger.info(f"Selected tool: {tool_selection.primary_tool} (confidence: {tool_selection.confidence:.2f})")
+        state["tool_selection"] = tool_selection
+        state["tool_selection_confidence"] = tool_selection.confidence
         
-        # Determine coordination strategy based on intent
-        confidence = state["confidence_score"]
-        intent_data = state["classified_intent"]
+        # Step 2: Use Phase 2 ToolAwareParameterExtractor for context-preserving parameters
+        logger.info("Using Phase 2 ToolAwareParameterExtractor for context-preserving parameter extraction...")
+        parameter_result = await extract_parameters(
+            state["user_query"], 
+            tool_selection.primary_tool
+        )
         
-        if confidence > 0.8:
-            if intent_data.get("complexity") == "simple":
-                state["coordination_strategy"] = "direct"
-            else:
-                state["coordination_strategy"] = "complex"
-        else:
-            state["coordination_strategy"] = "limitation_aware"
-            
-        logger.info(f"Intent classified: {state['coordination_strategy']} strategy selected")
+        if not parameter_result:
+            logger.error("ToolAwareParameterExtractor failed")
+            state["error_state"] = {
+                "stage": "parameter_extraction",
+                "error": "Parameter extraction failed",
+                "timestamp": datetime.now().isoformat()
+            }
+            return state
+        
+        logger.info(f"Parameter extraction: method={parameter_result.extraction_method}, "
+                   f"confidence={parameter_result.confidence:.2f}, "
+                   f"compound_entities={len(parameter_result.compound_entities)}")
+        
+        state["parameter_extraction"] = parameter_result
+        
+        # Step 3: Merge parameters from both components intelligently
+        final_parameters = {}
+        # Tool selector parameters first (from LLM intelligence)
+        final_parameters.update(tool_selection.parameters)
+        # Parameter extractor parameters override (more detailed context-aware extraction)  
+        final_parameters.update(parameter_result.parameters)
+        
+        state["final_parameters"] = final_parameters
+        
+        # Calculate combined confidence
+        combined_confidence = (tool_selection.confidence * 0.6 + parameter_result.confidence * 0.4)
+        state["tool_selection_confidence"] = combined_confidence
+        
+        # Record performance metrics
+        execution_time = (datetime.now() - start_time).total_seconds()
+        state["execution_metrics"] = {
+            "tool_selection_time": execution_time,
+            "tool_selected": tool_selection.primary_tool,
+            "tool_confidence": tool_selection.confidence,
+            "parameter_confidence": parameter_result.confidence,
+            "combined_confidence": combined_confidence,
+            "compound_entities_found": len(parameter_result.compound_entities),
+            "relationships_preserved": len(parameter_result.preserved_relationships),
+            "execution_strategy": tool_selection.execution_strategy
+        }
+        
+        logger.info(f"Intelligent tool selection completed in {execution_time:.2f}s - "
+                   f"Tool: {tool_selection.primary_tool}, "
+                   f"Combined confidence: {combined_confidence:.2f}")
+        
         return state
         
     except Exception as e:
-        logger.error(f"Intent classification failed: {e}")
+        logger.error(f"Intelligent tool selection failed: {e}", exc_info=True)
         state["error_state"] = {
-            "stage": "intent_classification",
+            "stage": "intelligent_tool_selection",
             "error": str(e),
+            "traceback": traceback.format_exc(),
             "timestamp": datetime.now().isoformat()
         }
-        state["coordination_strategy"] = "limitation_aware"
         return state
 
 
-async def plan_tool_coordination(state: NetworkOrchestrationState) -> NetworkOrchestrationState:
+async def smart_execution(state: IntelligentOrchestrationState) -> IntelligentOrchestrationState:
     """
-    LangGraph node: Create execution plan for complex multi-tool operations
+    Node 2: Smart Execution
+    
+    Intelligent execution with built-in error handling, automatic retries,
+    and fallback logic. Embeds execution intelligence that was previously
+    scattered across multiple coordination components.
     """
     logger = logging.getLogger(__name__)
-    logger.info("Planning tool coordination for complex query...")
+    logger.info("Smart execution of selected NetBox tool...")
+    
+    start_time = datetime.now()
     
     try:
-        # Extract planning context
-        intent = state["classified_intent"]
-        entities = state["entities"]
+        # Check if we have tool selection from previous node
+        if not state.get("tool_selection") or not state.get("final_parameters"):
+            logger.error("Missing tool selection or parameters from previous node")
+            state["error_state"] = {
+                "stage": "smart_execution",
+                "error": "Tool selection or parameters missing",
+                "timestamp": datetime.now().isoformat()
+            }
+            state["execution_successful"] = False
+            return state
         
-        # Create execution plan based on intent category
-        intent_type = intent.get("intent", "discovery")
-        if intent_type in ["discovery", "retrieval"]:
-            plan = await create_discovery_plan(entities, state["user_query"])
-        elif intent_type == "analysis":
-            plan = await create_analysis_plan(entities, state["user_query"])
-        elif intent_type == "creation":
-            plan = await create_creation_plan(entities, state["user_query"])
-        else:
-            plan = await create_fallback_plan(entities, state["user_query"])
+        tool_selection = state["tool_selection"]
+        parameters = state["final_parameters"]
+        
+        logger.info(f"Executing tool: {tool_selection.primary_tool} with parameters: {parameters}")
+        
+        # Create tool request for execution
+        tool_request = ToolRequest(
+            tool_name=tool_selection.primary_tool,
+            params=parameters,
+            priority=1,
+            max_retries=3
+        )
+        
+        # Execute with intelligent error handling
+        tool_result = await _execute_with_smart_retry(tool_request, tool_selection)
+        
+        # Store results
+        state["tool_results"] = [tool_result]
+        state["execution_successful"] = tool_result.success
+        
+        if not tool_result.success:
+            state["execution_errors"] = [tool_result.error or "Execution failed"]
             
-        state["tool_execution_plan"] = plan
-        state["known_limitations"] = plan.get("limitations", [])
-        
-        logger.info(f"Execution plan created with {len(plan['steps'])} steps")
-        return state
-        
-    except Exception as e:
-        logger.error(f"Tool coordination planning failed: {e}")
-        state["error_state"] = {
-            "stage": "tool_planning", 
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
-        return state
-
-
-async def execute_coordinated_tools(state: NetworkOrchestrationState) -> NetworkOrchestrationState:
-    """
-    LangGraph node: Execute NetBox MCP tools according to coordination plan
-    """
-    logger = logging.getLogger(__name__)
-    logger.info("Executing coordinated NetBox MCP tools...")
-    
-    try:
-        plan = state["tool_execution_plan"]
-        results = []
-        
-        # Execute tools according to plan (parallel or sequential)
-        for step in plan["steps"]:
-            if step["execution_type"] == "parallel":
-                # Execute tools in parallel
-                step_results = await execute_parallel_tools(step["tools"])
-            else:
-                # Execute tools sequentially with context passing
-                step_results = await execute_sequential_tools(step["tools"], results)
+            # Try fallback tools if primary failed and we have fallbacks
+            if tool_selection.fallback_tools and len(tool_selection.fallback_tools) > 0:
+                logger.info(f"Primary tool failed, trying fallback: {tool_selection.fallback_tools[0]}")
                 
-            results.extend(step_results)
-            
-        state["tool_results"] = results
-        
-        # Check for any tool failures
-        failed_tools = [r for r in results if not r.get("success", False)]
-        if failed_tools:
-            state["known_limitations"].extend([
-                f"Tool {tool['name']} failed: {tool['error']}"
-                for tool in failed_tools
-            ])
-            
-        logger.info(f"Tool execution completed: {len(results)} tools executed")
-        return state
-        
-    except Exception as e:
-        logger.error(f"Tool execution failed: {e}")
-        state["error_state"] = {
-            "stage": "tool_execution",
-            "error": str(e), 
-            "timestamp": datetime.now().isoformat()
-        }
-        return state
-
-
-async def handle_known_limitations(state: NetworkOrchestrationState) -> NetworkOrchestrationState:
-    """
-    LangGraph node: Provide graceful fallback for queries with known limitations
-    """
-    logger = logging.getLogger(__name__)
-    logger.info("Handling known NetBox MCP tool limitations...")
-    
-    try:
-        limitations = state["known_limitations"]
-        
-        # Determine limitation handling strategy
-        if any("token_overflow" in limit for limit in limitations):
-            state["limitation_strategy"] = "progressive"
-            state["progressive_state"] = await setup_progressive_disclosure(state)
-        elif any("n_plus_one" in limit for limit in limitations):
-            state["limitation_strategy"] = "sampling"
-            state["progressive_state"] = await setup_intelligent_sampling(state)
+                fallback_request = ToolRequest(
+                    tool_name=tool_selection.fallback_tools[0],
+                    params=parameters,
+                    priority=1,
+                    max_retries=2
+                )
+                
+                fallback_result = await _execute_with_smart_retry(fallback_request, tool_selection)
+                state["tool_results"].append(fallback_result)
+                
+                if fallback_result.success:
+                    state["execution_successful"] = True
+                    logger.info("Fallback tool execution succeeded")
+                else:
+                    state["execution_errors"].append(fallback_result.error or "Fallback execution failed")
         else:
-            state["limitation_strategy"] = "fallback"
-            state["progressive_state"] = await setup_graceful_fallback(state)
-            
-        logger.info(f"Limitation strategy: {state['limitation_strategy']}")
+            state["execution_errors"] = []
+            logger.info(f"Tool execution succeeded in {tool_result.execution_time:.2f}s")
+        
+        # Update performance metrics
+        execution_time = (datetime.now() - start_time).total_seconds()
+        if state["execution_metrics"]:
+            state["execution_metrics"].update({
+                "execution_time": execution_time,
+                "tools_executed": len(state["tool_results"]),
+                "execution_successful": state["execution_successful"],
+                "primary_tool_success": state["tool_results"][0].success if state["tool_results"] else False,
+                "fallback_used": len(state["tool_results"]) > 1
+            })
+        
+        logger.info(f"Smart execution completed in {execution_time:.2f}s - Success: {state['execution_successful']}")
+        
         return state
         
     except Exception as e:
-        logger.error(f"Limitation handling failed: {e}")
+        logger.error(f"Smart execution failed: {e}", exc_info=True)
         state["error_state"] = {
-            "stage": "limitation_handling",
+            "stage": "smart_execution",
             "error": str(e),
+            "traceback": traceback.format_exc(),
             "timestamp": datetime.now().isoformat()
         }
+        state["execution_successful"] = False
+        state["execution_errors"] = [str(e)]
         return state
 
 
-async def generate_intelligent_response(state: NetworkOrchestrationState) -> NetworkOrchestrationState:
+async def _execute_with_smart_retry(tool_request: ToolRequest, tool_selection: ToolSelection) -> ToolResult:
     """
-    LangGraph node: Generate natural language response using Response Generation Agent
+    Execute tool with intelligent retry logic and error handling
     """
     logger = logging.getLogger(__name__)
-    logger.info("Generating intelligent natural language response...")
+    
+    for attempt in range(tool_request.max_retries + 1):
+        try:
+            # Execute the tool using real API handler
+            result = await execute_real_netbox_tool(tool_request)
+            
+            if result.success:
+                logger.debug(f"Tool {tool_request.tool_name} succeeded on attempt {attempt + 1}")
+                return result
+            else:
+                logger.warning(f"Tool {tool_request.tool_name} failed on attempt {attempt + 1}: {result.error}")
+                
+                # If this isn't the last attempt, wait briefly before retry
+                if attempt < tool_request.max_retries:
+                    await asyncio.sleep(0.5 * (attempt + 1))  # Exponential backoff
+                
+        except Exception as e:
+            logger.error(f"Exception executing {tool_request.tool_name} on attempt {attempt + 1}: {e}")
+            
+            if attempt == tool_request.max_retries:
+                # Last attempt failed, return error result
+                return ToolResult(
+                    tool_name=tool_request.tool_name,
+                    params=tool_request.params,
+                    success=False,
+                    result=None,
+                    execution_time=0.0,
+                    error=str(e),
+                    cached=False
+                )
+            
+            # Wait before retry
+            await asyncio.sleep(0.5 * (attempt + 1))
+    
+    # If we get here, all attempts failed
+    return ToolResult(
+        tool_name=tool_request.tool_name,
+        params=tool_request.params,
+        success=False,
+        result=None,
+        execution_time=0.0,
+        error="All retry attempts failed",
+        cached=False
+    )
+
+
+async def adaptive_response(state: IntelligentOrchestrationState) -> IntelligentOrchestrationState:
+    """
+    Node 3: Adaptive Response
+    
+    LLM-generated response with natural fallback logic and intelligent
+    context adaptation based on execution results and user needs.
+    
+    Embeds response intelligence that adapts to success/failure scenarios.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("Generating adaptive natural language response...")
+    
+    start_time = datetime.now()
     
     try:
-        # Initialize Response Generation Agent
-        response_agent = ResponseGenerationAgent()
-        await response_agent.initialize()
+        # Analyze execution results to determine response strategy
+        execution_successful = state.get("execution_successful", False)
+        tool_results = state.get("tool_results", [])
+        execution_errors = state.get("execution_errors", [])
         
-        # Prepare response context
-        response_context = {
-            "original_query": state["user_query"],
-            "intent": state["classified_intent"],
-            "tool_results": state["tool_results"],
-            "limitations": state["known_limitations"],
-            "limitation_strategy": state.get("limitation_strategy"),
-            "progressive_state": state.get("progressive_state")
-        }
+        # Try intelligent response generation first
+        response_generated = False
         
-        # Generate response
-        response_result = await response_agent.process_request({
-            "type": "format_response",
-            "context": response_context,
-            "correlation_id": state["correlation_id"]
-        })
+        try:
+            # Initialize Response Generation Agent
+            response_agent = ResponseGenerationAgent()
+            await response_agent.initialize()
+            
+            # Prepare intelligent response context
+            response_context = {
+                "original_query": state["user_query"],
+                "execution_successful": execution_successful,
+                "tool_results": [_serialize_tool_result(r) for r in tool_results],
+                "execution_errors": execution_errors,
+                "tool_selection": _serialize_tool_selection(state.get("tool_selection")),
+                "parameter_extraction": _serialize_parameter_extraction(state.get("parameter_extraction")),
+                "execution_metrics": state.get("execution_metrics", {}),
+                "session_context": {
+                    "session_id": state["session_id"],
+                    "correlation_id": state["correlation_id"]
+                }
+            }
+            
+            # Generate intelligent response using the correct request type
+            response_result = await response_agent.process_request({
+                "type": "format_response",
+                "context": response_context,
+                "response_type": "intelligent",
+                "correlation_id": state["correlation_id"]
+            })
+            
+            if response_result and response_result.get("success"):
+                state["natural_language_response"] = response_result["response"]
+                state["user_options"] = response_result.get("user_options", [])
+                response_generated = True
+                logger.info("Intelligent response generation succeeded")
+            
+        except Exception as e:
+            logger.warning(f"Intelligent response generation failed, falling back: {e}")
         
-        state["natural_language_response"] = response_result["response"]
-        state["user_options"] = response_result.get("user_options", [])
+        # Fallback to adaptive template-based response if LLM fails
+        if not response_generated:
+            logger.info("Using adaptive template-based response fallback")
+            
+            if execution_successful and tool_results:
+                # Success response with results
+                successful_result = next((r for r in tool_results if r.success), None)
+                if successful_result:
+                    state["natural_language_response"] = _create_success_response(
+                        state["user_query"],
+                        successful_result,
+                        state.get("tool_selection"),
+                        state.get("execution_metrics", {})
+                    )
+                else:
+                    state["natural_language_response"] = "I found some results, but there were issues processing them completely."
+            else:
+                # Error response with helpful guidance
+                state["natural_language_response"] = _create_error_response(
+                    state["user_query"],
+                    execution_errors,
+                    state.get("tool_selection"),
+                    state.get("execution_metrics", {})
+                )
+            
+            # Provide user options based on context
+            state["user_options"] = _generate_user_options(
+                state["user_query"],
+                execution_successful,
+                state.get("tool_selection")
+            )
+        
+        # Mark workflow as complete
         state["workflow_complete"] = True
         
-        logger.info("Natural language response generated successfully")
+        # Update final performance metrics
+        response_time = (datetime.now() - start_time).total_seconds()
+        if state["execution_metrics"]:
+            state["execution_metrics"]["response_generation_time"] = response_time
+            state["execution_metrics"]["total_workflow_time"] = (
+                state["execution_metrics"].get("tool_selection_time", 0) +
+                state["execution_metrics"].get("execution_time", 0) +
+                response_time
+            )
+        
+        logger.info(f"Adaptive response completed in {response_time:.2f}s - "
+                   f"Response length: {len(state['natural_language_response'])}")
+        
         return state
         
     except Exception as e:
-        logger.error(f"Response generation failed: {e}")
+        logger.error(f"Adaptive response generation failed: {e}", exc_info=True)
+        
+        # Emergency fallback response
+        state["natural_language_response"] = (
+            f"I encountered an issue processing your query: '{state['user_query']}'. "
+            "Please try rephrasing your question or ask for help with NetBox operations."
+        )
+        state["user_options"] = [
+            "Try a simpler query",
+            "Ask for NetBox help", 
+            "Check system status"
+        ]
+        state["workflow_complete"] = True
+        
         state["error_state"] = {
-            "stage": "response_generation",
+            "stage": "adaptive_response",
             "error": str(e),
+            "traceback": traceback.format_exc(),
             "timestamp": datetime.now().isoformat()
         }
-        state["workflow_complete"] = True  # End workflow even on error
+        
         return state
 
 
-def route_coordination_strategy(state: NetworkOrchestrationState) -> str:
-    """
-    LangGraph routing function: Determine next workflow step based on coordination strategy
-    """
-    strategy = state.get("coordination_strategy", "limitation_aware")
+def _serialize_tool_result(tool_result: ToolResult) -> Dict[str, Any]:
+    """Serialize ToolResult for response context"""
+    return {
+        "tool_name": tool_result.tool_name,
+        "params": tool_result.params,
+        "success": tool_result.success,
+        "result": tool_result.result,
+        "execution_time": tool_result.execution_time,
+        "error": tool_result.error,
+        "cached": tool_result.cached
+    }
+
+
+def _serialize_tool_selection(tool_selection: Optional[ToolSelection]) -> Optional[Dict[str, Any]]:
+    """Serialize ToolSelection for response context"""
+    if not tool_selection:
+        return None
     
-    # Return the strategy key, not the node name (LangGraph maps this to target nodes)
-    if strategy == "direct":
-        return "direct"
-    elif strategy == "complex":
-        return "complex"
-    else:  # limitation_aware
-        return "limitation_aware"
+    return {
+        "primary_tool": tool_selection.primary_tool,
+        "confidence": tool_selection.confidence,
+        "confidence_level": tool_selection.confidence_level.value,
+        "reasoning": tool_selection.reasoning,
+        "fallback_tools": tool_selection.fallback_tools,
+        "execution_strategy": tool_selection.execution_strategy
+    }
 
 
-def check_workflow_completion(state: NetworkOrchestrationState) -> str:
-    """
-    LangGraph routing function: Check if workflow is complete
-    """
-    if state.get("workflow_complete", False):
-        return "end"
-    elif state.get("error_state"):
-        return "generate_response"  # Generate error response
+def _serialize_parameter_extraction(param_extraction: Optional[ParameterExtractionResult]) -> Optional[Dict[str, Any]]:
+    """Serialize ParameterExtractionResult for response context"""
+    if not param_extraction:
+        return None
+    
+    return {
+        "parameters": param_extraction.parameters,
+        "confidence": param_extraction.confidence,
+        "extraction_method": param_extraction.extraction_method,
+        "compound_entities": param_extraction.compound_entities,
+        "preserved_relationships": param_extraction.preserved_relationships,
+        "extraction_reasoning": param_extraction.extraction_reasoning
+    }
+
+
+def _create_success_response(query: str, result: ToolResult, tool_selection: Optional[ToolSelection], metrics: Dict[str, Any]) -> str:
+    """Create a success response template"""
+    tool_name = result.tool_name.replace("netbox_", "").replace("_", " ").title()
+    execution_time = result.execution_time
+    
+    if isinstance(result.result, dict):
+        # Try to extract meaningful summary from result
+        if "devices" in result.result:
+            count = len(result.result["devices"])
+            return f"Found {count} devices using {tool_name} in {execution_time:.1f}s. The results include detailed device information with configurations and status."
+        elif "sites" in result.result:
+            count = len(result.result["sites"])
+            return f"Found {count} sites using {tool_name} in {execution_time:.1f}s. The results show site locations, configurations, and associated resources."
+        elif "racks" in result.result:
+            count = len(result.result["racks"])
+            return f"Found {count} racks using {tool_name} in {execution_time:.1f}s. The results display rack information and utilization details."
+    
+    return f"Successfully executed {tool_name} in {execution_time:.1f}s. The query returned detailed NetBox information as requested."
+
+
+def _create_error_response(query: str, errors: List[str], tool_selection: Optional[ToolSelection], metrics: Dict[str, Any]) -> str:
+    """Create an error response with helpful guidance"""
+    if not errors:
+        return "I encountered an unexpected issue while processing your request."
+    
+    primary_error = errors[0]
+    
+    # Provide specific guidance based on error type
+    if "authentication" in primary_error.lower() or "auth" in primary_error.lower():
+        return "I'm having trouble authenticating with NetBox. Please check the NetBox connection configuration and ensure the API token is valid."
+    elif "not found" in primary_error.lower() or "404" in primary_error:
+        return f"The requested resource wasn't found in NetBox. Please verify the entity names in your query: '{query}' and ensure they exist in NetBox."
+    elif "connection" in primary_error.lower() or "timeout" in primary_error.lower():
+        return "I'm unable to connect to NetBox right now. Please check that NetBox is running and accessible."
+    elif "permission" in primary_error.lower():
+        return "I don't have sufficient permissions to complete this request. Please check the NetBox API token permissions."
     else:
-        return "generate_response"
+        return f"I encountered an issue while processing your request: {primary_error}. Please try rephrasing your query or contact support if the issue persists."
 
 
-def create_orchestration_graph() -> StateGraph:
-    """
-    Create LangGraph StateGraph for NetBox orchestration workflows
+def _generate_user_options(query: str, execution_successful: bool, tool_selection: Optional[ToolSelection]) -> List[str]:
+    """Generate contextual user options based on execution results"""
+    options = []
     
-    This replaces the simple agent coordination from Week 1-4 with
-    sophisticated state machine orchestration for Week 5-8.
+    if execution_successful:
+        options = [
+            "Ask a follow-up question",
+            "Get more detailed information",
+            "Explore related resources"
+        ]
+    else:
+        options = [
+            "Try a simpler version of this query",
+            "Check NetBox system status",
+            "Get help with query syntax"
+        ]
+        
+        # Add specific suggestions based on tool selection
+        if tool_selection and tool_selection.fallback_tools:
+            options.append("Try an alternative approach")
+    
+    return options
+
+
+def create_intelligent_orchestration_graph() -> StateGraph:
+    """
+    Create simplified 3-node LangGraph StateGraph for intelligent NetBox orchestration
+    
+    This replaces the complex 5-node workflow with intelligent nodes that embed
+    intelligence at each step instead of scattered across multiple components.
+    
+    Workflow:
+    1. intelligent_tool_selection → 2. smart_execution → 3. adaptive_response
+    
+    No complex routing needed - simple linear flow with embedded intelligence.
     """
     logger = logging.getLogger(__name__)
-    logger.info("Creating LangGraph orchestration state machine...")
+    logger.info("Creating simplified intelligent orchestration state machine...")
     
-    # Initialize StateGraph with NetworkOrchestrationState
-    workflow = StateGraph(NetworkOrchestrationState)
+    # Initialize StateGraph with simplified IntelligentOrchestrationState
+    workflow = StateGraph(IntelligentOrchestrationState)
     
-    # Add orchestration nodes
-    workflow.add_node("classify_intent", classify_user_intent)
-    workflow.add_node("plan_coordination", plan_tool_coordination)
-    workflow.add_node("execute_tools", execute_coordinated_tools)
-    workflow.add_node("handle_limitations", handle_known_limitations)
-    workflow.add_node("generate_response", generate_intelligent_response)
+    # Add the 3 intelligent nodes
+    workflow.add_node("intelligent_tool_selection", intelligent_tool_selection)
+    workflow.add_node("smart_execution", smart_execution)
+    workflow.add_node("adaptive_response", adaptive_response)
     
-    # Define workflow entry point
-    workflow.add_edge(START, "classify_intent")
-    
-    # Add conditional routing based on coordination strategy
-    workflow.add_conditional_edges(
-        "classify_intent",
-        route_coordination_strategy,
-        {
-            "direct": "execute_tools",
-            "complex": "plan_coordination", 
-            "limitation_aware": "handle_limitations"
-        }
-    )
-    
-    # Connect planning to execution
-    workflow.add_edge("plan_coordination", "execute_tools")
-    
-    # Connect limitation handling to response generation
-    workflow.add_edge("handle_limitations", "generate_response")
-    
-    # Connect tool execution to response generation
-    workflow.add_edge("execute_tools", "generate_response")
-    
-    # End workflow after response generation
-    workflow.add_edge("generate_response", END)
+    # Simple linear workflow - no complex routing needed
+    workflow.add_edge(START, "intelligent_tool_selection")
+    workflow.add_edge("intelligent_tool_selection", "smart_execution")
+    workflow.add_edge("smart_execution", "adaptive_response")
+    workflow.add_edge("adaptive_response", END)
     
     # Compile graph with memory checkpointing
     memory_saver = MemorySaver()
     compiled_graph = workflow.compile(checkpointer=memory_saver)
     
-    logger.info("LangGraph orchestration state machine compiled successfully")
+    logger.info("Simplified intelligent orchestration state machine compiled successfully")
     return compiled_graph
 
 
-# Helper functions for tool coordination planning
-
-async def create_discovery_plan(entities: Dict[str, List[str]], query: str) -> Dict[str, Any]:
-    """Create execution plan for discovery queries"""
-    return {
-        "type": "discovery",
-        "steps": [
-            {
-                "name": "entity_discovery",
-                "execution_type": "parallel",
-                "tools": [
-                    {"name": "netbox_list_all_sites", "params": {}},
-                    {"name": "netbox_list_all_devices", "params": {"site_name": entities.get("sites", [None])[0]}}
-                ]
-            }
-        ],
-        "limitations": ["potential_token_overflow", "large_result_set"]
-    }
+# Maintain backward compatibility with existing code
+def create_orchestration_graph() -> StateGraph:
+    """
+    Backward compatibility wrapper for the new intelligent orchestration graph
+    """
+    return create_intelligent_orchestration_graph()
 
 
-async def create_analysis_plan(entities: Dict[str, List[str]], query: str) -> Dict[str, Any]:
-    """Create execution plan for analysis queries"""
-    return {
-        "type": "analysis",
-        "steps": [
-            {
-                "name": "data_collection",
-                "execution_type": "sequential",
-                "tools": [
-                    {"name": "netbox_get_device_info", "params": {"device_name": entities.get("devices", [None])[0]}},
-                    {"name": "netbox_get_device_interfaces", "params": {"device_name": entities.get("devices", [None])[0]}}
-                ]
-            },
-            {
-                "name": "relationship_analysis", 
-                "execution_type": "parallel",
-                "tools": [
-                    {"name": "netbox_get_device_cables", "params": {"device_name": entities.get("devices", [None])[0]}},
-                    {"name": "netbox_list_all_vlans", "params": {"site_name": entities.get("sites", [None])[0]}}
-                ]
-            }
-        ],
-        "limitations": ["n_plus_one_queries", "relationship_complexity"]
-    }
+# Public interface for creating and executing intelligent workflows
 
-
-async def create_creation_plan(entities: Dict[str, List[str]], query: str) -> Dict[str, Any]:
-    """Create execution plan for creation/provisioning queries"""
-    return {
-        "type": "creation",
-        "steps": [
-            {
-                "name": "validation",
-                "execution_type": "sequential", 
-                "tools": [
-                    {"name": "netbox_get_site_info", "params": {"site_name": entities.get("sites", [None])[0]}},
-                    {"name": "netbox_list_all_racks", "params": {"site_name": entities.get("sites", [None])[0]}}
-                ]
-            },
-            {
-                "name": "provisioning",
-                "execution_type": "sequential",
-                "tools": [
-                    {"name": "netbox_provision_new_device", "params": {"confirm": False}}  # Will be populated with validated data
-                ]
-            }
-        ],
-        "limitations": ["validation_dependencies", "creation_confirmation_required"]
-    }
-
-
-async def create_fallback_plan(entities: Dict[str, List[str]], query: str) -> Dict[str, Any]:
-    """Create fallback plan for unclassified or ambiguous queries"""
-    return {
-        "type": "fallback",
-        "steps": [
-            {
-                "name": "general_discovery",
-                "execution_type": "parallel",
-                "tools": [
-                    {"name": "netbox_health_check", "params": {}},
-                    {"name": "netbox_list_all_sites", "params": {"limit": 10}}
-                ]
-            }
-        ],
-        "limitations": ["ambiguous_intent", "general_exploration_needed"]
-    }
-
-
-async def execute_parallel_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Execute NetBox MCP tools in parallel"""
+async def execute_intelligent_workflow(
+    user_query: str,
+    session_id: str,
+    correlation_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Public interface to execute a complete intelligent workflow for a user query.
+    
+    This is the main entry point that replaces the complex orchestration coordinator.
+    
+    Args:
+        user_query: User's natural language query
+        session_id: Session identifier for context
+        correlation_id: Optional correlation ID for tracking
+        
+    Returns:
+        Dict containing workflow results and response
+    """
     logger = logging.getLogger(__name__)
     
-    # Simulate tool execution (Week 5-8 will integrate real NetBox MCP tools)
-    results = []
-    for tool in tools:
-        result = {
-            "tool_name": tool["name"],
-            "params": tool["params"],
-            "success": True,
-            "result": f"Simulated result for {tool['name']}",
-            "execution_time": 0.5,
-            "timestamp": datetime.now().isoformat()
-        }
-        results.append(result)
-        
-    logger.info(f"Parallel execution completed: {len(tools)} tools")
-    return results
-
-
-async def execute_sequential_tools(tools: List[Dict[str, Any]], previous_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Execute NetBox MCP tools sequentially with context passing"""
-    logger = logging.getLogger(__name__)
+    if not correlation_id:
+        correlation_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
-    # Simulate sequential tool execution with context
-    results = []
-    for i, tool in enumerate(tools):
-        # Use previous results as context for current tool
-        context = previous_results if previous_results else []
+    logger.info(f"Executing intelligent workflow for query: {user_query[:100]}...")
+    
+    try:
+        # Create the intelligent orchestration graph
+        workflow_graph = create_intelligent_orchestration_graph()
         
-        result = {
-            "tool_name": tool["name"],
-            "params": tool["params"],
-            "context": f"Used context from {len(context)} previous tools",
-            "success": True,
-            "result": f"Simulated sequential result for {tool['name']}",
-            "execution_time": 0.7,
-            "timestamp": datetime.now().isoformat()
+        # Create initial state
+        initial_state: IntelligentOrchestrationState = {
+            "user_query": user_query,
+            "session_id": session_id,
+            "correlation_id": correlation_id,
+            "tool_selection": None,
+            "tool_selection_confidence": None,
+            "parameter_extraction": None,
+            "final_parameters": None,
+            "tool_results": [],
+            "execution_successful": False,
+            "execution_errors": [],
+            "natural_language_response": None,
+            "user_options": None,
+            "workflow_complete": False,
+            "error_state": None,
+            "execution_metrics": None
         }
-        results.append(result)
         
-    logger.info(f"Sequential execution completed: {len(tools)} tools")
-    return results
+        # Execute the workflow with proper configuration
+        config = {
+            "configurable": {
+                "thread_id": session_id,
+                "checkpoint_ns": correlation_id
+            }
+        }
+        workflow_result = await workflow_graph.ainvoke(initial_state, config=config)
+        
+        # Extract results for return
+        result = {
+            "success": workflow_result.get("execution_successful", False),
+            "response": workflow_result.get("natural_language_response", "No response generated"),
+            "user_options": workflow_result.get("user_options", []),
+            "execution_metrics": workflow_result.get("execution_metrics", {}),
+            "tool_results": [_serialize_tool_result(r) for r in workflow_result.get("tool_results", [])],
+            "workflow_complete": workflow_result.get("workflow_complete", False),
+            "error_state": workflow_result.get("error_state"),
+            "session_id": session_id,
+            "correlation_id": correlation_id
+        }
+        
+        logger.info(f"Intelligent workflow completed - Success: {result['success']}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Intelligent workflow execution failed: {e}", exc_info=True)
+        
+        return {
+            "success": False,
+            "response": f"I encountered an error processing your query: {str(e)}. Please try again or contact support.",
+            "user_options": ["Try a simpler query", "Check system status", "Contact support"],
+            "execution_metrics": {"error": True, "error_message": str(e)},
+            "tool_results": [],
+            "workflow_complete": True,
+            "error_state": {
+                "stage": "workflow_execution",
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            },
+            "session_id": session_id,
+            "correlation_id": correlation_id
+        }
 
 
-async def setup_progressive_disclosure(state: NetworkOrchestrationState) -> Dict[str, Any]:
-    """Setup progressive disclosure for token overflow scenarios"""
-    return {
-        "strategy": "progressive_disclosure",
-        "total_estimated_results": 500,
-        "current_batch": 1,
-        "batch_size": 50,
-        "user_options": [
-            "Show next 50 results",
-            "Apply filters to reduce scope",
-            "Switch to summary view"
-        ]
-    }
+# End of simplified 3-node intelligent workflow implementation
 
-
-async def setup_intelligent_sampling(state: NetworkOrchestrationState) -> Dict[str, Any]:
-    """Setup intelligent sampling for N+1 query scenarios"""
-    return {
-        "strategy": "intelligent_sampling",
-        "total_entities": 150,
-        "sample_size": 10,
-        "user_options": [
-            "Process next 10 entities",
-            "Filter to specific entities", 
-            "Generate summary report"
-        ]
-    }
-
-
-async def setup_graceful_fallback(state: NetworkOrchestrationState) -> Dict[str, Any]:
-    """Setup graceful fallback for general limitations"""
-    return {
-        "strategy": "graceful_fallback",
-        "alternative_approaches": [
-            "Try simplified query",
-            "Use different NetBox tools",
-            "Request specific entity names"
-        ],
-        "user_options": [
-            "Simplify query scope",
-            "Try alternative approach",
-            "Get help with query syntax"
-        ]
-    }
+# The new 3-node workflow (intelligent_tool_selection → smart_execution → adaptive_response)
+# replaces all the complex coordination logic above with embedded intelligence at each step.
